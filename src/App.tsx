@@ -44,6 +44,7 @@ interface Account {
 const CATEGORIES = ['食物', '烘焙', 'K-pop', '投資', '交通', '娛樂', '購物', '醫療', '其他'];
 
 const getCategoryEmoji = (category: string) => {
+  if (!category) return '💰';
   const mainCat = category.split(' - ')[0];
   const emojiMap: Record<string, string> = {
     '食物': '🍱',
@@ -60,6 +61,8 @@ const getCategoryEmoji = (category: string) => {
   };
   return emojiMap[mainCat] || '💰';
 };
+
+const isValidDate = (d: any): d is Date => d instanceof Date && !isNaN(d.getTime());
 
 // --- Components ---
 
@@ -105,8 +108,10 @@ export default function App() {
     const now = new Date();
     // Only update if the day has changed to avoid unnecessary re-renders
     setSelectedDate(prev => {
-      if (prev.toDateString() === now.toDateString()) return prev;
-      return now;
+      if (!isValidDate(prev) || prev.toDateString() !== now.toDateString()) {
+        return now;
+      }
+      return prev;
     });
   }, []);
 
@@ -144,8 +149,8 @@ export default function App() {
     const groups: { [key: string]: Account[] } = {};
     accounts.forEach(acc => {
       // Try to extract bank name by splitting with " - " or " "
-      const nameParts = acc.name.split(/ - | /);
-      const bankName = nameParts[0];
+      const nameParts = acc.name?.split(/ - | /) || [];
+      const bankName = nameParts[0] || '其他';
       if (!groups[bankName]) {
         groups[bankName] = [];
       }
@@ -155,8 +160,9 @@ export default function App() {
   }, [accounts]);
 
   const dailyStats = useMemo(() => {
+    if (!isValidDate(selectedDate)) return { income: 0, expense: 0 };
     const dayRecords = records.filter(r => 
-      r.date.toDateString() === selectedDate.toDateString()
+      isValidDate(r.date) && r.date.toDateString() === selectedDate.toDateString()
     );
     const income = dayRecords.filter(r => r.type === 'income').reduce((sum, r) => sum + r.amount, 0);
     const expense = dayRecords.filter(r => r.type === 'expense').reduce((sum, r) => sum + r.amount, 0);
@@ -734,8 +740,8 @@ function AccountDetailPage({ account, transactions, accounts, onBack, onUpdateAc
                       <div className="flex flex-col gap-0.5">
                         <span className="font-bold text-[#5D4037] text-base">
                           {isTransfer ? (
-                            isOut ? `轉帳至 ${accounts.find(a => a.id === t.toAccountId)?.name.split('\n')[0]}` :
-                            `來自 ${accounts.find(a => a.id === t.accountId)?.name.split('\n')[0]} 的轉帳`
+                            isOut ? `轉帳至 ${accounts.find(a => a.id === t.toAccountId)?.name?.split('\n')[0] || '未知帳戶'}` :
+                            `來自 ${accounts.find(a => a.id === t.accountId)?.name?.split('\n')[0] || '未知帳戶'} 的轉帳`
                           ) : t.category}
                         </span>
                         <span className="text-[11px] text-stone-400 font-medium">
@@ -990,9 +996,11 @@ function CalendarStrip({ selectedDate, onDateSelect }: { selectedDate: Date, onD
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const days = useMemo(() => {
+    if (!isValidDate(selectedDate)) return [];
     const year = selectedDate.getFullYear();
     const month = selectedDate.getMonth();
     const lastDay = new Date(year, month + 1, 0).getDate();
+    if (isNaN(lastDay)) return [];
     const result = [];
     for (let i = 1; i <= lastDay; i++) {
       result.push(new Date(year, month, i));
@@ -1002,7 +1010,7 @@ function CalendarStrip({ selectedDate, onDateSelect }: { selectedDate: Date, onD
 
   // Scroll to selected date on mount or month change
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && scrollRef.current.children.length > 0) {
       const selectedIdx = selectedDate.getDate() - 1;
       const element = scrollRef.current.children[selectedIdx] as HTMLElement;
       if (element) {
@@ -1012,7 +1020,7 @@ function CalendarStrip({ selectedDate, onDateSelect }: { selectedDate: Date, onD
         });
       }
     }
-  }, [selectedDate.getMonth(), selectedDate.getFullYear()]);
+  }, [selectedDate.getDate(), selectedDate.getMonth(), selectedDate.getFullYear()]);
 
   return (
     <div ref={scrollRef} className="h-[70px] flex px-[10px] gap-2 overflow-x-auto no-scrollbar scroll-smooth">
@@ -1613,6 +1621,22 @@ function RecordModal({
   const dateInputRef = useRef<HTMLInputElement>(null);
   const currentYear = new Date().getFullYear();
 
+  const formatDateForInput = (date: Date) => {
+    if (!isValidDate(date)) return '';
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const formatDateForDisplay = (date: Date) => {
+    if (!isValidDate(date)) return '選取日期';
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}/${m}/${d}`;
+  };
+
   const categoryMap: Record<string, string[]> = {
     '食物': ['午晚餐', '咖啡下午茶', '烘焙材料', '零食'],
     '娛樂': ['K-pop 周邊', '電影', '演唱會', '遊戲'],
@@ -1771,28 +1795,51 @@ function RecordModal({
           )}
         </div>
 
-        <div className="px-4 pb-2 flex justify-center">
-          <div 
-            onClick={() => dateInputRef.current?.showPicker?.() || dateInputRef.current?.click()}
-            className="bg-[#FFF9E3] border border-[#5D4037]/20 rounded-[10px] px-3 py-1.5 flex items-center gap-2 cursor-pointer shadow-sm hover:bg-[#FFF4D0] transition-colors"
+        <div className="px-4 pb-2 flex justify-center relative z-20">
+          <motion.button 
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              console.log('日期按鈕被點擊了！');
+              if (dateInputRef.current) {
+                // Try showPicker first (modern browsers), fallback to click
+                if ('showPicker' in dateInputRef.current) {
+                  try {
+                    dateInputRef.current.showPicker();
+                  } catch (e) {
+                    console.log('showPicker 失敗，嘗試 click()');
+                    dateInputRef.current.click();
+                  }
+                } else {
+                  console.log('不支援 showPicker，執行 click()');
+                  dateInputRef.current.click();
+                }
+              }
+            }}
+            className="bg-[#FFF9E3] border-2 border-[#5D4037] rounded-[10px] px-3 py-1.5 flex items-center gap-2 cursor-pointer shadow-sm hover:bg-[#FFF4D0] transition-colors active:opacity-80 outline-none pointer-events-auto"
           >
             <CalendarDays className="w-4 h-4 text-[#5D4037]" />
             <span className="text-[15px] font-bold text-[#5D4037]">
-              {recordDate.getFullYear()}/{String(recordDate.getMonth() + 1).padStart(2, '0')}/{String(recordDate.getDate()).padStart(2, '0')}
+              {formatDateForDisplay(recordDate)}
             </span>
             <input 
               type="date"
               ref={dateInputRef}
               className="sr-only"
-              min={`${currentYear - 10}-01-01`}
-              max={`${currentYear + 10}-12-31`}
-              value={recordDate.toISOString().split('T')[0]}
+              min="2025-01-01"
+              max="2027-12-31"
+              value={formatDateForInput(recordDate)}
               onChange={(e) => {
-                const d = new Date(e.target.value);
-                if (!isNaN(d.getTime())) setRecordDate(d);
+                const val = e.target.value;
+                if (val) {
+                  const d = new Date(val);
+                  if (isValidDate(d)) {
+                    setRecordDate(d);
+                    console.log('日期已更新:', d.toLocaleDateString());
+                  }
+                }
               }}
             />
-          </div>
+          </motion.button>
         </div>
 
         <AnimatePresence>
@@ -1854,8 +1901,8 @@ function RecordModal({
                           }`}
                         >
                           <span className="text-2xl">{acc.icon}</span>
-                          <span className="text-[11px] font-bold whitespace-nowrap overflow-hidden text-ellipsis w-full px-1 text-center">
-                            {acc.name.split('\n')[0]}
+                          <span className="text-[10px] font-bold line-clamp-2 text-center w-full px-1 leading-tight">
+                            {acc.name?.split('\n')[0] || '帳戶'}
                           </span>
                         </button>
                       ))}
@@ -1887,8 +1934,8 @@ function RecordModal({
                           }`}
                         >
                           <span className="text-2xl">{acc.icon}</span>
-                          <span className="text-[11px] font-bold whitespace-nowrap overflow-hidden text-ellipsis w-full px-1 text-center">
-                            {acc.name.split('\n')[0]}
+                          <span className="text-[10px] font-bold line-clamp-2 text-center w-full px-1 leading-tight">
+                            {acc.name?.split('\n')[0] || '帳戶'}
                           </span>
                         </button>
                       ))}
@@ -1903,7 +1950,7 @@ function RecordModal({
                       onClick={() => setSelectionStep('account')}
                       className={`text-[10px] font-bold transition-colors ${selectionStep === 'account' ? 'text-[#5D4037]' : 'text-stone-400 hover:text-stone-600'}`}
                     >
-                      {accounts.find(a => a.id === selectedAccountId)?.name.split('\n')[0] || '帳戶'}
+                      {accounts.find(a => a.id === selectedAccountId)?.name?.split('\n')[0] || '帳戶'}
                     </button>
                     <span className="text-[10px] text-stone-300 mx-0.5">&gt;</span>
                     <button 
@@ -1946,8 +1993,8 @@ function RecordModal({
                               }`}
                             >
                               <span className="text-2xl">{acc.icon}</span>
-                              <span className="text-[11px] font-bold whitespace-nowrap overflow-hidden text-ellipsis w-full px-1 text-center">
-                                {acc.name.split('\n')[0]}
+                              <span className="text-[10px] font-bold line-clamp-2 text-center w-full px-1 leading-tight">
+                                {acc.name?.split('\n')[0] || '帳戶'}
                               </span>
                             </button>
                           ))}
