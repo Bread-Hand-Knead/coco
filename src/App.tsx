@@ -115,6 +115,17 @@ export default function App() {
     localStorage.setItem('kk_adv_templates', JSON.stringify(templates));
   }, [templates]);
 
+  const headerTitle = useMemo(() => {
+    if (currentView === 'accountDetail' && selectedAccountForDetail) {
+      return selectedAccountForDetail.name;
+    }
+    if (currentView === 'accounts') return '帳戶列表';
+    if (currentView === 'calendar') return '日曆明細';
+    if (currentView === 'reports') return '收支報表';
+    if (currentView === 'more') return '更多設定';
+    return '2026 / 04';
+  }, [currentView, selectedAccountForDetail]);
+
   const { netAssets, totalAssets, totalLiabilities } = useMemo(() => {
     const assets = accounts.filter(a => a.amount > 0).reduce((sum, acc) => sum + acc.amount, 0);
     const liabilities = accounts.filter(a => a.amount < 0).reduce((sum, acc) => sum + acc.amount, 0);
@@ -231,9 +242,21 @@ export default function App() {
       <div className="w-full max-w-md h-full flex flex-col bg-[#FFF9E3] relative shadow-2xl md:border-x border-stone-100">
         {/* Header */}
         <header className="px-4 py-4 flex items-center justify-between bg-[#FFF9E3] z-30 flex-shrink-0">
-          <Menu className="w-6 h-6" />
-          <div className="text-lg font-bold">2026 / 04</div>
-          <CalendarIcon className="w-6 h-6 cursor-pointer" onClick={() => setCurrentView('calendar')} />
+          {currentView === 'home' ? (
+            <Menu className="w-6 h-6 text-[#5D4037]" />
+          ) : (
+            <button 
+              onClick={() => {
+                if (currentView === 'accountDetail') setCurrentView('accounts');
+                else setCurrentView('home');
+              }}
+              className="p-1 -ml-1 hover:bg-white/50 rounded-full transition-colors"
+            >
+              <ChevronLeft className="w-7 h-7 text-[#5D4037]" />
+            </button>
+          )}
+          <div className="text-lg font-bold text-[#5D4037]">{headerTitle}</div>
+          <CalendarIcon className="w-6 h-6 cursor-pointer text-[#5D4037]" onClick={() => setCurrentView('calendar')} />
         </header>
 
         {/* Main Content Area (Scrollable) */}
@@ -629,27 +652,16 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
-      {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 py-4">
-        <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2 hover:bg-white/50 rounded-full transition-colors">
-            <ArrowLeft size={24} className="text-[#5D4037]" />
-          </button>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-xl shadow-sm border border-white">
-              {account.icon}
-            </div>
-            <span className="font-black text-xl text-[#5D4037]">{account.name}</span>
-          </div>
-        </div>
-        <div className="w-10" /> {/* Spacer for balance */}
-      </div>
-
       {/* Balance Section */}
-      <div className="px-4 py-4">
+      <div className="px-4 py-6">
         <div className="bg-white p-8 rounded-[40px] shadow-sm border-2 border-white flex justify-between items-center relative overflow-hidden">
           <div className="flex flex-col gap-2 z-10">
-            <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]">目前餘額</span>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-stone-50 rounded-lg flex items-center justify-center text-xs border border-white">
+                {account.icon}
+              </div>
+              <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]">目前餘額</span>
+            </div>
             <div className="flex items-baseline gap-1">
               <span className="text-sm font-black text-stone-300">$</span>
               <span className="text-4xl font-black text-[#5D4037] tracking-tight">
@@ -802,10 +814,12 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-black text-[#5D4037]">編輯紀錄</h3>
-          <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
-            <X className="w-6 h-6 text-stone-300" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+              <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
+            </button>
+            <h3 className="text-xl font-black text-[#5D4037]">編輯紀錄</h3>
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -897,14 +911,14 @@ function AccountEditModal({ account, accounts, onClose, onSave, onDelete }: {
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-sm">
-              <Edit3 size={20} className="text-[#5D4037]" />
-            </div>
+            <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+              <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
+            </button>
             <h3 className="text-xl font-black text-[#5D4037]">編輯帳戶</h3>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
-            <X className="w-6 h-6 text-stone-300" />
-          </button>
+          <div className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-sm">
+            <Edit3 size={20} className="text-[#5D4037]" />
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -1025,16 +1039,6 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col bg-white min-h-full"
     >
-      <div className="bg-[#F59E0B] text-white p-4 flex items-center justify-between sticky top-0 z-10">
-        <ChevronLeft className="cursor-pointer" onClick={onBack} />
-        <div className="flex items-center gap-4 font-bold">
-          <ChevronLeft className="w-4 h-4" />
-          <span>2026 / 03</span>
-          <ChevronRight className="w-4 h-4" />
-        </div>
-        <div />
-      </div>
-
       <div className="p-4 bg-[#FFF9E3]">
         <div className="grid grid-cols-7 text-center mb-2">
           {['日', '一', '二', '三', '四', '五', '六'].map((d, i) => (
@@ -1167,11 +1171,13 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
       >
         {/* Header */}
         <div className="flex items-center justify-between">
-          <X className="w-6 h-6 cursor-pointer" onClick={onClose} />
-          <span className="text-lg font-bold">記一筆</span>
+          <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+            <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
+          </button>
+          <span className="text-lg font-bold text-[#5D4037]">記一筆</span>
           <div className="flex items-center gap-1 bg-white px-3 py-1 rounded-full border border-stone-100 shadow-sm">
-            <CalendarIcon className="w-3 h-3" />
-            <span className="text-[10px] font-bold">2026/04/12</span>
+            <CalendarIcon className="w-3 h-3 text-[#5D4037]" />
+            <span className="text-[10px] font-bold text-[#5D4037]">2026/04/12</span>
           </div>
         </div>
 
@@ -1408,8 +1414,12 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold">編輯範本</h3>
-                <X className="w-5 h-5 cursor-pointer text-stone-300" onClick={() => setEditingTemplate(null)} />
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setEditingTemplate(null)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                    <ChevronLeft className="w-5 h-5 text-[#5D4037]" />
+                  </button>
+                  <h3 className="text-lg font-bold text-[#5D4037]">編輯範本</h3>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto no-scrollbar space-y-5 pr-1">
