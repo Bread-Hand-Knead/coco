@@ -76,12 +76,12 @@ const INITIAL_ACCOUNTS: Account[] = [
 ];
 
 const INITIAL_RECORDS: Transaction[] = [
-  { id: 'init_cash', amount: 3500, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'cash' },
-  { id: 'init_bank_1', amount: 150000, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'bank_ts_1' },
-  { id: 'init_bank_2', amount: 25800, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'bank_ts_2' },
-  { id: 'init_inv', amount: 450000, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'inv_cathay' },
-  { id: 'init_credit', amount: 8240, category: '初始金額', date: '2026-04-01', type: 'expense', accountId: 'credit_ts' },
-  { id: 'init_easy', amount: 500, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'easycard' },
+  { id: 'init_cash', amount: 3500, category: '初始資金', date: '2026-04-01', type: 'income', accountId: 'cash' },
+  { id: 'init_bank_1', amount: 150000, category: '初始資金', date: '2026-04-01', type: 'income', accountId: 'bank_ts_1' },
+  { id: 'init_bank_2', amount: 25800, category: '初始資金', date: '2026-04-01', type: 'income', accountId: 'bank_ts_2' },
+  { id: 'init_inv', amount: 450000, category: '初始資金', date: '2026-04-01', type: 'income', accountId: 'inv_cathay' },
+  { id: 'init_credit', amount: 8240, category: '初始資金', date: '2026-04-01', type: 'expense', accountId: 'credit_ts' },
+  { id: 'init_easy', amount: 500, category: '初始資金', date: '2026-04-01', type: 'income', accountId: 'easycard' },
 ];
 
 const INITIAL_TEMPLATES: Template[] = [
@@ -212,8 +212,27 @@ export default function App() {
     setRecords(prev => prev.filter(r => r.id !== record.id));
   };
 
-  const handleSaveAccount = (updatedAcc: Account) => {
+  const handleSaveAccount = (updatedAcc: Account, initialAmount?: number) => {
     setAccounts(prev => prev.map(a => a.id === updatedAcc.id ? updatedAcc : a));
+    
+    if (initialAmount !== undefined) {
+      setRecords(prev => {
+        const existingInit = prev.find(r => r.accountId === updatedAcc.id && r.category === '初始資金');
+        if (existingInit) {
+          return prev.map(r => r.id === existingInit.id ? { ...r, amount: Math.abs(initialAmount), type: initialAmount >= 0 ? 'income' : 'expense' } : r);
+        } else {
+          return [...prev, {
+            id: `init_${updatedAcc.id}_${Date.now()}`,
+            amount: Math.abs(initialAmount),
+            category: '初始資金',
+            date: new Date().toISOString().split('T')[0],
+            type: initialAmount >= 0 ? 'income' : 'expense',
+            accountId: updatedAcc.id
+          }];
+        }
+      });
+    }
+
     if (selectedAccountForDetail?.id === updatedAcc.id) {
       setSelectedAccountForDetail(updatedAcc);
     }
@@ -271,7 +290,7 @@ export default function App() {
                   const initRecord: Transaction = {
                     id: `init_${newId}`,
                     amount: 0,
-                    category: '初始金額',
+                    category: '初始資金',
                     date: new Date().toISOString().split('T')[0],
                     type: 'income',
                     accountId: newId
@@ -619,7 +638,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
   account: Account, 
   records: Transaction[],
   onBack: () => void,
-  onSave: (acc: Account) => void,
+  onSave: (acc: Account, initialAmount: number) => void,
   onDelete: (id: string) => void,
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
   onDeleteRecord: (record: Transaction) => void,
@@ -749,9 +768,10 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
           <AccountEditModal 
             account={account}
             accounts={accounts}
+            records={records}
             onClose={() => setIsEditModalOpen(false)}
-            onSave={(updated) => {
-              onSave(updated);
+            onSave={(updated, initialAmount) => {
+              onSave(updated, initialAmount);
               setIsEditModalOpen(false);
             }}
             onDelete={onDelete}
@@ -907,14 +927,21 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
   );
 }
 
-function AccountEditModal({ account, accounts, onClose, onSave, onDelete }: { 
+function AccountEditModal({ account, accounts, records, onClose, onSave, onDelete }: { 
   account: Account, 
   accounts: Account[],
+  records: Transaction[],
   onClose: () => void, 
-  onSave: (acc: Account) => void,
+  onSave: (acc: Account, initialAmount: number) => void,
   onDelete: (id: string) => void
 }) {
   const [editedAcc, setEditedAcc] = useState<Account>({ ...account });
+  const [initialAmount, setInitialAmount] = useState(() => {
+    const initRec = records.find(r => r.accountId === account.id && r.category === '初始資金');
+    if (!initRec) return 0;
+    return initRec.type === 'income' ? initRec.amount : -initRec.amount;
+  });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket'];
 
   return (
@@ -950,6 +977,20 @@ function AccountEditModal({ account, accounts, onClose, onSave, onDelete }: {
               className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
               placeholder="例如：台新銀行 - 活存"
             />
+          </div>
+
+          {/* Initial Amount */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">初始金額</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
+              <input 
+                type="number"
+                value={initialAmount}
+                onChange={e => setInitialAmount(parseFloat(e.target.value) || 0)}
+                className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+              />
+            </div>
           </div>
 
           {/* Type Selection */}
@@ -989,22 +1030,50 @@ function AccountEditModal({ account, accounts, onClose, onSave, onDelete }: {
 
         <div className="flex flex-col gap-3 pt-4">
           <button 
-            onClick={() => onSave(editedAcc)}
+            onClick={() => onSave(editedAcc, initialAmount)}
             className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
           >
             <Check size={24} /> 儲存變更
           </button>
           <button 
             onClick={() => {
-              if (window.confirm('確定要刪除此帳戶嗎？所有相關設定將被移除。')) {
-                onDelete(editedAcc.id);
-              }
+              setShowDeleteConfirm(true);
             }}
             className="w-full py-3 text-rose-400 font-black flex items-center justify-center gap-2 text-sm hover:bg-rose-50 rounded-xl transition-colors"
           >
             <Trash2 size={18} /> 刪除帳戶
           </button>
         </div>
+
+        {/* Delete Confirmation Overlay */}
+        <AnimatePresence>
+          {showDeleteConfirm && (
+            <motion.div 
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              className="absolute inset-0 bg-rose-500 z-50 flex flex-col items-center justify-center p-8 text-white text-center gap-6"
+            >
+              <Trash2 size={64} className="mb-2" />
+              <h4 className="text-2xl font-black">確定要刪除嗎？</h4>
+              <p className="text-sm font-bold opacity-80 text-rose-100">刪除後將無法復原，帳戶相關明細也會一併移除。</p>
+              <div className="flex w-full gap-3 mt-4">
+                <button 
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-4 bg-white/20 rounded-2xl font-bold hover:bg-white/30 transition-colors"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={() => onDelete(editedAcc.id)}
+                  className="flex-1 py-4 bg-white text-rose-500 rounded-2xl font-black shadow-lg active:scale-95 transition-all"
+                >
+                  確定刪除
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );
