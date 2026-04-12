@@ -46,12 +46,9 @@ interface Transaction {
 interface Account {
   id: string;
   name: string;
-  amount: number;
   type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket';
   icon: string;
   parentId?: string;
-  initialAmount?: number;
-  exchangeRate?: number;
 }
 
 interface Template {
@@ -69,13 +66,22 @@ interface Template {
 // --- Initial Data ---
 
 const INITIAL_ACCOUNTS: Account[] = [
-  { id: 'cash', name: '現金', amount: 3500, type: 'cash', icon: '💰' },
-  { id: 'bank_ts_group', name: '台新銀行', amount: 175800, type: 'bank', icon: '🏦' },
-  { id: 'bank_ts_1', name: '台新 - 活存', amount: 150000, type: 'bank', icon: '🏦', parentId: 'bank_ts_group' },
-  { id: 'bank_ts_2', name: '台新 - 儲蓄', amount: 25800, type: 'bank', icon: '🏦', parentId: 'bank_ts_group' },
-  { id: 'inv_cathay', name: '國泰證券 (006208)', amount: 450000, type: 'investment', icon: '📈' },
-  { id: 'credit_ts', name: '台新信用卡', amount: -8240, type: 'credit', icon: '💳' },
-  { id: 'easycard', name: '悠遊卡', amount: 500, type: 'e-ticket', icon: '🚌' },
+  { id: 'cash', name: '現金', type: 'cash', icon: '💰' },
+  { id: 'bank_ts_group', name: '台新銀行', type: 'bank', icon: '🏦' },
+  { id: 'bank_ts_1', name: '台新 - 活存', type: 'bank', icon: '🏦', parentId: 'bank_ts_group' },
+  { id: 'bank_ts_2', name: '台新 - 儲蓄', type: 'bank', icon: '🏦', parentId: 'bank_ts_group' },
+  { id: 'inv_cathay', name: '國泰證券 (006208)', type: 'investment', icon: '📈' },
+  { id: 'credit_ts', name: '台新信用卡', type: 'credit', icon: '💳' },
+  { id: 'easycard', name: '悠遊卡', type: 'e-ticket', icon: '🚌' },
+];
+
+const INITIAL_RECORDS: Transaction[] = [
+  { id: 'init_cash', amount: 3500, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'cash' },
+  { id: 'init_bank_1', amount: 150000, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'bank_ts_1' },
+  { id: 'init_bank_2', amount: 25800, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'bank_ts_2' },
+  { id: 'init_inv', amount: 450000, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'inv_cathay' },
+  { id: 'init_credit', amount: 8240, category: '初始金額', date: '2026-04-01', type: 'expense', accountId: 'credit_ts' },
+  { id: 'init_easy', amount: 500, category: '初始金額', date: '2026-04-01', type: 'income', accountId: 'easycard' },
 ];
 
 const INITIAL_TEMPLATES: Template[] = [
@@ -90,18 +96,19 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar'>('home');
   const [records, setRecords] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('kk_adv_records');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? JSON.parse(saved) : INITIAL_RECORDS;
   });
   const [accounts, setAccounts] = useState<Account[]>(() => {
     const saved = localStorage.getItem('kk_adv_accounts');
     return saved ? JSON.parse(saved) : INITIAL_ACCOUNTS;
   });
+
+  const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
+  const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
   const [templates, setTemplates] = useState<Template[]>(() => {
     const saved = localStorage.getItem('kk_adv_templates');
     return saved ? JSON.parse(saved) : INITIAL_TEMPLATES;
   });
-  const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
-  const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
 
   useEffect(() => {
     localStorage.setItem('kk_adv_records', JSON.stringify(records));
@@ -126,15 +133,52 @@ export default function App() {
     return '2026 / 04';
   }, [currentView, selectedAccountForDetail]);
 
+  const accountBalances = useMemo(() => {
+    const balances: Record<string, number> = {};
+    accounts.forEach(acc => {
+      balances[acc.id] = 0;
+    });
+
+    records.forEach(record => {
+      if (record.type === 'income') {
+        balances[record.accountId] = (balances[record.accountId] || 0) + record.amount;
+      } else if (record.type === 'expense') {
+        balances[record.accountId] = (balances[record.accountId] || 0) - record.amount;
+      } else if (record.type === 'transfer') {
+        balances[record.accountId] = (balances[record.accountId] || 0) - record.amount;
+        if (record.toAccountId) {
+          balances[record.toAccountId] = (balances[record.toAccountId] || 0) + record.amount;
+        }
+      }
+    });
+
+    // Handle group totals
+    accounts.forEach(acc => {
+      if (acc.parentId) {
+        balances[acc.parentId] = (balances[acc.parentId] || 0) + balances[acc.id];
+      }
+    });
+
+    return balances;
+  }, [accounts, records]);
+
   const { netAssets, totalAssets, totalLiabilities } = useMemo(() => {
-    const assets = accounts.filter(a => a.amount > 0).reduce((sum, acc) => sum + acc.amount, 0);
-    const liabilities = accounts.filter(a => a.amount < 0).reduce((sum, acc) => sum + acc.amount, 0);
+    let assets = 0;
+    let liabilities = 0;
+    
+    // Only count top-level accounts for net worth to avoid double counting
+    accounts.filter(a => !a.parentId).forEach(acc => {
+      const bal = accountBalances[acc.id] || 0;
+      if (bal > 0) assets += bal;
+      else liabilities += bal;
+    });
+
     return {
       netAssets: assets + liabilities,
       totalAssets: assets,
       totalLiabilities: Math.abs(liabilities)
     };
-  }, [accounts]);
+  }, [accounts, accountBalances]);
 
   const stats = useMemo(() => {
     const now = new Date();
@@ -157,79 +201,18 @@ export default function App() {
   const handleSaveRecord = (record: Omit<Transaction, 'id'>) => {
     const newRecord = { ...record, id: Date.now().toString() };
     setRecords([...records, newRecord]);
-    
-    setAccounts(prev => prev.map(acc => {
-      if (acc.id === record.accountId) {
-        if (record.type === 'income') return { ...acc, amount: acc.amount + record.amount };
-        if (record.type === 'expense') return { ...acc, amount: acc.amount - record.amount };
-        if (record.type === 'transfer') return { ...acc, amount: acc.amount - record.amount };
-      }
-      if (record.type === 'transfer' && acc.id === record.toAccountId) {
-        return { ...acc, amount: acc.amount + record.amount };
-      }
-      return acc;
-    }));
     setIsRecordModalOpen(false);
   };
 
   const handleUpdateRecord = (oldRecord: Transaction, newRecord: Transaction) => {
-    // 1. Revert old record
-    setAccounts(prev => prev.map(acc => {
-      let amount = acc.amount;
-      if (acc.id === oldRecord.accountId) {
-        if (oldRecord.type === 'income') amount -= oldRecord.amount;
-        if (oldRecord.type === 'expense') amount += oldRecord.amount;
-        if (oldRecord.type === 'transfer') amount += oldRecord.amount;
-      }
-      if (oldRecord.type === 'transfer' && acc.id === oldRecord.toAccountId) {
-        amount -= oldRecord.amount;
-      }
-      
-      // 2. Apply new record
-      if (acc.id === newRecord.accountId) {
-        if (newRecord.type === 'income') amount += newRecord.amount;
-        if (newRecord.type === 'expense') amount -= newRecord.amount;
-        if (newRecord.type === 'transfer') amount -= newRecord.amount;
-      }
-      if (newRecord.type === 'transfer' && acc.id === newRecord.toAccountId) {
-        amount += newRecord.amount;
-      }
-      
-      return { ...acc, amount };
-    }));
-
     setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
   };
 
   const handleDeleteRecord = (record: Transaction) => {
-    setAccounts(prev => prev.map(acc => {
-      if (acc.id === record.accountId) {
-        if (record.type === 'income') return { ...acc, amount: acc.amount - record.amount };
-        if (record.type === 'expense') return { ...acc, amount: acc.amount + record.amount };
-        if (record.type === 'transfer') return { ...acc, amount: acc.amount + record.amount };
-      }
-      if (record.type === 'transfer' && acc.id === record.toAccountId) {
-        return { ...acc, amount: acc.amount - record.amount };
-      }
-      return acc;
-    }));
     setRecords(prev => prev.filter(r => r.id !== record.id));
   };
 
   const handleSaveAccount = (updatedAcc: Account) => {
-    const oldAcc = accounts.find(a => a.id === updatedAcc.id);
-    if (oldAcc && oldAcc.amount !== updatedAcc.amount) {
-      const diff = updatedAcc.amount - oldAcc.amount;
-      const correctionRecord: Transaction = {
-        id: Date.now().toString(),
-        amount: Math.abs(diff),
-        category: '餘額校正',
-        type: diff > 0 ? 'income' : 'expense',
-        accountId: updatedAcc.id,
-        date: new Date().toISOString().split('T')[0]
-      };
-      setRecords(prev => [...prev, correctionRecord]);
-    }
     setAccounts(prev => prev.map(a => a.id === updatedAcc.id ? updatedAcc : a));
     if (selectedAccountForDetail?.id === updatedAcc.id) {
       setSelectedAccountForDetail(updatedAcc);
@@ -280,11 +263,25 @@ export default function App() {
                   setCurrentView('accountDetail');
                 }}
                 onAddAccount={() => {
-                  const newAcc: Account = { id: Date.now().toString(), name: '新帳戶', amount: 0, type: 'cash', icon: '💰', initialAmount: 0, exchangeRate: 1 };
+                  const newId = Date.now().toString();
+                  const newAcc: Account = { id: newId, name: '新帳戶', type: 'cash', icon: '💰' };
                   setAccounts([...accounts, newAcc]);
+                  
+                  // Create initial balance record
+                  const initRecord: Transaction = {
+                    id: `init_${newId}`,
+                    amount: 0,
+                    category: '初始金額',
+                    date: new Date().toISOString().split('T')[0],
+                    type: 'income',
+                    accountId: newId
+                  };
+                  setRecords(prev => [...prev, initRecord]);
+                  
                   setSelectedAccountForDetail(newAcc);
                   setCurrentView('accountDetail');
                 }}
+                balances={accountBalances}
               />
             )}
             {currentView === 'accountDetail' && selectedAccountForDetail && (
@@ -295,12 +292,14 @@ export default function App() {
                 onSave={handleSaveAccount}
                 onDelete={(id) => {
                   setAccounts(prev => prev.filter(a => a.id !== id && a.parentId !== id));
+                  setRecords(prev => prev.filter(r => r.accountId !== id && r.toAccountId !== id));
                   setCurrentView('accounts');
                   setSelectedAccountForDetail(null);
                 }}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
                 accounts={accounts}
+                balance={accountBalances[selectedAccountForDetail.id] || 0}
               />
             )}
             {currentView === 'calendar' && (
@@ -423,13 +422,14 @@ function StatCard({ title, date, expense, income }: { title: string, date: strin
   );
 }
 
-function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAccountClick, onAddAccount }: { 
+function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAccountClick, onAddAccount, balances }: { 
   accounts: Account[], 
   netAssets: number,
   totalAssets: number,
   totalLiabilities: number,
   onAccountClick: (acc: Account) => void,
-  onAddAccount: () => void
+  onAddAccount: () => void,
+  balances: Record<string, number>
 }) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [showAmounts, setShowAmounts] = useState(true);
@@ -503,8 +503,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
       <div className="flex flex-col gap-6 px-4">
         {(Object.entries(groupedAccounts) as [Account['type'], Account[]][]).map(([type, typeAccounts]) => {
           const typeTotal = typeAccounts.reduce((sum, acc) => {
-            const children = accounts.filter(c => c.parentId === acc.id);
-            return sum + acc.amount + children.reduce((s, c) => s + c.amount, 0);
+            return sum + (balances[acc.id] || 0);
           }, 0);
 
           return (
@@ -523,7 +522,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                   const children = accounts.filter(c => c.parentId === acc.id);
                   const isExpanded = expandedGroups.includes(acc.id);
                   const hasChildren = children.length > 0;
-                  const displayAmount = acc.amount + children.reduce((s, c) => s + c.amount, 0);
+                  const displayAmount = balances[acc.id] || 0;
 
                   return (
                     <div key={acc.id} className="flex flex-col border-b border-stone-50 last:border-0">
@@ -531,29 +530,25 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                         onClick={() => onAccountClick(acc)}
                         className="p-6 flex items-center justify-between cursor-pointer active:bg-stone-50 transition-colors"
                       >
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-white">
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
                             {acc.icon}
                           </div>
-                          <div className="flex flex-col">
-                            <span className="font-bold text-[#5D4037]">{acc.name}</span>
-                            <div className="flex items-center gap-4 mt-1">
-                              <span className="text-[10px] text-stone-300 font-bold">初始資產：$ {acc.initialAmount || 0}</span>
-                              <span className="text-[10px] text-stone-300 font-bold">匯率：1 : {acc.exchangeRate || 1}</span>
-                            </div>
+                          <div className="flex flex-col justify-center">
+                            <span className="font-bold text-[#5D4037] text-lg leading-tight">{acc.name}</span>
+                            <span className={`text-xl font-black mt-1 ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                              $ {formatAmount(displayAmount)}
+                            </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className={`text-lg font-black ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                            $ {formatAmount(displayAmount)}
-                          </span>
+                        <div className="flex items-center gap-3 flex-shrink-0">
                           {hasChildren && (
                             <button 
                               onClick={(e) => toggleGroup(acc.id, e)}
                               className="p-1 hover:bg-black/5 rounded-full transition-colors"
                             >
                               <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
-                                <ChevronDown className="w-5 h-5 text-stone-300" />
+                                <ChevronDown className="w-6 h-6 text-stone-300" />
                               </motion.div>
                             </button>
                           )}
@@ -575,16 +570,15 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                 onClick={() => onAccountClick(child)}
                                 className="p-4 bg-white rounded-2xl border border-white shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform"
                               >
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-base shadow-inner">{child.icon}</div>
+                                <div className="flex items-center gap-3 flex-1">
+                                  <div className="w-8 h-8 bg-white rounded-full flex-shrink-0 flex items-center justify-center text-base shadow-inner">{child.icon}</div>
                                   <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-[#5D4037]">{child.name}</span>
-                                    <span className="text-[8px] text-stone-300 font-bold">初始資產：$ {child.initialAmount || 0}</span>
+                                    <span className="text-xs font-bold text-[#5D4037] leading-tight">{child.name}</span>
+                                    <span className={`text-sm font-black mt-0.5 ${balances[child.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                                      $ {formatAmount(balances[child.id] || 0)}
+                                    </span>
                                   </div>
                                 </div>
-                                <span className={`text-sm font-black ${child.amount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                                  $ {formatAmount(child.amount)}
-                                </span>
                               </div>
                             ))}
                             <button 
@@ -621,7 +615,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
   );
 }
 
-function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdateRecord, onDeleteRecord, accounts }: { 
+function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdateRecord, onDeleteRecord, accounts, balance }: { 
   account: Account, 
   records: Transaction[],
   onBack: () => void,
@@ -629,7 +623,8 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
   onDelete: (id: string) => void,
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
   onDeleteRecord: (record: Transaction) => void,
-  accounts: Account[]
+  accounts: Account[],
+  balance: number
 }) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
@@ -641,11 +636,6 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
     return records.filter(r => targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [records, account.id, accounts]);
-
-  const totalAmount = useMemo(() => {
-    const children = accounts.filter(c => c.parentId === account.id);
-    return account.amount + children.reduce((s, c) => s + c.amount, 0);
-  }, [account, accounts]);
 
   return (
     <motion.div 
@@ -665,7 +655,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
             <div className="flex items-baseline gap-1">
               <span className="text-sm font-black text-stone-300">$</span>
               <span className="text-4xl font-black text-[#5D4037] tracking-tight">
-                {totalAmount.toLocaleString()}
+                {balance.toLocaleString()}
               </span>
             </div>
           </div>
@@ -781,10 +771,8 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
               setEditingRecord(null);
             }}
             onDelete={() => {
-              if (window.confirm('確定要刪除此筆紀錄嗎？')) {
-                onDeleteRecord(editingRecord);
-                setEditingRecord(null);
-              }
+              onDeleteRecord(editingRecord);
+              setEditingRecord(null);
             }}
           />
         )}
@@ -801,6 +789,7 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
   onDelete: () => void
 }) {
   const [edited, setEdited] = useState<Transaction>({ ...record });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   return (
     <motion.div 
@@ -810,9 +799,39 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
     >
       <motion.div 
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-        className="bg-[#FFFDF5] w-full max-w-sm rounded-[30px] p-6 flex flex-col gap-6 shadow-2xl"
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[30px] p-6 flex flex-col gap-6 shadow-2xl relative overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
+        {/* Delete Confirmation Overlay */}
+        <AnimatePresence>
+          {showDeleteConfirm && (
+            <motion.div 
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              className="absolute inset-0 bg-rose-500 z-50 flex flex-col items-center justify-center p-8 text-white text-center gap-6"
+            >
+              <Trash2 size={64} className="mb-2" />
+              <h4 className="text-2xl font-black">確定要刪除嗎？</h4>
+              <p className="text-sm font-bold opacity-80 text-rose-100">刪除後將無法復原，帳戶餘額會自動更新。</p>
+              <div className="flex w-full gap-3 mt-4">
+                <button 
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-4 bg-white/20 rounded-2xl font-bold hover:bg-white/30 transition-colors"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={onDelete}
+                  className="flex-1 py-4 bg-white text-rose-500 rounded-2xl font-black shadow-lg active:scale-95 transition-all"
+                >
+                  確定刪除
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
@@ -820,6 +839,12 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
             </button>
             <h3 className="text-xl font-black text-[#5D4037]">編輯紀錄</h3>
           </div>
+          <button 
+            onClick={() => setShowDeleteConfirm(true)}
+            className="p-3 text-rose-400 hover:bg-rose-50 rounded-2xl transition-colors active:scale-90"
+          >
+            <Trash2 size={24} />
+          </button>
         </div>
 
         <div className="space-y-4">
@@ -876,12 +901,6 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
           >
             <Check size={24} /> 儲存變更
           </button>
-          <button 
-            onClick={onDelete}
-            className="w-full py-3 text-rose-400 font-black flex items-center justify-center gap-2 text-sm hover:bg-rose-50 rounded-xl transition-colors"
-          >
-            <Trash2 size={18} /> 刪除紀錄
-          </button>
         </div>
       </motion.div>
     </motion.div>
@@ -930,46 +949,6 @@ function AccountEditModal({ account, accounts, onClose, onSave, onDelete }: {
               onChange={e => setEditedAcc({ ...editedAcc, name: e.target.value })}
               className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
               placeholder="例如：台新銀行 - 活存"
-            />
-          </div>
-
-          {/* Amount */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">目前餘額</label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
-                <input 
-                  type="number"
-                  value={editedAcc.amount}
-                  onChange={e => setEditedAcc({ ...editedAcc, amount: parseFloat(e.target.value) || 0 })}
-                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">初始資產</label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
-                <input 
-                  type="number"
-                  value={editedAcc.initialAmount || 0}
-                  onChange={e => setEditedAcc({ ...editedAcc, initialAmount: parseFloat(e.target.value) || 0 })}
-                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Exchange Rate */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">匯率 (1 : X)</label>
-            <input 
-              type="number"
-              step="0.01"
-              value={editedAcc.exchangeRate || 1}
-              onChange={e => setEditedAcc({ ...editedAcc, exchangeRate: parseFloat(e.target.value) || 1 })}
-              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
             />
           </div>
 
