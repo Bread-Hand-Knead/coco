@@ -1179,6 +1179,85 @@ const CATEGORIES = [
   { name: '其他', icon: '✨', sub: ['雜項', '捐款', '禮物'] },
 ];
 
+// --- Components ---
+
+function HorizontalScrollArea({ children, className = "" }: { children: React.ReactNode, className?: string }) {
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [showLeft, setShowLeft] = useState(false);
+  const [showRight, setShowRight] = useState(false);
+
+  const checkScroll = () => {
+    if (scrollRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+      setShowLeft(scrollLeft > 10);
+      setShowRight(scrollLeft < scrollWidth - clientWidth - 10);
+    }
+  };
+
+  useEffect(() => {
+    checkScroll();
+    const el = scrollRef.current;
+    if (el) {
+      el.addEventListener('scroll', checkScroll);
+      window.addEventListener('resize', checkScroll);
+      return () => {
+        el.removeEventListener('scroll', checkScroll);
+        window.removeEventListener('resize', checkScroll);
+      };
+    }
+  }, [children]);
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (scrollRef.current) {
+      const { clientWidth } = scrollRef.current;
+      const scrollAmount = clientWidth * 0.8;
+      scrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  return (
+    <div className={`relative group/scroll ${className}`}>
+      <AnimatePresence>
+        {showLeft && (
+          <motion.button
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -10 }}
+            onClick={() => scroll('left')}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center text-[#5D4037] border border-stone-100 active:scale-90 transition-transform"
+          >
+            <ChevronLeft size={16} />
+          </motion.button>
+        )}
+      </AnimatePresence>
+      
+      <div 
+        ref={scrollRef}
+        className="flex gap-3 overflow-x-auto no-scrollbar py-1 scroll-smooth"
+      >
+        {children}
+      </div>
+
+      <AnimatePresence>
+        {showRight && (
+          <motion.button
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 10 }}
+            onClick={() => scroll('right')}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center text-[#5D4037] border border-stone-100 active:scale-90 transition-transform"
+          >
+            <ChevronRight size={16} />
+          </motion.button>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }: { 
   accounts: Account[], 
   templates: Template[], 
@@ -1318,7 +1397,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
               {/* Step 1: Account Selection */}
               <div className="space-y-2">
                 <span className="text-[10px] font-bold text-stone-300 uppercase px-2">1. 選擇帳戶</span>
-                <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
+                <HorizontalScrollArea>
                   {accounts.map(acc => (
                     <button 
                       key={acc.id}
@@ -1341,14 +1420,14 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                       {tab === 'transfer' && toAccountId === acc.id && <span className="text-[8px] text-[#5D4037] font-bold">目的</span>}
                     </button>
                   ))}
-                </div>
+                </HorizontalScrollArea>
               </div>
 
               {/* Step 2: Main Category Selection */}
               {tab !== 'transfer' && (
                 <div className="space-y-2">
                   <span className="text-[10px] font-bold text-stone-300 uppercase px-2">2. 選擇主分類</span>
-                  <div className="grid grid-cols-4 gap-3">
+                  <HorizontalScrollArea>
                     {CATEGORIES.map(cat => (
                       <button 
                         key={cat.name}
@@ -1357,13 +1436,15 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                           setSubCategory(null);
                           setShowCalculator(false);
                         }}
-                        className={`flex flex-col items-center gap-1 py-3 rounded-2xl transition-all border-2 ${mainCategory === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037]' : 'bg-white text-stone-400 border-white shadow-sm'}`}
+                        className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                          mainCategory === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
+                        }`}
                       >
-                        <span className="text-xl">{cat.icon}</span>
-                        <span className="text-[10px] font-bold">{cat.name}</span>
+                        <div className={`w-10 h-10 ${mainCategory === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl`}>{cat.icon}</div>
+                        <span className="text-[9px] font-bold text-center px-1 leading-tight">{cat.name}</span>
                       </button>
                     ))}
-                  </div>
+                  </HorizontalScrollArea>
                 </div>
               )}
 
