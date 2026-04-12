@@ -152,109 +152,110 @@ export default function App() {
 
   return (
     <div className="h-screen bg-[#FFF9E3] font-sans text-[#5D4037] flex flex-col overflow-hidden select-none">
-      {/* Header */}
-      <header className="px-4 py-4 flex items-center justify-between">
-        <Menu className="w-6 h-6" />
-        <div className="text-lg font-bold">2026 / 04</div>
-        <CalendarIcon className="w-6 h-6 cursor-pointer" onClick={() => setCurrentView('calendar')} />
-      </header>
+      {/* Responsive Container for Desktop */}
+      <div className="flex-1 flex flex-col w-full max-w-md mx-auto bg-[#FFF9E3] relative shadow-2xl md:border-x md:border-stone-100">
+        {/* Header */}
+        <header className="px-4 py-4 flex items-center justify-between bg-[#FFF9E3] z-30">
+          <Menu className="w-6 h-6" />
+          <div className="text-lg font-bold">2026 / 04</div>
+          <CalendarIcon className="w-6 h-6 cursor-pointer" onClick={() => setCurrentView('calendar')} />
+        </header>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
-        <AnimatePresence mode="wait">
-          {currentView === 'home' && (
-            <HomeView 
-              stats={stats} 
-              onRecordClick={() => setIsRecordModalOpen(true)} 
-              onAccountClick={() => setCurrentView('accounts')}
-            />
-          )}
-          {currentView === 'accounts' && (
-            <AccountsView 
-              accounts={accounts} 
-              totalAssets={totalAssets}
-              onAccountClick={(acc) => {
-                setSelectedAccountForDetail(acc);
-                setCurrentView('accountDetail');
-              }}
-              onAddAccount={() => {
-                const newAcc: Account = { id: Date.now().toString(), name: '新帳戶', amount: 0, type: 'cash', icon: '💰' };
-                setAccounts([...accounts, newAcc]);
-                setSelectedAccountForDetail(newAcc);
-                setCurrentView('accountDetail');
-              }}
-            />
-          )}
-          {currentView === 'accountDetail' && selectedAccountForDetail && (
-            <AccountDetailView 
-              account={selectedAccountForDetail}
-              records={records}
-              onBack={() => setCurrentView('accounts')}
-              onSave={(updatedAcc) => {
-                setAccounts(prev => {
-                  const newAccounts = prev.map(a => a.id === updatedAcc.id ? updatedAcc : a);
-                  if (updatedAcc.parentId) {
-                    const parent = newAccounts.find(p => p.id === updatedAcc.parentId);
-                    if (parent) {
-                      const children = newAccounts.filter(c => c.parentId === parent.id);
-                      const newParentAmount = children.reduce((s, c) => s + c.amount, 0);
-                      return newAccounts.map(a => a.id === parent.id ? { ...a, amount: newParentAmount } : a);
+        {/* Main Content */}
+        <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
+          <AnimatePresence mode="wait">
+            {currentView === 'home' && (
+              <HomeView 
+                stats={stats} 
+                onRecordClick={() => setIsRecordModalOpen(true)} 
+                onAccountClick={() => setCurrentView('accounts')}
+              />
+            )}
+            {currentView === 'accounts' && (
+              <AccountsView 
+                accounts={accounts} 
+                totalAssets={totalAssets}
+                onAccountClick={(acc) => {
+                  setSelectedAccountForDetail(acc);
+                  setCurrentView('accountDetail');
+                }}
+                onAddAccount={() => {
+                  const newAcc: Account = { id: Date.now().toString(), name: '新帳戶', amount: 0, type: 'cash', icon: '💰' };
+                  setAccounts([...accounts, newAcc]);
+                  setSelectedAccountForDetail(newAcc);
+                  setCurrentView('accountDetail');
+                }}
+              />
+            )}
+            {currentView === 'accountDetail' && selectedAccountForDetail && (
+              <AccountDetailView 
+                account={selectedAccountForDetail}
+                records={records}
+                onBack={() => setCurrentView('accounts')}
+                onSave={(updatedAcc) => {
+                  setAccounts(prev => {
+                    const newAccounts = prev.map(a => a.id === updatedAcc.id ? updatedAcc : a);
+                    if (updatedAcc.parentId) {
+                      const parent = newAccounts.find(p => p.id === updatedAcc.parentId);
+                      if (parent) {
+                        const children = newAccounts.filter(c => c.parentId === parent.id);
+                        const newParentAmount = children.reduce((s, c) => s + c.amount, 0);
+                        return newAccounts.map(a => a.id === parent.id ? { ...a, amount: newParentAmount } : a);
+                      }
                     }
-                  }
-                  return newAccounts;
-                });
-                setSelectedAccountForDetail(updatedAcc);
-              }}
-              onDelete={(id) => {
-                setAccounts(prev => {
-                  const newAccounts = prev.filter(a => a.id !== id && a.parentId !== id);
-                  const deletedAcc = prev.find(a => a.id === id);
-                  if (deletedAcc?.parentId) {
-                    const parent = newAccounts.find(p => p.id === deletedAcc.parentId);
-                    if (parent) {
-                      const children = newAccounts.filter(c => c.parentId === parent.id);
-                      const newParentAmount = children.reduce((s, c) => s + c.amount, 0);
-                      return newAccounts.map(a => a.id === parent.id ? { ...a, amount: newParentAmount } : a);
+                    return newAccounts;
+                  });
+                  setSelectedAccountForDetail(updatedAcc);
+                }}
+                onDelete={(id) => {
+                  setAccounts(prev => {
+                    const newAccounts = prev.filter(a => a.id !== id && a.parentId !== id);
+                    const deletedAcc = prev.find(a => a.id === id);
+                    if (deletedAcc?.parentId) {
+                      const parent = newAccounts.find(p => p.id === deletedAcc.parentId);
+                      if (parent) {
+                        const children = newAccounts.filter(c => c.parentId === parent.id);
+                        const newParentAmount = children.reduce((s, c) => s + c.amount, 0);
+                        return newAccounts.map(a => a.id === parent.id ? { ...a, amount: newParentAmount } : a);
+                      }
                     }
-                  }
-                  return newAccounts;
-                });
-                setCurrentView('accounts');
-                setSelectedAccountForDetail(null);
-              }}
+                    return newAccounts;
+                  });
+                  setCurrentView('accounts');
+                  setSelectedAccountForDetail(null);
+                }}
+                accounts={accounts}
+              />
+            )}
+            {currentView === 'calendar' && (
+              <CalendarView 
+                records={records} 
+                onBack={() => setCurrentView('home')}
+              />
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Bottom Nav */}
+        <nav className="absolute bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-stone-100 h-20 flex items-center justify-around px-4 z-40">
+          <NavButton active={currentView === 'home'} icon={<Home />} label="首頁" onClick={() => setCurrentView('home')} />
+          <NavButton active={currentView === 'reports'} icon={<BarChart3 />} label="報表" onClick={() => setCurrentView('reports')} />
+          <NavButton active={currentView === 'more'} icon={<MoreHorizontal />} label="更多" onClick={() => setCurrentView('more')} />
+        </nav>
+
+        {/* Record Modal */}
+        <AnimatePresence>
+          {isRecordModalOpen && (
+            <RecordModal 
               accounts={accounts}
-            />
-          )}
-          {currentView === 'calendar' && (
-            <CalendarView 
-              records={records} 
-              onBack={() => setCurrentView('home')}
+              templates={templates}
+              onUpdateTemplates={setTemplates}
+              onClose={() => setIsRecordModalOpen(false)}
+              onSave={handleSaveRecord}
             />
           )}
         </AnimatePresence>
       </div>
-
-      {/* Bottom Nav */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-stone-100 h-20 flex items-center justify-around px-4 z-40">
-        <NavButton active={currentView === 'home'} icon={<Home />} label="首頁" onClick={() => setCurrentView('home')} />
-        <NavButton active={currentView === 'reports'} icon={<BarChart3 />} label="報表" onClick={() => setCurrentView('reports')} />
-        <NavButton active={currentView === 'more'} icon={<MoreHorizontal />} label="更多" onClick={() => setCurrentView('more')} />
-      </nav>
-
-      {/* Record Modal */}
-      <AnimatePresence>
-        {isRecordModalOpen && (
-          <RecordModal 
-            accounts={accounts}
-            templates={templates}
-            onUpdateTemplates={setTemplates}
-            onClose={() => setIsRecordModalOpen(false)}
-            onSave={handleSaveRecord}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Account Detail Modal (Removed in favor of AccountDetailView) */}
     </div>
   );
 }
