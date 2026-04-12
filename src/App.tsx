@@ -24,7 +24,10 @@ import {
   Pencil,
   History,
   ArrowLeft,
-  AlertCircle
+  AlertCircle,
+  Eye,
+  EyeOff,
+  HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -47,6 +50,8 @@ interface Account {
   type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket';
   icon: string;
   parentId?: string;
+  initialAmount?: number;
+  exchangeRate?: number;
 }
 
 interface Template {
@@ -110,8 +115,14 @@ export default function App() {
     localStorage.setItem('kk_adv_templates', JSON.stringify(templates));
   }, [templates]);
 
-  const totalAssets = useMemo(() => {
-    return accounts.filter(a => !a.parentId).reduce((sum, acc) => sum + acc.amount, 0);
+  const { netAssets, totalAssets, totalLiabilities } = useMemo(() => {
+    const assets = accounts.filter(a => a.amount > 0).reduce((sum, acc) => sum + acc.amount, 0);
+    const liabilities = accounts.filter(a => a.amount < 0).reduce((sum, acc) => sum + acc.amount, 0);
+    return {
+      netAssets: assets + liabilities,
+      totalAssets: assets,
+      totalLiabilities: Math.abs(liabilities)
+    };
   }, [accounts]);
 
   const stats = useMemo(() => {
@@ -151,18 +162,18 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen bg-[#FFF9E3] font-sans text-[#5D4037] flex flex-col overflow-hidden select-none">
+    <div className="h-screen w-full bg-[#FFF9E3] font-sans text-[#5D4037] flex justify-center overflow-hidden select-none">
       {/* Responsive Container for Desktop */}
-      <div className="flex-1 flex flex-col w-full max-w-md mx-auto bg-[#FFF9E3] relative shadow-2xl md:border-x md:border-stone-100">
+      <div className="w-full max-w-md h-full flex flex-col bg-[#FFF9E3] relative shadow-2xl md:border-x border-stone-100">
         {/* Header */}
-        <header className="px-4 py-4 flex items-center justify-between bg-[#FFF9E3] z-30">
+        <header className="px-4 py-4 flex items-center justify-between bg-[#FFF9E3] z-30 flex-shrink-0">
           <Menu className="w-6 h-6" />
           <div className="text-lg font-bold">2026 / 04</div>
           <CalendarIcon className="w-6 h-6 cursor-pointer" onClick={() => setCurrentView('calendar')} />
         </header>
 
-        {/* Main Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar">
+        {/* Main Content Area (Scrollable) */}
+        <main className="flex-1 overflow-y-auto no-scrollbar min-h-0">
           <AnimatePresence mode="wait">
             {currentView === 'home' && (
               <HomeView 
@@ -174,13 +185,15 @@ export default function App() {
             {currentView === 'accounts' && (
               <AccountsView 
                 accounts={accounts} 
+                netAssets={netAssets}
                 totalAssets={totalAssets}
+                totalLiabilities={totalLiabilities}
                 onAccountClick={(acc) => {
                   setSelectedAccountForDetail(acc);
                   setCurrentView('accountDetail');
                 }}
                 onAddAccount={() => {
-                  const newAcc: Account = { id: Date.now().toString(), name: '新帳戶', amount: 0, type: 'cash', icon: '💰' };
+                  const newAcc: Account = { id: Date.now().toString(), name: '新帳戶', amount: 0, type: 'cash', icon: '💰', initialAmount: 0, exchangeRate: 1 };
                   setAccounts([...accounts, newAcc]);
                   setSelectedAccountForDetail(newAcc);
                   setCurrentView('accountDetail');
@@ -193,34 +206,11 @@ export default function App() {
                 records={records}
                 onBack={() => setCurrentView('accounts')}
                 onSave={(updatedAcc) => {
-                  setAccounts(prev => {
-                    const newAccounts = prev.map(a => a.id === updatedAcc.id ? updatedAcc : a);
-                    if (updatedAcc.parentId) {
-                      const parent = newAccounts.find(p => p.id === updatedAcc.parentId);
-                      if (parent) {
-                        const children = newAccounts.filter(c => c.parentId === parent.id);
-                        const newParentAmount = children.reduce((s, c) => s + c.amount, 0);
-                        return newAccounts.map(a => a.id === parent.id ? { ...a, amount: newParentAmount } : a);
-                      }
-                    }
-                    return newAccounts;
-                  });
+                  setAccounts(prev => prev.map(a => a.id === updatedAcc.id ? updatedAcc : a));
                   setSelectedAccountForDetail(updatedAcc);
                 }}
                 onDelete={(id) => {
-                  setAccounts(prev => {
-                    const newAccounts = prev.filter(a => a.id !== id && a.parentId !== id);
-                    const deletedAcc = prev.find(a => a.id === id);
-                    if (deletedAcc?.parentId) {
-                      const parent = newAccounts.find(p => p.id === deletedAcc.parentId);
-                      if (parent) {
-                        const children = newAccounts.filter(c => c.parentId === parent.id);
-                        const newParentAmount = children.reduce((s, c) => s + c.amount, 0);
-                        return newAccounts.map(a => a.id === parent.id ? { ...a, amount: newParentAmount } : a);
-                      }
-                    }
-                    return newAccounts;
-                  });
+                  setAccounts(prev => prev.filter(a => a.id !== id && a.parentId !== id));
                   setCurrentView('accounts');
                   setSelectedAccountForDetail(null);
                 }}
@@ -234,10 +224,10 @@ export default function App() {
               />
             )}
           </AnimatePresence>
-        </div>
+        </main>
 
         {/* Bottom Nav */}
-        <nav className="absolute bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-stone-100 h-20 flex items-center justify-around px-4 z-40">
+        <nav className="bg-white/90 backdrop-blur-md border-t border-stone-100 h-20 flex items-center justify-around px-4 z-40 flex-shrink-0">
           <NavButton active={currentView === 'home'} icon={<Home />} label="首頁" onClick={() => setCurrentView('home')} />
           <NavButton active={currentView === 'reports'} icon={<BarChart3 />} label="報表" onClick={() => setCurrentView('reports')} />
           <NavButton active={currentView === 'more'} icon={<MoreHorizontal />} label="更多" onClick={() => setCurrentView('more')} />
@@ -327,7 +317,7 @@ function HomeView({ stats, onRecordClick, onAccountClick }: { stats: any, onReco
       </div>
 
       {/* Bottom Buffer */}
-      <div className="h-32 w-full" />
+      <div className="h-[120px] w-full" />
     </motion.div>
   );
 }
@@ -347,123 +337,200 @@ function StatCard({ title, date, expense, income }: { title: string, date: strin
   );
 }
 
-function AccountsView({ accounts, totalAssets, onAccountClick, onAddAccount }: { 
+function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAccountClick, onAddAccount }: { 
   accounts: Account[], 
+  netAssets: number,
   totalAssets: number,
+  totalLiabilities: number,
   onAccountClick: (acc: Account) => void,
   onAddAccount: () => void
 }) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [showAmounts, setShowAmounts] = useState(true);
 
   const toggleGroup = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setExpandedGroups(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  const topLevelAccounts = accounts.filter(a => !a.parentId);
+  const accountTypeLabels: Record<Account['type'], string> = {
+    cash: '現金',
+    bank: '銀行',
+    investment: '投資',
+    credit: '信用卡',
+    'e-ticket': '電子票證'
+  };
+
+  const groupedAccounts = useMemo(() => {
+    const groups: Partial<Record<Account['type'], Account[]>> = {};
+    accounts.filter(a => !a.parentId).forEach(acc => {
+      if (!groups[acc.type]) groups[acc.type] = [];
+      groups[acc.type]!.push(acc);
+    });
+    return groups;
+  }, [accounts]);
+
+  const formatAmount = (val: number) => {
+    if (!showAmounts) return '****';
+    return val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  };
 
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-      className="flex flex-col gap-4 px-4 pb-32"
+      className="flex flex-col bg-[#FFF9E3]"
     >
-      <div className="bg-[#FFD54F] p-5 rounded-[20px] shadow-sm border-2 border-white flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">💰</span>
-          <span className="font-bold">總資產</span>
+      {/* Top Dashboard (CW Money Style) */}
+      <div className="px-6 py-8 bg-[#FFF9E3]">
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-black text-[#5D4037]">淨資產</span>
+              <button onClick={() => setShowAmounts(!showAmounts)} className="text-[#5D4037]/60 hover:text-[#5D4037]">
+                {showAmounts ? <Eye size={20} /> : <EyeOff size={20} />}
+              </button>
+            </div>
+            <div className="text-4xl font-black text-[#5D4037] tracking-tight mt-2">
+              $ {formatAmount(netAssets)}
+            </div>
+          </div>
+          <div className="flex flex-col gap-4 text-right">
+            <div className="flex flex-col">
+              <div className="flex items-center justify-end gap-1 text-stone-400 text-xs font-bold">
+                <span>資產</span>
+                <HelpCircle size={12} />
+              </div>
+              <span className="text-blue-400 font-black text-lg">$ {formatAmount(totalAssets)}</span>
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center justify-end gap-1 text-stone-400 text-xs font-bold">
+                <span>負債</span>
+                <HelpCircle size={12} />
+              </div>
+              <span className="text-rose-400 font-black text-lg">$ -{formatAmount(totalLiabilities)}</span>
+            </div>
+          </div>
         </div>
-        <span className="text-2xl font-black">$ {totalAssets.toLocaleString()}</span>
       </div>
 
-      <div className="flex flex-col gap-3">
-        {topLevelAccounts.map(acc => {
-          const children = accounts.filter(c => c.parentId === acc.id);
-          const isExpanded = expandedGroups.includes(acc.id);
-          const hasChildren = children.length > 0;
+      {/* Account List Groups */}
+      <div className="flex flex-col gap-6 px-4">
+        {(Object.entries(groupedAccounts) as [Account['type'], Account[]][]).map(([type, typeAccounts]) => {
+          const typeTotal = typeAccounts.reduce((sum, acc) => {
+            const children = accounts.filter(c => c.parentId === acc.id);
+            return sum + acc.amount + children.reduce((s, c) => s + c.amount, 0);
+          }, 0);
 
           return (
-            <div key={acc.id} className="flex flex-col gap-2">
-              <div 
-                onClick={() => onAccountClick(acc)}
-                className={`p-4 rounded-[20px] shadow-sm border-2 border-white flex items-center justify-between cursor-pointer transition-all ${acc.type === 'cash' ? 'bg-[#FFECB3]' : acc.type === 'credit' ? 'bg-rose-50' : 'bg-white'}`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl shadow-inner">
-                    {acc.icon}
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="font-bold">{acc.name}</span>
-                    {hasChildren && <span className="text-[10px] text-stone-400">共 {children.length} 個帳戶</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-lg font-black ${acc.amount < 0 ? 'text-rose-400' : ''}`}>
-                    $ {acc.amount.toLocaleString()}
-                  </span>
-                  {hasChildren && (
-                    <button 
-                      onClick={(e) => toggleGroup(acc.id, e)}
-                      className="p-1 hover:bg-black/5 rounded-full transition-colors"
-                    >
-                      <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
-                        <ChevronDown className="w-5 h-5 text-stone-400" />
-                      </motion.div>
-                    </button>
-                  )}
-                </div>
+            <div key={type} className="bg-white rounded-[30px] shadow-sm border-2 border-white overflow-hidden">
+              {/* Group Header */}
+              <div className="px-6 py-4 flex justify-between items-center border-b border-stone-50">
+                <span className="text-sm font-bold text-stone-400">{accountTypeLabels[type as Account['type']]}</span>
+                <span className={`text-sm font-black ${typeTotal < 0 ? 'text-rose-400' : 'text-stone-400'}`}>
+                  $ {formatAmount(typeTotal)}
+                </span>
               </div>
 
-              {/* Sub Accounts Accordion */}
-              <AnimatePresence>
-                {hasChildren && isExpanded && (
-                  <motion.div 
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden flex flex-col gap-2 pl-6"
-                  >
-                    {children.map(child => (
+              {/* Account Cards */}
+              <div className="flex flex-col">
+                {typeAccounts.map(acc => {
+                  const children = accounts.filter(c => c.parentId === acc.id);
+                  const isExpanded = expandedGroups.includes(acc.id);
+                  const hasChildren = children.length > 0;
+                  const displayAmount = acc.amount + children.reduce((s, c) => s + c.amount, 0);
+
+                  return (
+                    <div key={acc.id} className="flex flex-col border-b border-stone-50 last:border-0">
                       <div 
-                        key={child.id}
-                        onClick={() => onAccountClick(child)}
-                        className="p-3 bg-white/60 rounded-[15px] border border-white shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform"
+                        onClick={() => onAccountClick(acc)}
+                        className="p-6 flex items-center justify-between cursor-pointer active:bg-stone-50 transition-colors"
                       >
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-white/80 rounded-full flex items-center justify-center text-sm">{child.icon}</div>
-                          <span className="text-xs font-bold">{child.name}</span>
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-white">
+                            {acc.icon}
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="font-bold text-[#5D4037]">{acc.name}</span>
+                            <div className="flex items-center gap-4 mt-1">
+                              <span className="text-[10px] text-stone-300 font-bold">初始資產：$ {acc.initialAmount || 0}</span>
+                              <span className="text-[10px] text-stone-300 font-bold">匯率：1 : {acc.exchangeRate || 1}</span>
+                            </div>
+                          </div>
                         </div>
-                        <span className="text-sm font-black">$ {child.amount.toLocaleString()}</span>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-lg font-black ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                            $ {formatAmount(displayAmount)}
+                          </span>
+                          {hasChildren && (
+                            <button 
+                              onClick={(e) => toggleGroup(acc.id, e)}
+                              className="p-1 hover:bg-black/5 rounded-full transition-colors"
+                            >
+                              <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
+                                <ChevronDown className="w-5 h-5 text-stone-300" />
+                              </motion.div>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    ))}
-                    {/* Option to view/edit main account details */}
-                    <button 
-                      onClick={() => onAccountClick(acc)}
-                      className="text-[10px] font-bold text-stone-400 text-center py-2 hover:text-[#5D4037] active:scale-95 transition-all"
-                    >
-                      查看/編輯主帳戶詳情
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+
+                      {/* Sub Accounts */}
+                      <AnimatePresence>
+                        {hasChildren && isExpanded && (
+                          <motion.div 
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="bg-stone-50/50 flex flex-col gap-2 px-6 pb-4"
+                          >
+                            {children.map(child => (
+                              <div 
+                                key={child.id}
+                                onClick={() => onAccountClick(child)}
+                                className="p-4 bg-white rounded-2xl border border-white shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-base shadow-inner">{child.icon}</div>
+                                  <div className="flex flex-col">
+                                    <span className="text-xs font-bold text-[#5D4037]">{child.name}</span>
+                                    <span className="text-[8px] text-stone-300 font-bold">初始資產：$ {child.initialAmount || 0}</span>
+                                  </div>
+                                </div>
+                                <span className={`text-sm font-black ${child.amount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                                  $ {formatAmount(child.amount)}
+                                </span>
+                              </div>
+                            ))}
+                            <button 
+                              onClick={() => onAccountClick(acc)}
+                              className="text-[10px] font-bold text-stone-300 text-center py-2 hover:text-[#5D4037] transition-colors"
+                            >
+                              查看/編輯主帳戶詳情
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
       </div>
 
-      <button 
-        onClick={onAddAccount}
-        className="h-16 bg-[#FFD54F] rounded-full flex items-center justify-center gap-2 shadow-sm border-2 border-white mt-4 active:scale-95 transition-transform"
-      >
-        <Plus className="w-6 h-6 bg-white rounded-full p-1" />
-        <span className="font-bold text-lg">新增帳戶</span>
-      </button>
-
-      <div className="text-center py-8">
-        <p className="text-[10px] text-stone-400 italic">💡 這裡可以管理您的 ETF 與存款資產</p>
+      <div className="px-4 mt-6">
+        <button 
+          onClick={onAddAccount}
+          className="w-full h-16 bg-[#FFD54F] rounded-full flex items-center justify-center gap-2 shadow-lg border-4 border-white active:scale-95 transition-all"
+        >
+          <Plus className="w-6 h-6 bg-white rounded-full p-1 text-[#5D4037]" />
+          <span className="font-bold text-lg text-[#5D4037]">新增帳戶</span>
+        </button>
       </div>
 
       {/* Bottom Buffer */}
-      <div className="h-32 w-full" />
+      <div className="h-[120px] w-full" />
     </motion.div>
   );
 }
@@ -482,6 +549,11 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
     return records.filter(r => r.accountId === account.id || r.toAccountId === account.id)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [records, account.id]);
+
+  const totalAmount = useMemo(() => {
+    const children = accounts.filter(c => c.parentId === account.id);
+    return account.amount + children.reduce((s, c) => s + c.amount, 0);
+  }, [account, accounts]);
 
   return (
     <motion.div 
@@ -512,7 +584,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
             <div className="flex items-baseline gap-1">
               <span className="text-sm font-black text-stone-300">$</span>
               <span className="text-4xl font-black text-[#5D4037] tracking-tight">
-                {account.amount.toLocaleString()}
+                {totalAmount.toLocaleString()}
               </span>
             </div>
           </div>
@@ -570,7 +642,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
                 </div>
               ))}
               {/* Bottom Buffer inside scroll area */}
-              <div className="h-32 w-full" />
+              <div className="h-[120px] w-full" />
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-200">
@@ -586,7 +658,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
         </div>
         
         {/* Bottom Buffer outside scroll area if needed */}
-        <div className="h-32 w-full" />
+        <div className="h-[120px] w-full" />
       </div>
 
       {/* Edit Modal */}
@@ -654,17 +726,43 @@ function AccountEditModal({ account, accounts, onClose, onSave, onDelete }: {
           </div>
 
           {/* Amount */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">目前餘額</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
-              <input 
-                type="number"
-                value={editedAcc.amount}
-                onChange={e => setEditedAcc({ ...editedAcc, amount: parseFloat(e.target.value) || 0 })}
-                className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-              />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">目前餘額</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
+                <input 
+                  type="number"
+                  value={editedAcc.amount}
+                  onChange={e => setEditedAcc({ ...editedAcc, amount: parseFloat(e.target.value) || 0 })}
+                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                />
+              </div>
             </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">初始資產</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
+                <input 
+                  type="number"
+                  value={editedAcc.initialAmount || 0}
+                  onChange={e => setEditedAcc({ ...editedAcc, initialAmount: parseFloat(e.target.value) || 0 })}
+                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Exchange Rate */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">匯率 (1 : X)</label>
+            <input 
+              type="number"
+              step="0.01"
+              value={editedAcc.exchangeRate || 1}
+              onChange={e => setEditedAcc({ ...editedAcc, exchangeRate: parseFloat(e.target.value) || 1 })}
+              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+            />
           </div>
 
           {/* Type Selection */}
@@ -790,7 +888,7 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
         </div>
         
         {/* Bottom Buffer */}
-        <div className="h-40 w-full" />
+        <div className="h-[120px] w-full" />
       </div>
     </motion.div>
   );
