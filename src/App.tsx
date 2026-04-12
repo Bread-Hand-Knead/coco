@@ -37,6 +37,7 @@ interface Transaction {
   id: string;
   amount: number;
   category: string;
+  note?: string;
   date: string; // YYYY-MM-DD
   type: 'income' | 'expense' | 'transfer';
   accountId: string;
@@ -712,33 +713,39 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
                 <div 
                   key={record.id} 
                   onClick={() => setEditingRecord(record)}
-                  className="flex items-center justify-between py-3 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
+                  className="flex items-center gap-4 py-4 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-xl shadow-sm border border-white group-active:scale-95 transition-transform">
-                      {record.category === '餘額校正' ? '🔧' : record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="font-bold text-sm text-[#5D4037]">{record.category}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold text-stone-300">{record.date}</span>
-                        {account.parentId === undefined && record.accountId !== account.id && (
-                          <span className="text-[8px] px-1 bg-stone-100 text-stone-400 rounded">
-                            {accounts.find(a => a.id === record.accountId)?.name}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                  <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white group-active:scale-95 transition-transform">
+                    {record.category === '初始資金' ? '💎' : record.category === '餘額校正' ? '🔧' : record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
                   </div>
-                  <div className="flex flex-col items-end">
-                    <span className={`font-black text-base ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
-                      {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
+                  
+                  <div className="flex-1 flex flex-col gap-1 min-w-0">
+                    {/* Line 1: Title */}
+                    <span className="font-black text-lg text-[#5D4037] truncate leading-tight">
+                      {record.note || record.category}
                     </span>
-                    {record.type === 'transfer' && (
-                      <span className="text-[8px] font-bold text-stone-300">
-                        {record.accountId === account.id ? '轉出' : '轉入'}
+                    
+                    {/* Line 2: Date & Account Info */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-stone-300">{record.date}</span>
+                      {account.parentId === undefined && record.accountId !== account.id && (
+                        <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
+                          {accounts.find(a => a.id === record.accountId)?.name}
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Line 3: Amount */}
+                    <div className="flex items-center justify-between mt-1">
+                      <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
+                        {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
                       </span>
-                    )}
+                      {record.type === 'transfer' && (
+                        <span className="text-[10px] font-black text-stone-300 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100">
+                          {record.accountId === account.id ? '轉出' : '轉入'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -819,7 +826,7 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
     >
       <motion.div 
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-        className="bg-[#FFFDF5] w-full max-w-sm rounded-[30px] p-6 flex flex-col gap-6 shadow-2xl relative overflow-hidden"
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[30px] flex flex-col shadow-2xl relative overflow-hidden max-h-[90vh]"
         onClick={e => e.stopPropagation()}
       >
         {/* Delete Confirmation Overlay */}
@@ -829,7 +836,7 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
               initial={{ opacity: 0, y: 100 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 100 }}
-              className="absolute inset-0 bg-rose-500 z-50 flex flex-col items-center justify-center p-8 text-white text-center gap-6"
+              className="absolute inset-0 bg-rose-500 z-[90] flex flex-col items-center justify-center p-8 text-white text-center gap-6"
             >
               <Trash2 size={64} className="mb-2" />
               <h4 className="text-2xl font-black">確定要刪除嗎？</h4>
@@ -852,7 +859,7 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
           )}
         </AnimatePresence>
 
-        <div className="flex items-center justify-between">
+        <div className="p-6 pb-2 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
               <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
@@ -867,60 +874,75 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">金額</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
+        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4 space-y-6">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">金額</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
+                <input 
+                  type="number"
+                  value={edited.amount}
+                  onChange={e => setEdited({ ...edited, amount: parseFloat(e.target.value) || 0 })}
+                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類</label>
               <input 
-                type="number"
-                value={edited.amount}
-                onChange={e => setEdited({ ...edited, amount: parseFloat(e.target.value) || 0 })}
-                className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                value={edited.category}
+                onChange={e => setEdited({ ...edited, category: e.target.value })}
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註</label>
+              <input 
+                value={edited.note || ''}
+                onChange={e => setEdited({ ...edited, note: e.target.value })}
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                placeholder="買了什麼？"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">日期</label>
+              <input 
+                type="date"
+                value={edited.date}
+                onChange={e => setEdited({ ...edited, date: e.target.value })}
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶</label>
+              <select 
+                value={edited.accountId}
+                onChange={e => setEdited({ ...edited, accountId: e.target.value })}
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
+              >
+                {accounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類</label>
-            <input 
-              value={edited.category}
-              onChange={e => setEdited({ ...edited, category: e.target.value })}
-              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">日期</label>
-            <input 
-              type="date"
-              value={edited.date}
-              onChange={e => setEdited({ ...edited, date: e.target.value })}
-              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶</label>
-            <select 
-              value={edited.accountId}
-              onChange={e => setEdited({ ...edited, accountId: e.target.value })}
-              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
+          <div className="flex flex-col gap-3 pt-2">
+            <button 
+              onClick={() => onSave(edited)}
+              className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
             >
-              {accounts.map(a => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
+              <Check size={24} /> 儲存變更
+            </button>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-3 pt-2">
-          <button 
-            onClick={() => onSave(edited)}
-            className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
-          >
-            <Check size={24} /> 儲存變更
-          </button>
+          
+          {/* Bottom Spacing */}
+          <div className="h-[40px]" />
         </div>
       </motion.div>
     </motion.div>
@@ -952,10 +974,10 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
     >
       <motion.div 
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-        className="bg-[#FFFDF5] w-full max-w-sm rounded-[40px] p-8 flex flex-col gap-6 shadow-2xl border-2 border-white"
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[40px] flex flex-col shadow-2xl border-2 border-white overflow-hidden max-h-[90vh]"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
+        <div className="p-8 pb-4 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
               <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
@@ -967,82 +989,87 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
           </div>
         </div>
 
-        <div className="space-y-6">
-          {/* Name */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶名稱</label>
-            <input 
-              value={editedAcc.name}
-              onChange={e => setEditedAcc({ ...editedAcc, name: e.target.value })}
-              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-              placeholder="例如：台新銀行 - 活存"
-            />
-          </div>
-
-          {/* Initial Amount */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">初始金額</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
+        <div className="flex-1 overflow-y-auto no-scrollbar px-8 py-2 space-y-6">
+          <div className="space-y-6">
+            {/* Name */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶名稱</label>
               <input 
-                type="number"
-                value={initialAmount}
-                onChange={e => setInitialAmount(parseFloat(e.target.value) || 0)}
-                className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                value={editedAcc.name}
+                onChange={e => setEditedAcc({ ...editedAcc, name: e.target.value })}
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                placeholder="例如：台新銀行 - 活存"
               />
             </div>
-          </div>
 
-          {/* Type Selection */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶類型</label>
-            <div className="flex flex-wrap gap-2">
-              {accountTypes.map(t => (
-                <button 
-                  key={t}
-                  onClick={() => setEditedAcc({ ...editedAcc, type: t })}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${editedAcc.type === t ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-stone-50 shadow-sm'}`}
-                >
-                  {t === 'cash' ? '現金' : t === 'bank' ? '銀行' : t === 'investment' ? '投資' : t === 'credit' ? '信用卡' : '電子票證'}
-                </button>
-              ))}
+            {/* Initial Amount */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">初始金額</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
+                <input 
+                  type="number"
+                  value={initialAmount}
+                  onChange={e => setInitialAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Parent Selection */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">所屬主帳戶</label>
-            <div className="relative">
-              <select 
-                value={editedAcc.parentId || ''}
-                onChange={e => setEditedAcc({ ...editedAcc, parentId: e.target.value || undefined })}
-                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl text-sm font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
-              >
-                <option value="">無 (作為主帳戶)</option>
-                {accounts.filter(a => !a.parentId && a.id !== editedAcc.id).map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
+            {/* Type Selection */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶類型</label>
+              <div className="flex flex-wrap gap-2">
+                {accountTypes.map(t => (
+                  <button 
+                    key={t}
+                    onClick={() => setEditedAcc({ ...editedAcc, type: t })}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${editedAcc.type === t ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-stone-50 shadow-sm'}`}
+                  >
+                    {t === 'cash' ? '現金' : t === 'bank' ? '銀行' : t === 'investment' ? '投資' : t === 'credit' ? '信用卡' : '電子票證'}
+                  </button>
                 ))}
-              </select>
-              <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Parent Selection */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">所屬主帳戶</label>
+              <div className="relative">
+                <select 
+                  value={editedAcc.parentId || ''}
+                  onChange={e => setEditedAcc({ ...editedAcc, parentId: e.target.value || undefined })}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl text-sm font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
+                >
+                  <option value="">無 (作為主帳戶)</option>
+                  {accounts.filter(a => !a.parentId && a.id !== editedAcc.id).map(a => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-col gap-3 pt-4">
-          <button 
-            onClick={() => onSave(editedAcc, initialAmount)}
-            className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
-          >
-            <Check size={24} /> 儲存變更
-          </button>
-          <button 
-            onClick={() => {
-              setShowDeleteConfirm(true);
-            }}
-            className="w-full py-3 text-rose-400 font-black flex items-center justify-center gap-2 text-sm hover:bg-rose-50 rounded-xl transition-colors"
-          >
-            <Trash2 size={18} /> 刪除帳戶
-          </button>
+          <div className="flex flex-col gap-3 pt-4">
+            <button 
+              onClick={() => onSave(editedAcc, initialAmount)}
+              className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
+            >
+              <Check size={24} /> 儲存變更
+            </button>
+            <button 
+              onClick={() => {
+                setShowDeleteConfirm(true);
+              }}
+              className="w-full py-3 text-rose-400 font-black flex items-center justify-center gap-2 text-sm hover:bg-rose-50 rounded-xl transition-colors"
+            >
+              <Trash2 size={18} /> 刪除帳戶
+            </button>
+          </div>
+          
+          {/* Bottom Spacing */}
+          <div className="h-[40px]" />
         </div>
 
         {/* Delete Confirmation Overlay */}
@@ -1165,6 +1192,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
   const [toAccountId, setToAccountId] = useState(accounts[4].id);
   const [mainCategory, setMainCategory] = useState<string | null>(null);
   const [subCategory, setSubCategory] = useState<string | null>(null);
+  const [note, setNote] = useState('');
   const [showCalculator, setShowCalculator] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
 
@@ -1174,6 +1202,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
       onSave({ 
         amount: parseFloat(amount), 
         category: subCategory || mainCategory || '其他', 
+        note: note.trim() || undefined,
         type: tab as any, 
         accountId: selectedAccountId, 
         toAccountId: tab === 'transfer' ? toAccountId : undefined, 
@@ -1250,7 +1279,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
         </div>
 
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-6">
+        <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-6 px-1">
           {tab === 'template' ? (
             <div className="space-y-3 py-2">
               {templates.map((t) => (
@@ -1359,6 +1388,19 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                 </motion.div>
               )}
 
+              {/* Note Input */}
+              {tab !== 'template' && (
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-stone-300 uppercase px-2">備註 (買了什麼？)</span>
+                  <input 
+                    value={note}
+                    onChange={e => setNote(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    placeholder="例如：開源社雞排、演唱會周邊"
+                  />
+                </div>
+              )}
+
               {/* Transfer Mode Auto Trigger */}
               {tab === 'transfer' && selectedAccountId && toAccountId && !showCalculator && (
                 <div className="flex justify-center py-4">
@@ -1370,80 +1412,75 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                   </button>
                 </div>
               )}
-            </div>
-          )}
-        </div>
 
-        {/* Fixed Bottom Section (Amount & Calculator) */}
-        <div className="flex flex-col gap-3 bg-[#FFFDF5] pt-2">
-          {tab !== 'template' && (
-            <>
-              {/* Amount Box */}
-              <div 
-                onClick={() => setShowCalculator(true)}
-                className="bg-white border-2 border-[#FFD54F] rounded-[20px] p-3 flex items-center justify-between shadow-inner cursor-pointer"
-              >
-                <span className="text-xs font-bold text-stone-300">TWD</span>
-                <div className="flex items-center gap-4">
-                  <span className="text-3xl font-black">{amount}</span>
-                  <button onClick={(e) => { e.stopPropagation(); handleKey('AC'); }} className="w-8 h-8 bg-rose-50 text-rose-400 rounded-full flex items-center justify-center font-bold text-[10px]">AC</button>
-                </div>
-              </div>
-
-              {/* Animated Calculator */}
-              <AnimatePresence>
-                {showCalculator && (
-                  <motion.div 
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden flex flex-col gap-3"
+              {/* Calculator & Amount Section (Integrated into Scroll) */}
+              {tab !== 'template' && (
+                <div className="flex flex-col gap-4 pt-4">
+                  {/* Amount Box */}
+                  <div 
+                    onClick={() => setShowCalculator(true)}
+                    className="bg-white border-2 border-[#FFD54F] rounded-[20px] p-4 flex items-center justify-between shadow-inner cursor-pointer"
                   >
-                    {/* Confirmation Status Bar */}
-                    <div className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between">
-                      <div className="flex items-center gap-1 text-[10px] font-bold text-stone-500 overflow-hidden whitespace-nowrap">
-                        <span className="text-[#5D4037]">{currentAccount?.name}</span>
-                        <span>&gt;</span>
-                        {tab === 'transfer' ? (
-                          <span className="text-[#5D4037]">{currentToAccount?.name}</span>
-                        ) : (
-                          <>
-                            <span>{mainCategory}</span>
-                            <span>&gt;</span>
-                            <span className="text-[#5D4037]">{subCategory}</span>
-                          </>
-                        )}
-                      </div>
-                      <button 
-                        onClick={() => setShowCalculator(false)}
-                        className="flex items-center gap-1 text-[10px] font-bold text-blue-400"
-                      >
-                        <ChevronDown size={12} className="rotate-180" />
-                        修改
-                      </button>
+                    <span className="text-xs font-bold text-stone-300">TWD</span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-3xl font-black">{amount}</span>
+                      <button onClick={(e) => { e.stopPropagation(); handleKey('AC'); }} className="w-10 h-10 bg-rose-50 text-rose-400 rounded-full flex items-center justify-center font-bold text-xs">AC</button>
                     </div>
+                  </div>
 
-                    <div className="grid grid-cols-4 gap-2">
-                      {['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '.', '0', '=', '+'].map(k => (
+                  {/* Calculator Grid */}
+                  <AnimatePresence>
+                    {showCalculator && (
+                      <motion.div 
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden flex flex-col gap-4"
+                      >
+                        {/* Confirmation Status Bar */}
+                        <div className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between">
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-stone-500 overflow-hidden whitespace-nowrap">
+                            <span className="text-[#5D4037]">{currentAccount?.name}</span>
+                            <span>&gt;</span>
+                            {tab === 'transfer' ? (
+                              <span className="text-[#5D4037]">{currentToAccount?.name}</span>
+                            ) : (
+                              <>
+                                <span>{mainCategory}</span>
+                                <span>&gt;</span>
+                                <span className="text-[#5D4037]">{subCategory}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-2">
+                          {['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '.', '0', '=', '+'].map(k => (
+                            <button 
+                              key={k}
+                              onClick={() => handleKey(k)}
+                              className={`h-14 rounded-xl flex items-center justify-center text-xl font-bold shadow-sm ${['÷', '×', '-', '+', '='].includes(k) ? 'bg-[#FFD54F] text-[#5D4037]' : k === '=' ? 'bg-[#5D4037] text-white' : 'bg-white text-[#5D4037]'}`}
+                            >
+                              {k}
+                            </button>
+                          ))}
+                        </div>
+                        
                         <button 
-                          key={k}
-                          onClick={() => handleKey(k)}
-                          className={`h-11 rounded-xl flex items-center justify-center text-lg font-bold shadow-sm ${['÷', '×', '-', '+', '='].includes(k) ? 'bg-[#FFD54F] text-[#5D4037]' : k === '=' ? 'bg-[#5D4037] text-white' : 'bg-white text-[#5D4037]'}`}
+                          onClick={() => handleKey('=')}
+                          className="w-full py-5 bg-[#5D4037] text-white rounded-[25px] font-black text-xl shadow-xl mt-2 active:scale-95 transition-transform"
                         >
-                          {k}
+                          儲存紀錄
                         </button>
-                      ))}
-                    </div>
-                    <button 
-                      onClick={() => handleKey('=')}
-                      className="w-full py-4 bg-[#5D4037] text-white rounded-[20px] font-black text-lg shadow-lg mb-2"
-                    >
-                      儲存紀錄
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+              
+              {/* Bottom Spacing */}
+              <div className="h-[40px]" />
+            </div>
           )}
         </div>
       </motion.div>
