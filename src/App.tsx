@@ -162,7 +162,7 @@ export default function App() {
         </header>
 
         {/* Main Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
+        <div className="flex-1 overflow-y-auto no-scrollbar">
           <AnimatePresence mode="wait">
             {currentView === 'home' && (
               <HomeView 
@@ -325,6 +325,9 @@ function HomeView({ stats, onRecordClick, onAccountClick }: { stats: any, onReco
         <StatCard title="本月" date="2026/4/1 - 2026/4/30" expense={stats.monthly.expense} income={stats.monthly.income} />
         <StatCard title="本年" date="2026/01/01 - 2026/12/31" expense={2289} income={0} />
       </div>
+
+      {/* Bottom Buffer */}
+      <div className="h-32 w-full" />
     </motion.div>
   );
 }
@@ -352,7 +355,8 @@ function AccountsView({ accounts, totalAssets, onAccountClick, onAddAccount }: {
 }) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
 
-  const toggleGroup = (id: string) => {
+  const toggleGroup = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setExpandedGroups(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
@@ -361,7 +365,7 @@ function AccountsView({ accounts, totalAssets, onAccountClick, onAddAccount }: {
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-      className="flex flex-col gap-4 px-4"
+      className="flex flex-col gap-4 px-4 pb-32"
     >
       <div className="bg-[#FFD54F] p-5 rounded-[20px] shadow-sm border-2 border-white flex justify-between items-center">
         <div className="flex items-center gap-2">
@@ -380,7 +384,7 @@ function AccountsView({ accounts, totalAssets, onAccountClick, onAddAccount }: {
           return (
             <div key={acc.id} className="flex flex-col gap-2">
               <div 
-                onClick={() => hasChildren ? toggleGroup(acc.id) : onAccountClick(acc)}
+                onClick={() => onAccountClick(acc)}
                 className={`p-4 rounded-[20px] shadow-sm border-2 border-white flex items-center justify-between cursor-pointer transition-all ${acc.type === 'cash' ? 'bg-[#FFECB3]' : acc.type === 'credit' ? 'bg-rose-50' : 'bg-white'}`}
               >
                 <div className="flex items-center gap-3">
@@ -396,12 +400,15 @@ function AccountsView({ accounts, totalAssets, onAccountClick, onAddAccount }: {
                   <span className={`text-lg font-black ${acc.amount < 0 ? 'text-rose-400' : ''}`}>
                     $ {acc.amount.toLocaleString()}
                   </span>
-                  {hasChildren ? (
-                    <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
-                      <ChevronDown className="w-4 h-4 text-stone-300" />
-                    </motion.div>
-                  ) : (
-                    <div className="w-4 h-4" />
+                  {hasChildren && (
+                    <button 
+                      onClick={(e) => toggleGroup(acc.id, e)}
+                      className="p-1 hover:bg-black/5 rounded-full transition-colors"
+                    >
+                      <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
+                        <ChevronDown className="w-5 h-5 text-stone-400" />
+                      </motion.div>
+                    </button>
                   )}
                 </div>
               </div>
@@ -419,7 +426,7 @@ function AccountsView({ accounts, totalAssets, onAccountClick, onAddAccount }: {
                       <div 
                         key={child.id}
                         onClick={() => onAccountClick(child)}
-                        className="p-3 bg-white/60 rounded-[15px] border border-white shadow-sm flex items-center justify-between cursor-pointer"
+                        className="p-3 bg-white/60 rounded-[15px] border border-white shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform"
                       >
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 bg-white/80 rounded-full flex items-center justify-center text-sm">{child.icon}</div>
@@ -428,10 +435,10 @@ function AccountsView({ accounts, totalAssets, onAccountClick, onAddAccount }: {
                         <span className="text-sm font-black">$ {child.amount.toLocaleString()}</span>
                       </div>
                     ))}
-                    {/* Option to add sub-account or edit group */}
+                    {/* Option to view/edit main account details */}
                     <button 
                       onClick={() => onAccountClick(acc)}
-                      className="text-[10px] font-bold text-stone-400 text-center py-1 hover:text-[#5D4037]"
+                      className="text-[10px] font-bold text-stone-400 text-center py-2 hover:text-[#5D4037] active:scale-95 transition-all"
                     >
                       查看/編輯主帳戶詳情
                     </button>
@@ -445,15 +452,18 @@ function AccountsView({ accounts, totalAssets, onAccountClick, onAddAccount }: {
 
       <button 
         onClick={onAddAccount}
-        className="h-16 bg-[#FFD54F] rounded-full flex items-center justify-center gap-2 shadow-sm border-2 border-white mt-4"
+        className="h-16 bg-[#FFD54F] rounded-full flex items-center justify-center gap-2 shadow-sm border-2 border-white mt-4 active:scale-95 transition-transform"
       >
         <Plus className="w-6 h-6 bg-white rounded-full p-1" />
         <span className="font-bold text-lg">新增帳戶</span>
       </button>
 
-      <div className="text-center py-4">
+      <div className="text-center py-8">
         <p className="text-[10px] text-stone-400 italic">💡 這裡可以管理您的 ETF 與存款資產</p>
       </div>
+
+      {/* Bottom Buffer */}
+      <div className="h-32 w-full" />
     </motion.div>
   );
 }
@@ -520,7 +530,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
       </div>
 
       {/* Transaction History Section */}
-      <div className="flex-1 px-4 flex flex-col gap-4 mt-2 mb-24">
+      <div className="flex-1 px-4 flex flex-col gap-4 mt-2">
         <div className="flex items-center justify-between px-2">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-[#5D4037] rounded-lg flex items-center justify-center">
@@ -559,6 +569,8 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
                   </div>
                 </div>
               ))}
+              {/* Bottom Buffer inside scroll area */}
+              <div className="h-32 w-full" />
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-200">
@@ -572,6 +584,9 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
             </div>
           )}
         </div>
+        
+        {/* Bottom Buffer outside scroll area if needed */}
+        <div className="h-32 w-full" />
       </div>
 
       {/* Edit Modal */}
@@ -715,10 +730,10 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
   
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-      className="fixed inset-0 bg-white z-50 flex flex-col"
+      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+      className="flex flex-col bg-white min-h-full"
     >
-      <div className="bg-[#F59E0B] text-white p-4 flex items-center justify-between">
+      <div className="bg-[#F59E0B] text-white p-4 flex items-center justify-between sticky top-0 z-10">
         <ChevronLeft className="cursor-pointer" onClick={onBack} />
         <div className="flex items-center gap-4 font-bold">
           <ChevronLeft className="w-4 h-4" />
@@ -758,13 +773,13 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
         </div>
       </div>
 
-      <div className="flex justify-around py-3 border-b border-stone-100 text-[10px] font-bold">
+      <div className="flex justify-around py-3 border-b border-stone-100 text-[10px] font-bold bg-white">
         <div className="flex flex-col items-center"><span className="text-stone-300">收入</span><span className="text-blue-400">+0</span></div>
         <div className="flex flex-col items-center"><span className="text-stone-300">支出</span><span className="text-rose-400">-763</span></div>
         <div className="flex flex-col items-center"><span className="text-stone-300">結餘</span><span className="text-[#5D4037]">-763</span></div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="p-4 space-y-4">
         <div className="flex justify-between items-center"><span className="font-bold">2026/3/17 明細</span><span className="text-xs text-stone-400">共 1 筆</span></div>
         <div className="bg-white p-4 rounded-[20px] shadow-sm border border-stone-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -773,6 +788,9 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
           </div>
           <span className="text-lg font-black text-rose-400">- $763</span>
         </div>
+        
+        {/* Bottom Buffer */}
+        <div className="h-40 w-full" />
       </div>
     </motion.div>
   );
