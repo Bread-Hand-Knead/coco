@@ -1360,37 +1360,36 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
         {/* Scrollable Content Area */}
         <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-6 px-1">
           {tab === 'template' ? (
-            <div className="space-y-3 py-2">
-              {templates.map((t) => (
-                <div key={t.id} className="relative group">
-                  <button 
-                    onClick={() => handleApplyTemplate(t)}
-                    className="w-full bg-white p-4 rounded-[20px] border-2 border-white shadow-sm flex items-center gap-4 text-left hover:bg-stone-50 transition-colors"
-                  >
-                    <div className={`w-12 h-12 ${t.color} rounded-2xl flex items-center justify-center text-xl`}>{t.icon}</div>
-                    <div className="flex-1 flex flex-col">
-                      <span className="font-bold">{t.name}</span>
-                      <span className="text-[10px] text-stone-400">{t.type === 'transfer' ? '轉帳' : t.category}</span>
-                    </div>
-                    <div className="flex flex-col items-end mr-8">
-                      <span className={`font-black text-lg ${t.type === 'income' ? 'text-blue-400' : 'text-rose-400'}`}>
-                        {t.type === 'income' ? '+' : '-'}$ {t.amount.toLocaleString()}
-                      </span>
-                      {t.type === 'transfer' && (
-                        <span className="text-[8px] text-stone-300">
-                          {accounts.find(a => a.id === t.fromAccountId)?.name} → {accounts.find(a => a.id === t.toAccountId)?.name}
+            <div className="space-y-4 py-2">
+              <span className="text-[10px] font-bold text-stone-300 uppercase px-2">常用範本</span>
+              <HorizontalScrollArea>
+                {templates.map((t) => (
+                  <div key={t.id} className="relative flex-shrink-0 w-[180px]">
+                    <button 
+                      onClick={() => handleApplyTemplate(t)}
+                      className="w-full bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex flex-col gap-2 text-left hover:bg-stone-50 transition-colors h-full"
+                    >
+                      <div className={`w-10 h-10 ${t.color} rounded-2xl flex items-center justify-center text-xl shadow-sm`}>{t.icon}</div>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-[#5D4037] text-sm truncate">{t.name}</span>
+                        <span className="text-[10px] text-stone-400 font-medium">{t.type === 'transfer' ? '轉帳' : t.category}</span>
+                        <span className={`font-black text-sm mt-1 ${t.type === 'income' ? 'text-blue-400' : 'text-rose-400'}`}>
+                          {t.type === 'income' ? '+' : '-'}$ {t.amount.toLocaleString()}
                         </span>
-                      )}
-                    </div>
-                  </button>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setEditingTemplate(t); }}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-stone-300 hover:text-[#5D4037]"
-                  >
-                    <Settings2 size={18} />
-                  </button>
-                </div>
-              ))}
+                      </div>
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setEditingTemplate(t); }}
+                      className="absolute right-3 top-3 p-1.5 text-stone-200 hover:text-[#5D4037] bg-white/50 rounded-full backdrop-blur-sm"
+                    >
+                      <Settings2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </HorizontalScrollArea>
+              
+              {/* Bottom Spacing */}
+              <div className="h-[40px]" />
             </div>
           ) : (
             <div className="space-y-6 pb-4">
@@ -1615,7 +1614,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                   <label className="text-[10px] font-bold text-stone-300 uppercase">
                     {editingTemplate.type === 'transfer' ? '來源帳戶' : '預設帳戶'}
                   </label>
-                  <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
+                  <HorizontalScrollArea>
                     {accounts.map(acc => (
                       <button 
                         key={acc.id}
@@ -1625,14 +1624,14 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                         {acc.icon} {acc.name}
                       </button>
                     ))}
-                  </div>
+                  </HorizontalScrollArea>
                 </div>
 
                 {/* Destination Account (Transfer Only) */}
                 {editingTemplate.type === 'transfer' && (
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-stone-300 uppercase">目的帳戶</label>
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
+                    <HorizontalScrollArea>
                       {accounts.map(acc => (
                         <button 
                           key={acc.id}
@@ -1642,7 +1641,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                           {acc.icon} {acc.name}
                         </button>
                       ))}
-                    </div>
+                    </HorizontalScrollArea>
                   </div>
                 )}
 
@@ -1651,23 +1650,23 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-stone-300 uppercase">主分類</label>
-                      <div className="grid grid-cols-4 gap-2">
+                      <HorizontalScrollArea>
                         {CATEGORIES.map(cat => (
                           <button 
                             key={cat.name}
                             onClick={() => setEditingTemplate({...editingTemplate, category: cat.name})}
-                            className={`py-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${editingTemplate.category.split(' > ')[0] === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037]' : 'bg-white border-white text-stone-400'}`}
+                            className={`flex-shrink-0 px-4 py-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${editingTemplate.category.split(' > ')[0] === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037]' : 'bg-white border-white text-stone-400'}`}
                           >
                             <span className="text-sm">{cat.icon}</span>
                             <span className="text-[8px] font-bold">{cat.name}</span>
                           </button>
                         ))}
-                      </div>
+                      </HorizontalScrollArea>
                     </div>
 
                     {/* Sub Category */}
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-stone-300 uppercase">子分類</label>
+                      <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">子分類</label>
                       <div className="grid grid-cols-3 gap-2">
                         {CATEGORIES.find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub.map(sub => (
                           <button 
@@ -1682,13 +1681,19 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                     </div>
                   </div>
                 )}
-              </div>
 
-              <div className="flex gap-2 pt-2">
-                <button onClick={() => setEditingTemplate(null)} className="flex-1 py-3 bg-stone-100 rounded-xl font-bold text-stone-400">取消</button>
-                <button onClick={handleSaveTemplateEdit} className="flex-1 py-3 bg-[#5D4037] text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg">
-                  <Check size={18} /> 儲存範本
-                </button>
+                {/* Save Button */}
+                <div className="pt-2">
+                  <button 
+                    onClick={handleSaveTemplateEdit}
+                    className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Check size={20} /> 儲存範本
+                  </button>
+                </div>
+
+                {/* Bottom Spacing */}
+                <div className="h-[40px]" />
               </div>
             </motion.div>
           </motion.div>
