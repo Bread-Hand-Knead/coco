@@ -161,6 +161,70 @@ export default function App() {
     setIsRecordModalOpen(false);
   };
 
+  const handleUpdateRecord = (oldRecord: Transaction, newRecord: Transaction) => {
+    // 1. Revert old record
+    setAccounts(prev => prev.map(acc => {
+      let amount = acc.amount;
+      if (acc.id === oldRecord.accountId) {
+        if (oldRecord.type === 'income') amount -= oldRecord.amount;
+        if (oldRecord.type === 'expense') amount += oldRecord.amount;
+        if (oldRecord.type === 'transfer') amount += oldRecord.amount;
+      }
+      if (oldRecord.type === 'transfer' && acc.id === oldRecord.toAccountId) {
+        amount -= oldRecord.amount;
+      }
+      
+      // 2. Apply new record
+      if (acc.id === newRecord.accountId) {
+        if (newRecord.type === 'income') amount += newRecord.amount;
+        if (newRecord.type === 'expense') amount -= newRecord.amount;
+        if (newRecord.type === 'transfer') amount -= newRecord.amount;
+      }
+      if (newRecord.type === 'transfer' && acc.id === newRecord.toAccountId) {
+        amount += newRecord.amount;
+      }
+      
+      return { ...acc, amount };
+    }));
+
+    setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+  };
+
+  const handleDeleteRecord = (record: Transaction) => {
+    setAccounts(prev => prev.map(acc => {
+      if (acc.id === record.accountId) {
+        if (record.type === 'income') return { ...acc, amount: acc.amount - record.amount };
+        if (record.type === 'expense') return { ...acc, amount: acc.amount + record.amount };
+        if (record.type === 'transfer') return { ...acc, amount: acc.amount + record.amount };
+      }
+      if (record.type === 'transfer' && acc.id === record.toAccountId) {
+        return { ...acc, amount: acc.amount - record.amount };
+      }
+      return acc;
+    }));
+    setRecords(prev => prev.filter(r => r.id !== record.id));
+  };
+
+  const handleSaveAccount = (updatedAcc: Account) => {
+    const oldAcc = accounts.find(a => a.id === updatedAcc.id);
+    if (oldAcc && oldAcc.amount !== updatedAcc.amount) {
+      const diff = updatedAcc.amount - oldAcc.amount;
+      const correctionRecord: Transaction = {
+        id: Date.now().toString(),
+        amount: Math.abs(diff),
+        category: '餘額校正',
+        type: diff > 0 ? 'income' : 'expense',
+        accountId: updatedAcc.id,
+        date: new Date().toISOString().split('T')[0]
+      };
+      setRecords(prev => [...prev, correctionRecord]);
+    }
+    setAccounts(prev => prev.map(a => a.id === updatedAcc.id ? updatedAcc : a));
+    if (selectedAccountForDetail?.id === updatedAcc.id) {
+      setSelectedAccountForDetail(updatedAcc);
+    }
+  };
+
   return (
     <div className="h-screen w-full bg-[#FFF9E3] font-sans text-[#5D4037] flex justify-center overflow-hidden select-none">
       {/* Responsive Container for Desktop */}
@@ -205,15 +269,14 @@ export default function App() {
                 account={selectedAccountForDetail}
                 records={records}
                 onBack={() => setCurrentView('accounts')}
-                onSave={(updatedAcc) => {
-                  setAccounts(prev => prev.map(a => a.id === updatedAcc.id ? updatedAcc : a));
-                  setSelectedAccountForDetail(updatedAcc);
-                }}
+                onSave={handleSaveAccount}
                 onDelete={(id) => {
                   setAccounts(prev => prev.filter(a => a.id !== id && a.parentId !== id));
                   setCurrentView('accounts');
                   setSelectedAccountForDetail(null);
                 }}
+                onUpdateRecord={handleUpdateRecord}
+                onDeleteRecord={handleDeleteRecord}
                 accounts={accounts}
               />
             )}
@@ -535,20 +598,26 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
   );
 }
 
-function AccountDetailView({ account, records, onBack, onSave, onDelete, accounts }: { 
+function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdateRecord, onDeleteRecord, accounts }: { 
   account: Account, 
   records: Transaction[],
   onBack: () => void,
   onSave: (acc: Account) => void,
   onDelete: (id: string) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onDeleteRecord: (record: Transaction) => void,
   accounts: Account[]
 }) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   
   const accountRecords = useMemo(() => {
-    return records.filter(r => r.accountId === account.id || r.toAccountId === account.id)
+    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
+    const targetIds = [account.id, ...childrenIds];
+    
+    return records.filter(r => targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [records, account.id]);
+  }, [records, account.id, accounts]);
 
   const totalAmount = useMemo(() => {
     const children = accounts.filter(c => c.parentId === account.id);
@@ -619,14 +688,25 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
           {accountRecords.length > 0 ? (
             <div className="overflow-y-auto p-6 space-y-4 no-scrollbar">
               {accountRecords.map(record => (
-                <div key={record.id} className="flex items-center justify-between py-3 border-b border-stone-50 last:border-0 group">
+                <div 
+                  key={record.id} 
+                  onClick={() => setEditingRecord(record)}
+                  className="flex items-center justify-between py-3 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
+                >
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-xl shadow-sm border border-white group-active:scale-95 transition-transform">
-                      {record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
+                      {record.category === '餘額校正' ? '🔧' : record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
                     </div>
                     <div className="flex flex-col">
                       <span className="font-bold text-sm text-[#5D4037]">{record.category}</span>
-                      <span className="text-[10px] font-bold text-stone-300">{record.date}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-stone-300">{record.date}</span>
+                        {account.parentId === undefined && record.accountId !== account.id && (
+                          <span className="text-[8px] px-1 bg-stone-100 text-stone-400 rounded">
+                            {accounts.find(a => a.id === record.accountId)?.name}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-col items-end">
@@ -661,7 +741,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
         <div className="h-[120px] w-full" />
       </div>
 
-      {/* Edit Modal */}
+      {/* Edit Account Modal */}
       <AnimatePresence>
         {isEditModalOpen && (
           <AccountEditModal 
@@ -676,6 +756,120 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, account
           />
         )}
       </AnimatePresence>
+
+      {/* Edit Record Modal */}
+      <AnimatePresence>
+        {editingRecord && (
+          <EditRecordModal 
+            record={editingRecord}
+            accounts={accounts}
+            onClose={() => setEditingRecord(null)}
+            onSave={(updated) => {
+              onUpdateRecord(editingRecord, updated);
+              setEditingRecord(null);
+            }}
+            onDelete={() => {
+              if (window.confirm('確定要刪除此筆紀錄嗎？')) {
+                onDeleteRecord(editingRecord);
+                setEditingRecord(null);
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
+  record: Transaction,
+  accounts: Account[],
+  onClose: () => void,
+  onSave: (updated: Transaction) => void,
+  onDelete: () => void
+}) {
+  const [edited, setEdited] = useState<Transaction>({ ...record });
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[80] flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[30px] p-6 flex flex-col gap-6 shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-black text-[#5D4037]">編輯紀錄</h3>
+          <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+            <X className="w-6 h-6 text-stone-300" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">金額</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
+              <input 
+                type="number"
+                value={edited.amount}
+                onChange={e => setEdited({ ...edited, amount: parseFloat(e.target.value) || 0 })}
+                className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類</label>
+            <input 
+              value={edited.category}
+              onChange={e => setEdited({ ...edited, category: e.target.value })}
+              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">日期</label>
+            <input 
+              type="date"
+              value={edited.date}
+              onChange={e => setEdited({ ...edited, date: e.target.value })}
+              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶</label>
+            <select 
+              value={edited.accountId}
+              onChange={e => setEdited({ ...edited, accountId: e.target.value })}
+              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
+            >
+              {accounts.map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 pt-2">
+          <button 
+            onClick={() => onSave(edited)}
+            className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
+          >
+            <Check size={24} /> 儲存變更
+          </button>
+          <button 
+            onClick={onDelete}
+            className="w-full py-3 text-rose-400 font-black flex items-center justify-center gap-2 text-sm hover:bg-rose-50 rounded-xl transition-colors"
+          >
+            <Trash2 size={18} /> 刪除紀錄
+          </button>
+        </div>
+      </motion.div>
     </motion.div>
   );
 }
