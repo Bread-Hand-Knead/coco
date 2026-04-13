@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Menu, 
   Calendar as CalendarIcon, 
@@ -94,8 +94,23 @@ const INITIAL_TEMPLATES: Template[] = [
 
 // --- Main App ---
 
+// Helper to parse date string "YYYY-MM-DD" to local Date object
+const parseLocalDate = (dateStr: string) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+// Helper to format Date object to "YYYY-MM-DD"
+const formatLocalDate = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar'>('home');
+  const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(new Date()));
   const [records, setRecords] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('kk_adv_records');
     return saved ? JSON.parse(saved) : INITIAL_RECORDS;
@@ -132,8 +147,19 @@ export default function App() {
     if (currentView === 'calendar') return '日曆明細';
     if (currentView === 'reports') return '收支報表';
     if (currentView === 'more') return '更多設定';
+    
+    // For home view, show the year/month of selectedDate
+    // Strictly parse the string to avoid any date object shifting
+    try {
+      const parts = selectedDate.split('-');
+      if (parts.length >= 2) {
+        return `${parts[0]} / ${parts[1]}`;
+      }
+    } catch (e) {
+      console.error("Error parsing selectedDate for headerTitle", e);
+    }
     return '2026 / 04';
-  }, [currentView, selectedAccountForDetail]);
+  }, [currentView, selectedAccountForDetail, selectedDate]);
 
   const accountBalances = useMemo(() => {
     const balances: Record<string, number> = {};
@@ -183,12 +209,12 @@ export default function App() {
   }, [accounts, accountBalances]);
 
   const stats = useMemo(() => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const monthStr = selectedDate.substring(0, 7);
+    
     // Filter out initial balance records from statistics
     const filteredRecords = records.filter(r => r.category !== '初始資金');
-    const daily = filteredRecords.filter(r => r.date === todayStr);
-    const monthly = filteredRecords.filter(r => r.date.startsWith(todayStr.substring(0, 7)));
+    const daily = filteredRecords.filter(r => r.date === selectedDate);
+    const monthly = filteredRecords.filter(r => r.date.startsWith(monthStr));
     
     return {
       daily: {
@@ -200,7 +226,7 @@ export default function App() {
         income: monthly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
       }
     };
-  }, [records]);
+  }, [records, selectedDate]);
 
   const handleSaveRecord = (record: Omit<Transaction, 'id'>) => {
     const newRecord = { ...record, id: Date.now().toString() };
@@ -271,6 +297,8 @@ export default function App() {
             {currentView === 'home' && (
               <HomeView 
                 stats={stats} 
+                selectedDate={selectedDate}
+                onDateChange={setSelectedDate}
                 onRecordClick={() => setIsRecordModalOpen(true)} 
                 onAccountClick={() => setCurrentView('accounts')}
               />
@@ -328,6 +356,7 @@ export default function App() {
             {currentView === 'calendar' && (
               <CalendarView 
                 records={records} 
+                accounts={accounts}
                 onBack={() => setCurrentView('home')}
               />
             )}
@@ -356,6 +385,7 @@ export default function App() {
               onUpdateTemplates={setTemplates}
               onClose={() => setIsRecordModalOpen(false)}
               onSave={handleSaveRecord}
+              selectedDate={selectedDate}
             />
           )}
         </AnimatePresence>
@@ -375,20 +405,95 @@ function NavButton({ active, icon, label, onClick }: { active: boolean, icon: Re
 
 // --- Views ---
 
-function HomeView({ stats, onRecordClick, onAccountClick }: { stats: any, onRecordClick: () => void, onAccountClick: () => void }) {
-  const dates = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+function HomeView({ stats, selectedDate, onDateChange, onRecordClick, onAccountClick }: { 
+  stats: any, 
+  selectedDate: string,
+  onDateChange: (date: string) => void,
+  onRecordClick: () => void, 
+  onAccountClick: () => void 
+}) {
+  const selectedRef = useRef<HTMLButtonElement>(null);
+
+  const dates = useMemo(() => {
+    const arr = [];
+    const base = parseLocalDate(selectedDate);
+    // Generate a wider range to ensure smooth scrolling
+    for (let i = -15; i <= 15; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      arr.push(formatLocalDate(d));
+    }
+    return arr;
+  }, [selectedDate]);
+
+  useEffect(() => {
+    if (selectedRef.current) {
+      selectedRef.current.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, [selectedDate]);
+
+  const handlePrevDay = () => {
+    const d = parseLocalDate(selectedDate);
+    d.setDate(d.getDate() - 1);
+    onDateChange(formatLocalDate(d));
+  };
+
+  const handleNextDay = () => {
+    const d = parseLocalDate(selectedDate);
+    d.setDate(d.getDate() + 1);
+    onDateChange(formatLocalDate(d));
+  };
+  
+  const weekRange = useMemo(() => {
+    const base = parseLocalDate(selectedDate);
+    const day = base.getDay();
+    const start = new Date(base);
+    start.setDate(base.getDate() - day);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return `${formatLocalDate(start).replace(/-/g, '/')} - ${formatLocalDate(end).replace(/-/g, '/')}`;
+  }, [selectedDate]);
+
+  const monthRange = useMemo(() => {
+    const base = parseLocalDate(selectedDate);
+    const start = new Date(base.getFullYear(), base.getMonth(), 1);
+    const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+    return `${formatLocalDate(start).replace(/-/g, '/')} - ${formatLocalDate(end).replace(/-/g, '/')}`;
+  }, [selectedDate]);
+
+  const yearRange = useMemo(() => {
+    const base = parseLocalDate(selectedDate);
+    return `${base.getFullYear()}/01/01 - ${base.getFullYear()}/12/31`;
+  }, [selectedDate]);
   
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="flex flex-col gap-6 px-4"
     >
-      <div className="flex gap-2 overflow-x-auto no-scrollbar py-2">
-        {dates.map(d => (
-          <div key={d} className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center font-bold ${d === 12 ? 'bg-[#FFD54F] text-white shadow-md' : 'bg-white text-stone-300'}`}>
-            {d}
-          </div>
-        ))}
+      <div className="relative py-2">
+        <HorizontalScrollArea 
+          onLeftClick={handlePrevDay}
+          onRightClick={handleNextDay}
+          className="px-8"
+        >
+          {dates.map(dateStr => {
+            const d = dateStr.split('-')[2];
+            const isSelected = dateStr === selectedDate;
+            const dateObj = parseLocalDate(dateStr);
+            return (
+              <button 
+                key={dateStr} 
+                ref={isSelected ? selectedRef : null}
+                onClick={() => onDateChange(dateStr)}
+                className={`flex-shrink-0 w-12 h-12 rounded-2xl flex flex-col items-center justify-center font-bold transition-all ${isSelected ? 'bg-[#FFD54F] text-[#5D4037] shadow-lg scale-110' : 'bg-white text-stone-300 hover:bg-stone-50'}`}
+              >
+                <span className="text-xs opacity-60 uppercase">{dateObj.toLocaleDateString('zh-TW', { weekday: 'short' })}</span>
+                <span className="text-sm">{parseInt(d)}</span>
+              </button>
+            );
+          })}
+        </HorizontalScrollArea>
       </div>
 
       <div className="flex gap-4">
@@ -411,11 +516,11 @@ function HomeView({ stats, onRecordClick, onAccountClick }: { stats: any, onReco
       <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white grid grid-cols-3 text-center">
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold text-stone-300">本月收入</span>
-          <span className="text-lg font-black text-blue-400">{stats.monthly.income}</span>
+          <span className="text-lg font-black text-blue-400">$ {stats.monthly.income.toLocaleString()}</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold text-stone-300">本月支出</span>
-          <span className="text-lg font-black text-rose-400">{stats.monthly.expense}</span>
+          <span className="text-lg font-black text-rose-400">$ {stats.monthly.expense.toLocaleString()}</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold text-stone-300">可用預算</span>
@@ -424,10 +529,10 @@ function HomeView({ stats, onRecordClick, onAccountClick }: { stats: any, onReco
       </div>
 
       <div className="flex flex-col gap-3">
-        <StatCard title="本日" date="2026/4/12" expense={stats.daily.expense} income={stats.daily.income} />
-        <StatCard title="本週" date="2026/4/12 - 2026/4/18" expense={0} income={0} />
-        <StatCard title="本月" date="2026/4/1 - 2026/4/30" expense={stats.monthly.expense} income={stats.monthly.income} />
-        <StatCard title="本年" date="2026/01/01 - 2026/12/31" expense={2289} income={0} />
+        <StatCard title="本日" date={selectedDate.replace(/-/g, '/')} expense={stats.daily.expense} income={stats.daily.income} />
+        <StatCard title="本週" date={weekRange} expense={0} income={0} />
+        <StatCard title="本月" date={monthRange} expense={stats.monthly.expense} income={stats.monthly.income} />
+        <StatCard title="本年" date={yearRange} expense={0} income={0} />
       </div>
 
       {/* Bottom Buffer */}
@@ -444,8 +549,8 @@ function StatCard({ title, date, expense, income }: { title: string, date: strin
         <span className="text-[10px] font-bold text-stone-300">{date}</span>
       </div>
       <div className="flex flex-col items-end">
-        <span className="text-sm font-bold text-rose-400">- {expense}</span>
-        <span className="text-sm font-bold text-blue-400">+ {income}</span>
+        <span className="text-sm font-bold text-rose-400">- {expense.toLocaleString()}</span>
+        <span className="text-sm font-bold text-blue-400">+ {income.toLocaleString()}</span>
       </div>
     </div>
   );
@@ -760,7 +865,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
                 </div>
               ))}
               {/* Bottom Buffer inside scroll area */}
-              <div className="h-[120px] w-full" />
+              <div className="h-[40px] w-full" />
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-200">
@@ -776,7 +881,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
         </div>
         
         {/* Bottom Buffer outside scroll area if needed */}
-        <div className="h-[120px] w-full" />
+        <div className="h-[40px] w-full" />
       </div>
 
       {/* Edit Account Modal */}
@@ -1116,7 +1221,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   );
 }
 
-function CalendarView({ records, onBack }: { records: Transaction[], onBack: () => void }) {
+function CalendarView({ records, accounts, onBack }: { records: Transaction[], accounts: Account[], onBack: () => void }) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
   const filteredRecords = useMemo(() => records.filter(r => r.category !== '初始資金'), [records]);
@@ -1175,35 +1280,56 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
       </div>
 
       <div className="p-4 space-y-4 flex-1 overflow-y-auto no-scrollbar">
-        <div className="flex justify-between items-center">
-          <span className="font-bold">{selectedDate.replace(/-/g, '/')} 明細</span>
-          <span className="text-xs text-stone-400">共 {dayRecords.length} 筆</span>
+        <div className="flex justify-between items-center px-2">
+          <span className="font-black text-[#5D4037]">{selectedDate.replace(/-/g, '/')} 明細</span>
+          <span className="text-[10px] font-bold text-stone-300 bg-white px-3 py-1 rounded-full border border-stone-100">
+            共 {dayRecords.length} 筆
+          </span>
         </div>
         
         {dayRecords.length > 0 ? dayRecords.map(record => (
-          <div key={record.id} className="bg-white p-4 rounded-[20px] shadow-sm border border-stone-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-stone-50 rounded-xl flex items-center justify-center text-xl">
-                {record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
+          <div 
+            key={record.id} 
+            className="flex items-center gap-4 py-4 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
+          >
+            <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
+              {record.category === '初始資金' ? '💎' : record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
+            </div>
+            
+            <div className="flex-1 flex flex-col gap-1 min-w-0">
+              {/* Line 1: Title */}
+              <span className="font-black text-lg text-[#5D4037] truncate leading-tight">
+                {record.note || record.category}
+              </span>
+              
+              {/* Line 2: Account Info */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
+                  {accounts.find(a => a.id === record.accountId)?.name}
+                </span>
               </div>
-              <div className="flex flex-col">
-                <span className="font-bold">{record.note || record.category}</span>
-                <span className="text-[10px] text-stone-300">{record.type === 'income' ? '收入' : record.type === 'expense' ? '支出' : '轉帳'}</span>
+              
+              {/* Line 3: Amount */}
+              <div className="flex items-center justify-between mt-1">
+                <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
+                  {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
+                </span>
               </div>
             </div>
-            <span className={`text-lg font-black ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
-              {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
-            </span>
           </div>
         )) : (
-          <div className="flex flex-col items-center justify-center py-10 text-stone-200">
-            <AlertCircle size={40} />
-            <span className="mt-2 font-bold">當日無紀錄</span>
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-200 py-10">
+            <div className="w-24 h-24 bg-[#FFFDF5] rounded-full flex items-center justify-center border-4 border-white shadow-inner">
+              <AlertCircle size={48} />
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <span className="font-black text-lg text-stone-300">當日無紀錄</span>
+            </div>
           </div>
         )}
         
         {/* Bottom Buffer */}
-        <div className="h-[120px] w-full" />
+        <div className="h-[40px] w-full" />
       </div>
     </motion.div>
   );
@@ -1274,7 +1400,7 @@ function ReportsView({ records }: { records: Transaction[] }) {
         </div>
       </div>
       
-      <div className="h-[120px]" />
+      <div className="h-[40px]" />
     </motion.div>
   );
 }
@@ -1317,7 +1443,7 @@ function MoreView() {
         </div>
       </div>
       
-      <div className="h-[120px]" />
+      <div className="h-[40px]" />
     </motion.div>
   );
 }
@@ -1334,13 +1460,23 @@ const CATEGORIES = [
 
 // --- Components ---
 
-function HorizontalScrollArea({ children, className = "" }: { children: React.ReactNode, className?: string }) {
+function HorizontalScrollArea({ 
+  children, 
+  className = "", 
+  onLeftClick, 
+  onRightClick 
+}: { 
+  children: React.ReactNode, 
+  className?: string,
+  onLeftClick?: () => void,
+  onRightClick?: () => void
+}) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
-  const [showLeft, setShowLeft] = useState(false);
-  const [showRight, setShowRight] = useState(false);
+  const [showLeft, setShowLeft] = useState(true); // Always show for custom nav if requested
+  const [showRight, setShowRight] = useState(true);
 
   const checkScroll = () => {
-    if (scrollRef.current) {
+    if (scrollRef.current && !onLeftClick) {
       const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
       setShowLeft(scrollLeft > 10);
       setShowRight(scrollLeft < scrollWidth - clientWidth - 10);
@@ -1374,15 +1510,15 @@ function HorizontalScrollArea({ children, className = "" }: { children: React.Re
   return (
     <div className={`relative group/scroll ${className}`}>
       <AnimatePresence>
-        {showLeft && (
+        {(showLeft || onLeftClick) && (
           <motion.button
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -10 }}
-            onClick={() => scroll('left')}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center text-[#5D4037] border border-stone-100 active:scale-90 transition-transform"
+            onClick={(e) => { e.stopPropagation(); onLeftClick ? onLeftClick() : scroll('left'); }}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-10 h-10 bg-white/95 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center text-[#5D4037] border border-stone-100 active:scale-90 transition-all hover:bg-[#FFD54F] hover:text-white"
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={20} />
           </motion.button>
         )}
       </AnimatePresence>
@@ -1395,15 +1531,15 @@ function HorizontalScrollArea({ children, className = "" }: { children: React.Re
       </div>
 
       <AnimatePresence>
-        {showRight && (
+        {(showRight || onRightClick) && (
           <motion.button
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 10 }}
-            onClick={() => scroll('right')}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center text-[#5D4037] border border-stone-100 active:scale-90 transition-transform"
+            onClick={(e) => { e.stopPropagation(); onRightClick ? onRightClick() : scroll('right'); }}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-10 h-10 bg-white/95 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center text-[#5D4037] border border-stone-100 active:scale-90 transition-all hover:bg-[#FFD54F] hover:text-white"
           >
-            <ChevronRight size={16} />
+            <ChevronRight size={20} />
           </motion.button>
         )}
       </AnimatePresence>
@@ -1411,12 +1547,13 @@ function HorizontalScrollArea({ children, className = "" }: { children: React.Re
   );
 }
 
-function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }: { 
+function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, selectedDate }: { 
   accounts: Account[], 
   templates: Template[], 
   onUpdateTemplates: (t: Template[]) => void,
   onClose: () => void, 
-  onSave: (r: any) => void 
+  onSave: (r: any) => void,
+  selectedDate: string
 }) {
   const [tab, setTab] = useState<'template' | 'expense' | 'income' | 'transfer'>('template');
   const [amount, setAmount] = useState('0');
@@ -1433,12 +1570,12 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
     if (key === '=') {
       onSave({ 
         amount: parseFloat(amount), 
-        category: subCategory || mainCategory || '其他', 
+        category: subCategory || mainCategory || (tab === 'transfer' ? '轉帳' : '其他'), 
         note: note.trim() || undefined,
         type: tab as any, 
         accountId: selectedAccountId, 
         toAccountId: tab === 'transfer' ? toAccountId : undefined, 
-        date: new Date().toISOString().split('T')[0] 
+        date: selectedDate 
       });
       return;
     }
@@ -1453,8 +1590,9 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
       type: t.type, 
       accountId: t.fromAccountId, 
       toAccountId: t.toAccountId,
-      date: new Date().toISOString().split('T')[0] 
+      date: selectedDate 
     });
+    onClose();
   };
 
   const handleSaveTemplateEdit = (e: React.FormEvent) => {
@@ -1493,7 +1631,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
           <span className="text-lg font-bold text-[#5D4037]">記一筆</span>
           <div className="flex items-center gap-1 bg-white px-3 py-1 rounded-full border border-stone-100 shadow-sm">
             <CalendarIcon className="w-3 h-3 text-[#5D4037]" />
-            <span className="text-[10px] font-bold text-[#5D4037]">2026/04/12</span>
+            <span className="text-[10px] font-bold text-[#5D4037]">{selectedDate.replace(/-/g, '/')}</span>
           </div>
         </div>
 
@@ -1574,39 +1712,68 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
           ) : (
             <div className="space-y-6 pb-4">
               {/* Step 1: Account Selection */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-stone-300 uppercase px-2">1. 選擇帳戶</span>
-                <HorizontalScrollArea>
-                  {accounts.map(acc => (
-                    <button 
-                      key={acc.id}
-                      onClick={() => {
-                        if (tab === 'transfer') {
-                          if (selectedAccountId === acc.id) return;
-                          setToAccountId(acc.id);
-                        } else {
-                          setSelectedAccountId(acc.id);
-                        }
-                      }}
-                      className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                        (tab !== 'transfer' && selectedAccountId === acc.id) || (tab === 'transfer' && (selectedAccountId === acc.id || toAccountId === acc.id))
-                        ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
-                      }`}
-                    >
-                      <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
-                      <span className="text-[9px] font-bold text-center px-1 leading-tight">{acc.name}</span>
-                      {tab === 'transfer' && selectedAccountId === acc.id && <span className="text-[8px] text-[#5D4037] font-bold">來源</span>}
-                      {tab === 'transfer' && toAccountId === acc.id && <span className="text-[8px] text-[#5D4037] font-bold">目的</span>}
-                    </button>
-                  ))}
-                </HorizontalScrollArea>
-              </div>
+              {tab === 'transfer' ? (
+                <>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-stone-300 uppercase px-2">1. 來源帳戶 (錢從哪裡出)</span>
+                    <HorizontalScrollArea className="px-8">
+                      {accounts.map(acc => (
+                        <button 
+                          key={`from-${acc.id}`}
+                          onClick={() => setSelectedAccountId(acc.id)}
+                          className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                            selectedAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
+                          }`}
+                        >
+                          <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
+                          <span className="text-[9px] font-bold text-center px-1 leading-tight">{acc.name}</span>
+                        </button>
+                      ))}
+                    </HorizontalScrollArea>
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-stone-300 uppercase px-2">2. 目的帳戶 (錢往哪裡去)</span>
+                    <HorizontalScrollArea className="px-8">
+                      {accounts.map(acc => (
+                        <button 
+                          key={`to-${acc.id}`}
+                          onClick={() => setToAccountId(acc.id)}
+                          className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                            toAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
+                          }`}
+                        >
+                          <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
+                          <span className="text-[9px] font-bold text-center px-1 leading-tight">{acc.name}</span>
+                        </button>
+                      ))}
+                    </HorizontalScrollArea>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-stone-300 uppercase px-2">1. 選擇帳戶</span>
+                  <HorizontalScrollArea className="px-8">
+                    {accounts.map(acc => (
+                      <button 
+                        key={acc.id}
+                        onClick={() => setSelectedAccountId(acc.id)}
+                        className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                          selectedAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
+                        }`}
+                      >
+                        <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
+                        <span className="text-[9px] font-bold text-center px-1 leading-tight">{acc.name}</span>
+                      </button>
+                    ))}
+                  </HorizontalScrollArea>
+                </div>
+              )}
 
               {/* Step 2: Main Category Selection */}
               {tab !== 'transfer' && (
                 <div className="space-y-2">
                   <span className="text-[10px] font-bold text-stone-300 uppercase px-2">2. 選擇主分類</span>
-                  <HorizontalScrollArea>
+                  <HorizontalScrollArea className="px-8">
                     {CATEGORIES.map(cat => (
                       <button 
                         key={cat.name}
@@ -1631,7 +1798,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
               {tab !== 'transfer' && mainCategory && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
                   <span className="text-[10px] font-bold text-stone-300 uppercase px-2">3. 選擇子分類</span>
-                  <div className="grid grid-cols-4 gap-3">
+                  <HorizontalScrollArea className="px-8">
                     {currentMainCat?.sub.map(sub => (
                       <button 
                         key={sub}
@@ -1639,12 +1806,14 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                           setSubCategory(sub);
                           setShowCalculator(true);
                         }}
-                        className={`py-3 rounded-xl text-[10px] font-bold transition-all border-2 ${subCategory === sub ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F]' : 'bg-white text-stone-400 border-white shadow-sm'}`}
+                        className={`flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 transition-all ${
+                          subCategory === sub ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-stone-400'
+                        }`}
                       >
                         {sub}
                       </button>
                     ))}
-                  </div>
+                  </HorizontalScrollArea>
                 </motion.div>
               )}
 
