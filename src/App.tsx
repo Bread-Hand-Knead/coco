@@ -62,6 +62,7 @@ interface Template {
   toAccountId?: string;
   icon: string;
   color: string;
+  note?: string;
 }
 
 // --- Initial Data ---
@@ -184,8 +185,10 @@ export default function App() {
   const stats = useMemo(() => {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
-    const daily = records.filter(r => r.date === todayStr);
-    const monthly = records.filter(r => r.date.startsWith(todayStr.substring(0, 7)));
+    // Filter out initial balance records from statistics
+    const filteredRecords = records.filter(r => r.category !== '初始資金');
+    const daily = filteredRecords.filter(r => r.date === todayStr);
+    const monthly = filteredRecords.filter(r => r.date.startsWith(todayStr.substring(0, 7)));
     
     return {
       daily: {
@@ -327,6 +330,12 @@ export default function App() {
                 records={records} 
                 onBack={() => setCurrentView('home')}
               />
+            )}
+            {currentView === 'reports' && (
+              <ReportsView records={records} />
+            )}
+            {currentView === 'more' && (
+              <MoreView />
             )}
           </AnimatePresence>
         </main>
@@ -653,7 +662,8 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
     const targetIds = [account.id, ...childrenIds];
     
-    return records.filter(r => targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))
+    // Filter out initial balance records from the detail list
+    return records.filter(r => (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && r.category !== '初始資金')
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [records, account.id, accounts]);
 
@@ -1107,8 +1117,18 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
 }
 
 function CalendarView({ records, onBack }: { records: Transaction[], onBack: () => void }) {
-  const selectedDay = 17;
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
+  const filteredRecords = useMemo(() => records.filter(r => r.category !== '初始資金'), [records]);
+  const dayRecords = useMemo(() => filteredRecords.filter(r => r.date === selectedDate), [filteredRecords, selectedDate]);
+  
+  const dayStats = useMemo(() => {
+    return {
+      income: dayRecords.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+      expense: dayRecords.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0)
+    };
+  }, [dayRecords]);
+
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
@@ -1122,19 +1142,23 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
         </div>
         <div className="grid grid-cols-7 text-center gap-y-4">
           {Array.from({ length: 35 }).map((_, i) => {
-            const d = i - 1; // Simplified calendar
+            const d = i - 1; // Simplified calendar logic
+            const dateStr = `2026-04-${d < 10 ? '0' + d : d}`;
+            const hasRecords = filteredRecords.some(r => r.date === dateStr);
+            const isSelected = selectedDate === dateStr;
+
             return (
-              <div key={i} className="flex flex-col items-center justify-center h-10 relative">
+              <div key={i} className="flex flex-col items-center justify-center h-10 relative cursor-pointer" onClick={() => d > 0 && d <= 31 && setSelectedDate(dateStr)}>
                 {d > 0 && d <= 31 && (
                   <>
-                    <span className={`text-sm font-bold ${d === selectedDay ? 'text-white z-10' : (i % 7 === 0 || i % 7 === 6 ? 'text-orange-400' : 'text-[#5D4037]')}`}>
+                    <span className={`text-sm font-bold ${isSelected ? 'text-white z-10' : (i % 7 === 0 || i % 7 === 6 ? 'text-orange-400' : 'text-[#5D4037]')}`}>
                       {d}
                     </span>
-                    {d === selectedDay && (
+                    {isSelected && (
                       <div className="absolute inset-0 m-auto w-8 h-8 bg-[#5D4037] rounded-full -z-0" />
                     )}
-                    {d === selectedDay && (
-                      <span className="absolute -bottom-2 text-[8px] text-rose-400 font-bold">763</span>
+                    {hasRecords && !isSelected && (
+                      <div className="absolute bottom-1 w-1 h-1 bg-[#FFD54F] rounded-full" />
                     )}
                   </>
                 )}
@@ -1145,20 +1169,38 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
       </div>
 
       <div className="flex justify-around py-3 border-b border-stone-100 text-[10px] font-bold bg-white">
-        <div className="flex flex-col items-center"><span className="text-stone-300">收入</span><span className="text-blue-400">+0</span></div>
-        <div className="flex flex-col items-center"><span className="text-stone-300">支出</span><span className="text-rose-400">-763</span></div>
-        <div className="flex flex-col items-center"><span className="text-stone-300">結餘</span><span className="text-[#5D4037]">-763</span></div>
+        <div className="flex flex-col items-center"><span className="text-stone-300">收入</span><span className="text-blue-400">+{dayStats.income.toLocaleString()}</span></div>
+        <div className="flex flex-col items-center"><span className="text-stone-300">支出</span><span className="text-rose-400">-{dayStats.expense.toLocaleString()}</span></div>
+        <div className="flex flex-col items-center"><span className="text-stone-300">結餘</span><span className="text-[#5D4037]">{(dayStats.income - dayStats.expense).toLocaleString()}</span></div>
       </div>
 
-      <div className="p-4 space-y-4">
-        <div className="flex justify-between items-center"><span className="font-bold">2026/3/17 明細</span><span className="text-xs text-stone-400">共 1 筆</span></div>
-        <div className="bg-white p-4 rounded-[20px] shadow-sm border border-stone-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-stone-50 rounded-xl flex items-center justify-center text-xl">🍱</div>
-            <div className="flex flex-col"><span className="font-bold">食物</span><span className="text-[10px] text-stone-300">支出</span>Base</div>
-          </div>
-          <span className="text-lg font-black text-rose-400">- $763</span>
+      <div className="p-4 space-y-4 flex-1 overflow-y-auto no-scrollbar">
+        <div className="flex justify-between items-center">
+          <span className="font-bold">{selectedDate.replace(/-/g, '/')} 明細</span>
+          <span className="text-xs text-stone-400">共 {dayRecords.length} 筆</span>
         </div>
+        
+        {dayRecords.length > 0 ? dayRecords.map(record => (
+          <div key={record.id} className="bg-white p-4 rounded-[20px] shadow-sm border border-stone-100 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-stone-50 rounded-xl flex items-center justify-center text-xl">
+                {record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold">{record.note || record.category}</span>
+                <span className="text-[10px] text-stone-300">{record.type === 'income' ? '收入' : record.type === 'expense' ? '支出' : '轉帳'}</span>
+              </div>
+            </div>
+            <span className={`text-lg font-black ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
+              {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
+            </span>
+          </div>
+        )) : (
+          <div className="flex flex-col items-center justify-center py-10 text-stone-200">
+            <AlertCircle size={40} />
+            <span className="mt-2 font-bold">當日無紀錄</span>
+          </div>
+        )}
         
         {/* Bottom Buffer */}
         <div className="h-[120px] w-full" />
@@ -1167,7 +1209,118 @@ function CalendarView({ records, onBack }: { records: Transaction[], onBack: () 
   );
 }
 
-// --- Category Data ---
+function ReportsView({ records }: { records: Transaction[] }) {
+  const filteredRecords = useMemo(() => records.filter(r => r.category !== '初始資金'), [records]);
+  
+  const monthlyStats = useMemo(() => {
+    const now = new Date();
+    const monthStr = now.toISOString().substring(0, 7);
+    const monthly = filteredRecords.filter(r => r.date.startsWith(monthStr));
+    
+    const categories: Record<string, number> = {};
+    monthly.filter(r => r.type === 'expense').forEach(r => {
+      const cat = r.category.split(' > ')[0];
+      categories[cat] = (categories[cat] || 0) + r.amount;
+    });
+    
+    return {
+      income: monthly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+      expense: monthly.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
+      categories: Object.entries(categories).sort((a, b) => b[1] - a[1])
+    };
+  }, [filteredRecords]);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="flex flex-col gap-6 px-4 py-6"
+    >
+      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-4">
+        <div className="flex justify-between items-center">
+          <span className="font-black text-lg">本月收支概況</span>
+          <span className="text-xs font-bold text-stone-300">2026/04</span>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-blue-50 p-4 rounded-2xl flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-blue-400 uppercase">總收入</span>
+            <span className="text-xl font-black text-blue-600">$ {monthlyStats.income.toLocaleString()}</span>
+          </div>
+          <div className="bg-rose-50 p-4 rounded-2xl flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-rose-400 uppercase">總支出</span>
+            <span className="text-xl font-black text-rose-600">$ {monthlyStats.expense.toLocaleString()}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-4">
+        <span className="font-black text-lg">支出分類統計</span>
+        <div className="flex flex-col gap-4">
+          {monthlyStats.categories.length > 0 ? monthlyStats.categories.map(([cat, amt]) => (
+            <div key={cat} className="flex flex-col gap-2">
+              <div className="flex justify-between text-sm font-bold">
+                <span>{cat}</span>
+                <span>$ {amt.toLocaleString()}</span>
+              </div>
+              <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-[#FFD54F]" 
+                  style={{ width: `${(amt / monthlyStats.expense) * 100}%` }}
+                />
+              </div>
+            </div>
+          )) : (
+            <div className="py-10 text-center text-stone-300 font-bold">本月尚無支出紀錄</div>
+          )}
+        </div>
+      </div>
+      
+      <div className="h-[120px]" />
+    </motion.div>
+  );
+}
+
+function MoreView() {
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="flex flex-col gap-4 px-4 py-6"
+    >
+      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-2">
+        <span className="font-black text-lg mb-2">系統設定</span>
+        <div className="flex items-center justify-between py-3 border-b border-stone-50">
+          <span className="font-bold">匯出資料 (CSV)</span>
+          <ChevronRight size={20} className="text-stone-300" />
+        </div>
+        <div className="flex items-center justify-between py-3 border-b border-stone-50">
+          <span className="font-bold">備份與還原</span>
+          <ChevronRight size={20} className="text-stone-300" />
+        </div>
+        <div className="flex items-center justify-between py-3">
+          <span className="font-bold">關於 KK 記帳</span>
+          <span className="text-xs text-stone-300">v2.4.0</span>
+        </div>
+      </div>
+      
+      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-2">
+        <span className="font-black text-lg mb-2">顯示設定</span>
+        <div className="flex items-center justify-between py-3 border-b border-stone-50">
+          <span className="font-bold">深色模式</span>
+          <div className="w-12 h-6 bg-stone-100 rounded-full relative">
+            <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm" />
+          </div>
+        </div>
+        <div className="flex items-center justify-between py-3">
+          <span className="font-bold">隱藏金額</span>
+          <div className="w-12 h-6 bg-[#5D4037] rounded-full relative">
+            <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm" />
+          </div>
+        </div>
+      </div>
+      
+      <div className="h-[120px]" />
+    </motion.div>
+  );
+}
 
 const CATEGORIES = [
   { name: '食物', icon: '🍱', sub: ['早餐', '午餐', '晚餐', '飲料', '零食'] },
@@ -1296,6 +1449,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
     onSave({ 
       amount: t.amount, 
       category: t.category, 
+      note: t.note,
       type: t.type, 
       accountId: t.fromAccountId, 
       toAccountId: t.toAccountId,
@@ -1306,7 +1460,13 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
   const handleSaveTemplateEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTemplate) return;
-    onUpdateTemplates(templates.map(t => t.id === editingTemplate.id ? editingTemplate : t));
+    
+    const exists = templates.find(t => t.id === editingTemplate.id);
+    if (exists) {
+      onUpdateTemplates(templates.map(t => t.id === editingTemplate.id ? editingTemplate : t));
+    } else {
+      onUpdateTemplates([...templates, editingTemplate]);
+    }
     setEditingTemplate(null);
   };
 
@@ -1386,6 +1546,26 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                     </button>
                   </div>
                 ))}
+                {/* Add Template Button */}
+                <div className="flex-shrink-0 w-[180px]">
+                  <button 
+                    onClick={() => setEditingTemplate({
+                      id: Math.random().toString(36).substr(2, 9),
+                      name: '新範本',
+                      amount: 0,
+                      category: '食物',
+                      type: 'expense',
+                      fromAccountId: accounts[0].id,
+                      icon: '✨',
+                      color: 'bg-stone-100',
+                      note: ''
+                    })}
+                    className="w-full h-full bg-stone-50 p-4 rounded-[25px] border-2 border-dashed border-stone-200 flex flex-col items-center justify-center gap-2 text-stone-400 hover:bg-stone-100 transition-colors group"
+                  >
+                    <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-xl shadow-sm group-hover:scale-110 transition-transform">➕</div>
+                    <span className="font-bold text-xs">新增範本</span>
+                  </button>
+                </div>
               </HorizontalScrollArea>
               
               {/* Bottom Spacing */}
@@ -1583,7 +1763,9 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                   <button onClick={() => setEditingTemplate(null)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
                     <ChevronLeft className="w-5 h-5 text-[#5D4037]" />
                   </button>
-                  <h3 className="text-lg font-bold text-[#5D4037]">編輯範本</h3>
+                  <h3 className="text-lg font-bold text-[#5D4037]">
+                    {templates.find(t => t.id === editingTemplate.id) ? '編輯範本' : '新增範本'}
+                  </h3>
                 </div>
               </div>
 
@@ -1606,6 +1788,33 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave }
                       onChange={e => setEditingTemplate({...editingTemplate, amount: parseFloat(e.target.value) || 0})}
                       className="w-full p-3 bg-white border border-stone-100 rounded-xl outline-none font-bold text-sm shadow-sm"
                     />
+                  </div>
+                </div>
+
+                {/* Note Info */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-stone-300 uppercase">預設備註 (買了什麼？)</label>
+                  <input 
+                    value={editingTemplate.note || ''} 
+                    onChange={e => setEditingTemplate({...editingTemplate, note: e.target.value})}
+                    placeholder="例如：開源社雞排"
+                    className="w-full p-3 bg-white border border-stone-100 rounded-xl outline-none font-bold text-sm shadow-sm"
+                  />
+                </div>
+
+                {/* Type Selection */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-stone-300 uppercase">收支類型</label>
+                  <div className="flex gap-2">
+                    {['expense', 'income', 'transfer'].map(type => (
+                      <button
+                        key={type}
+                        onClick={() => setEditingTemplate({...editingTemplate, type: type as any})}
+                        className={`flex-1 py-2 rounded-xl border-2 transition-all text-[10px] font-bold ${editingTemplate.type === type ? 'bg-[#5D4037] text-white border-[#5D4037]' : 'bg-white border-white text-stone-400'}`}
+                      >
+                        {type === 'expense' ? '支出' : type === 'income' ? '收入' : '轉帳'}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
