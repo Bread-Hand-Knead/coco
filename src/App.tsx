@@ -37,7 +37,15 @@ import {
   Search,
   Star,
   Mic,
-  Gift
+  Gift,
+  Lightbulb,
+  Heart,
+  Utensils,
+  ShoppingCart,
+  Bus,
+  Home as HomeIcon,
+  Banknote as BanknoteIcon,
+  Diamond
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -62,6 +70,11 @@ interface Transaction {
   toAccountId?: string; // 轉帳目標帳戶
   toAmount?: number;   // 目標帳戶收到的金額 (換匯後)
   exchangeRate?: number; // 匯率 (1 來源幣別 = X 目標幣別)
+  isInstallment?: boolean;
+  totalInstallments?: number;
+  currentInstallment?: number;
+  installmentGroupId?: string;
+  isCompleted?: boolean;
 }
 
 interface Account {
@@ -358,27 +371,82 @@ export default function App() {
 
   const stats = useMemo(() => {
     const monthStr = selectedDate.substring(0, 7);
+    const yearStr = selectedDate.substring(0, 4);
+    const todayStr = new Date().toISOString().split('T')[0];
     
-    // Filter out initial balance records from statistics
-    const filteredRecords = records.filter(r => r.category !== '初始資金');
+    // Calculate week range (Monday to Sunday)
+    const base = parseLocalDate(selectedDate);
+    const day = base.getDay();
+    const diff = base.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
+    const startOfWeek = new Date(base);
+    startOfWeek.setDate(diff);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    
+    const startOfWeekStr = formatLocalDate(startOfWeek);
+    const endOfWeekStr = formatLocalDate(endOfWeek);
+
+    // Filter out initial balance records and future records from statistics
+    const filteredRecords = records.filter(r => r.category !== '初始資金' && r.date <= todayStr);
+    
     const daily = filteredRecords.filter(r => r.date === selectedDate);
+    const weekly = filteredRecords.filter(r => r.date >= startOfWeekStr && r.date <= endOfWeekStr);
     const monthly = filteredRecords.filter(r => r.date.startsWith(monthStr));
+    const yearly = filteredRecords.filter(r => r.date.startsWith(yearStr));
     
     return {
       daily: {
         expense: daily.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
         income: daily.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
       },
+      weekly: {
+        expense: weekly.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
+        income: weekly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+      },
       monthly: {
         expense: monthly.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
         income: monthly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+      },
+      yearly: {
+        expense: yearly.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
+        income: yearly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
       }
     };
   }, [records, selectedDate]);
 
   const handleSaveRecord = (record: Omit<Transaction, 'id'>) => {
-    const newRecord = { ...record, id: Date.now().toString() };
-    setRecords([...records, newRecord]);
+    if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
+      const installmentGroupId = Date.now().toString();
+      const installmentRecords: Transaction[] = [];
+      const perAmount = Math.round(record.amount / record.totalInstallments);
+      
+      const startDate = new Date(record.date);
+      
+      for (let i = 1; i <= record.totalInstallments; i++) {
+        // 使用精確的月份跳轉邏輯
+        const currentDate = new Date(startDate.getFullYear(), startDate.getMonth() + (i - 1), startDate.getDate());
+        
+        // 格式化日期為 YYYY-MM-DD
+        const y = currentDate.getFullYear();
+        const m = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const d = String(currentDate.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${d}`;
+        
+        installmentRecords.push({
+          ...record,
+          id: `${installmentGroupId}-${i}`,
+          amount: perAmount,
+          note: `${record.note || ''} (分期 ${i}/${record.totalInstallments})`.trim(),
+          date: dateStr,
+          currentInstallment: i,
+          installmentGroupId
+        });
+      }
+      setRecords([...records, ...installmentRecords]);
+    } else {
+      const newRecord = { ...record, id: Date.now().toString() };
+      setRecords([...records, newRecord]);
+    }
     setIsRecordModalOpen(false);
   };
 
@@ -464,17 +532,17 @@ export default function App() {
               <ChevronLeft className="w-7 h-7 text-[#5D4037]" />
             </button>
           )}
-          <div className="text-[24px] font-bold text-[#000000]">{headerTitle}</div>
+          <div className="text-[24px] font-bold text-[#5D4037]">{headerTitle}</div>
           
           <div className="flex items-center gap-2">
-            {['fixedRecords', 'categories', 'history'].includes(currentView) ? (
+            {['fixedRecords', 'categories', 'history', 'installments'].includes(currentView) ? (
               <button 
                 onClick={() => {
                   if (currentView === 'fixedRecords') {
                     window.dispatchEvent(new CustomEvent('trigger-add-fixed-record'));
                   } else if (currentView === 'categories') {
                     window.dispatchEvent(new CustomEvent('trigger-add-category'));
-                  } else if (currentView === 'history') {
+                  } else if (currentView === 'history' || currentView === 'installments') {
                     setIsRecordModalOpen(true);
                   }
                 }}
@@ -626,8 +694,8 @@ export default function App() {
                 totalAssets={totalAssets}
                 totalLiabilities={totalLiabilities}
                 onAccountClick={(acc) => {
-                  setEditingAccount(acc);
-                  setIsAccountEditModalOpen(true);
+                  setSelectedAccountForDetail(acc);
+                  setCurrentView('accountDetail');
                 }}
                 onAddAccount={handleAddAccount}
                 balances={accountBalances}
@@ -677,7 +745,46 @@ export default function App() {
             {currentView === 'projects' && <PlaceholderView title="專案管理" icon={<Briefcase size={48} />} onBack={() => setCurrentView('home')} />}
             {currentView === 'budget' && <PlaceholderView title="預算管理" icon={<PieChart size={48} />} onBack={() => setCurrentView('home')} />}
             {currentView === 'categories' && <CategoryManagementPage categories={categories} onSave={setCategories} onBack={() => setCurrentView('home')} />}
-            {currentView === 'installments' && <PlaceholderView title="分期付款管理" icon={<CreditCard size={48} />} onBack={() => setCurrentView('home')} />}
+            {currentView === 'installments' && (
+              <InstallmentManagementPage 
+                records={records} 
+                onDeleteGroup={(groupId) => setRecords(prev => prev.filter(r => r.installmentGroupId !== groupId))}
+                onEarlySettlement={(groupId, remainingAmount, firstRecord) => {
+                  const today = new Date().toISOString().split('T')[0];
+                  
+                  // 1. 找出並更新已存在的紀錄為「已完成」狀態，並將期數設為總期數
+                  const updatedRecords = records.map(r => {
+                    if (r.installmentGroupId === groupId) {
+                      return {
+                        ...r,
+                        isInstallment: true, // 保持分期屬性以便在管理頁面識別
+                        isCompleted: true,   // 標記為已完成
+                        currentInstallment: r.totalInstallments // 將進度噴滿
+                      };
+                    }
+                    return r;
+                  });
+
+                  // 2. 刪除該計畫原本預定在未來月份產生的所有分期紀錄
+                  const filtered = updatedRecords.filter(r => r.installmentGroupId !== groupId || r.date <= today);
+                  
+                  // 3. 在「今天」自動產生一筆總額為「剩餘未付金額」的支出紀錄
+                  const settlementRecord: Transaction = {
+                    ...firstRecord,
+                    id: `settle-${groupId}-${Date.now()}`,
+                    amount: remainingAmount,
+                    date: today,
+                    note: `${firstRecord.note?.split(' (分期')[0]} (分期提前結清)`,
+                    isInstallment: false, // 結清紀錄本身不屬於分期計畫
+                    installmentGroupId: undefined,
+                    currentInstallment: undefined,
+                    totalInstallments: undefined
+                  };
+                  
+                  setRecords([...filtered, settlementRecord]);
+                }}
+              />
+            )}
             {currentView === 'calendar' && (
               <CalendarView 
                 records={records} 
@@ -810,8 +917,9 @@ function HomeView({ stats, selectedDate, onDateChange, onRecordClick, onAccountC
   const weekRange = useMemo(() => {
     const base = parseLocalDate(selectedDate);
     const day = base.getDay();
+    const diff = base.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
     const start = new Date(base);
-    start.setDate(base.getDate() - day);
+    start.setDate(diff);
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
     return `${formatLocalDate(start).replace(/-/g, '/')} - ${formatLocalDate(end).replace(/-/g, '/')}`;
@@ -876,26 +984,28 @@ function HomeView({ stats, selectedDate, onDateChange, onRecordClick, onAccountC
         </button>
       </div>
 
-      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white grid grid-cols-3 text-center">
+      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white grid grid-cols-3 text-center items-center">
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold text-stone-300">本月收入</span>
-          <span className="text-lg font-black text-blue-400">$ {stats.monthly.income.toLocaleString()}</span>
+          <span className="text-lg font-black text-[#03A9F4]">$ {stats.monthly.income.toLocaleString()}</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold text-stone-300">本月支出</span>
-          <span className="text-lg font-black text-rose-400">$ {stats.monthly.expense.toLocaleString()}</span>
+          <span className="text-lg font-black text-[#E91E63]">$ {stats.monthly.expense.toLocaleString()}</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold text-stone-300">可用預算</span>
-          <span className="text-lg font-black">0</span>
+          <span className={`text-[24px] font-bold ${(stats.monthly.income - stats.monthly.expense) < 0 ? 'text-red-500' : 'text-[#5D4037]'}`}>
+            {(stats.monthly.income - stats.monthly.expense).toLocaleString()}
+          </span>
         </div>
       </div>
 
       <div className="flex flex-col gap-3">
         <StatCard title="本日" date={selectedDate.replace(/-/g, '/')} expense={stats.daily.expense} income={stats.daily.income} onClick={() => onStatClick('day')} />
-        <StatCard title="本週" date={weekRange} expense={0} income={0} onClick={() => onStatClick('week')} />
+        <StatCard title="本週" date={weekRange} expense={stats.weekly.expense} income={stats.weekly.income} onClick={() => onStatClick('week')} />
         <StatCard title="本月" date={monthRange} expense={stats.monthly.expense} income={stats.monthly.income} onClick={() => onStatClick('month')} />
-        <StatCard title="本年" date={yearRange} expense={0} income={0} onClick={() => onStatClick('year')} />
+        <StatCard title="本年" date={yearRange} expense={stats.yearly.expense} income={stats.yearly.income} onClick={() => onStatClick('year')} />
       </div>
 
       {/* Bottom Buffer */}
@@ -912,12 +1022,12 @@ function StatCard({ title, date, expense, income, onClick }: { title: string, da
       className="bg-white rounded-[20px] p-4 shadow-sm border-2 border-white flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors"
     >
       <div className="flex flex-col">
-        <span className="text-lg font-black">{title}</span>
+        <span className="text-[20px] font-bold text-[#5D4037]">{title}</span>
         <span className="text-[10px] font-bold text-stone-300">{date}</span>
       </div>
       <div className="flex flex-col items-end">
-        <span className="text-sm font-bold text-rose-400">- {expense.toLocaleString()}</span>
-        <span className="text-sm font-bold text-blue-400">+ {income.toLocaleString()}</span>
+        <span className="text-[20px] font-bold text-[#E91E63]">- {expense.toLocaleString()}</span>
+        <span className="text-[20px] font-bold text-[#03A9F4]">+ {income.toLocaleString()}</span>
       </div>
     </motion.div>
   );
@@ -1122,8 +1232,10 @@ function AccountDetailView({ account, records, onBack, onEdit, onUpdateRecord, o
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
     const targetIds = [account.id, ...childrenIds];
     
-    // Filter out initial balance records from the detail list
-    return records.filter(r => (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && r.category !== '初始資金')
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Filter out initial balance records and future records from the detail list
+    return records.filter(r => (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && r.category !== '初始資金' && r.date <= todayStr)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [records, account.id, accounts]);
 
@@ -2228,7 +2340,6 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
   
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
   const [newSubName, setNewSubName] = useState('');
-  const [newSubIcon, setNewSubIcon] = useState('⭐');
 
   const filtered = categories.filter(c => c.type === tab);
 
@@ -2262,14 +2373,22 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
     setNewCat({ name: '', icon: '✨', type: 'expense', sub: [] });
   };
 
+  const [editingSubIndex, setEditingSubIndex] = useState<number | null>(null);
+
   const handleAddSub = () => {
     if (!newSubName) return;
-    const subStr = `${newSubIcon} ${newSubName}`;
-    setNewCat(prev => ({
-      ...prev,
-      sub: [...(prev.sub || []), subStr]
-    }));
+    const subStr = newSubName;
+    setNewCat(prev => {
+      const currentSub = prev.sub || [];
+      if (editingSubIndex !== null) {
+        const updatedSub = [...currentSub];
+        updatedSub[editingSubIndex] = subStr;
+        return { ...prev, sub: updatedSub };
+      }
+      return { ...prev, sub: [...currentSub, subStr] };
+    });
     setNewSubName('');
+    setEditingSubIndex(null);
     setIsSubModalOpen(false);
   };
 
@@ -2392,17 +2511,29 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
                   </div>
                   
                   <div className="space-y-2">
-                    {newCat.sub?.map((sub, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-white p-3 rounded-xl border-2 border-stone-50 shadow-sm group">
-                        <span className="font-bold text-[#5D4037] text-sm">{sub}</span>
-                        <button 
-                          onClick={() => removeSub(idx)}
-                          className="p-1 text-stone-200 hover:text-rose-400 transition-colors"
+                    {newCat.sub?.map((sub, idx) => {
+                      return (
+                        <div 
+                          key={idx} 
+                          onClick={() => {
+                            setNewSubName(sub);
+                            setEditingSubIndex(idx);
+                            setIsSubModalOpen(true);
+                          }}
+                          className="flex items-center justify-between bg-white p-3 rounded-xl border-2 border-stone-50 shadow-sm group cursor-pointer hover:border-[#FFD54F] transition-all"
                         >
-                          <X size={16} />
-                        </button>
-                      </div>
-                    ))}
+                          <div className="flex items-center gap-3">
+                            <span className="font-bold text-[#5D4037] text-sm">{sub}</span>
+                          </div>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); removeSub(idx); }}
+                            className="p-1 text-stone-200 hover:text-rose-400 transition-colors"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      );
+                    })}
                     {(!newCat.sub || newCat.sub.length === 0) && (
                       <div className="text-center py-6 border-2 border-dashed border-stone-100 rounded-2xl">
                         <span className="text-xs font-bold text-stone-300">尚未新增子分類</span>
@@ -2438,7 +2569,12 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
               initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
               className="relative bg-white w-full max-w-[280px] rounded-[30px] shadow-2xl p-6 space-y-6"
             >
-              <h4 className="font-black text-[#5D4037] text-center">新增子分類</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-black text-[#5D4037]">{editingSubIndex !== null ? '編輯子分類' : '新增子分類'}</h4>
+                <button onClick={() => { setIsSubModalOpen(false); setEditingSubIndex(null); }} className="p-1 hover:bg-stone-50 rounded-full transition-colors">
+                  <X size={18} className="text-stone-400" />
+                </button>
+              </div>
               
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">名稱</label>
@@ -2447,28 +2583,8 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
                   value={newSubName}
                   onChange={e => setNewSubName(e.target.value)}
                   className="w-full p-3 bg-stone-50 rounded-xl font-bold text-[#5D4037] outline-none border-2 border-transparent focus:border-[#FFD54F] text-sm"
-                  placeholder="子分類名稱"
+                  placeholder="例如：💎 SEVENTEEN 或 ⭐ NCT"
                 />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">圖示</label>
-                <div className="flex justify-around bg-stone-50 p-2 rounded-xl">
-                  {[
-                    { icon: <Star size={20} />, label: '⭐' },
-                    { icon: <Mic size={20} />, label: '🎤' },
-                    { icon: <Gift size={20} />, label: '🎁' },
-                    { icon: <Star size={20} />, label: '💎' } // Using Star as fallback if Diamond not available, but I'll use Gem if I can find it
-                  ].map(item => (
-                    <button 
-                      key={item.label}
-                      onClick={() => setNewSubIcon(item.label)}
-                      className={`p-2 rounded-lg transition-all ${newSubIcon === item.label ? 'bg-[#FFD54F] text-[#5D4037] shadow-sm scale-110' : 'text-stone-300 hover:text-[#5D4037]'}`}
-                    >
-                      {item.icon}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               <div className="flex gap-3">
@@ -2481,6 +2597,223 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
                 <button 
                   onClick={handleAddSub}
                   className="flex-1 py-3 bg-[#5D4037] text-white rounded-xl font-black text-sm shadow-lg active:scale-95"
+                >
+                  確定
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }: { 
+  records: Transaction[], 
+  onDeleteGroup: (groupId: string) => void,
+  onEarlySettlement: (groupId: string, remainingAmount: number, firstRecord: Transaction) => void
+}) {
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [isSettleConfirmOpen, setIsSettleConfirmOpen] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [settleInfo, setSettleInfo] = useState<{ amount: number, first: Transaction } | null>(null);
+
+  const installmentGroups = useMemo(() => {
+    const groups: { [key: string]: Transaction[] } = {};
+    records.forEach(r => {
+      if (r.isInstallment && r.installmentGroupId) {
+        if (!groups[r.installmentGroupId]) groups[r.installmentGroupId] = [];
+        groups[r.installmentGroupId].push(r);
+      }
+    });
+    return Object.values(groups).sort((a, b) => b[0].date.localeCompare(a[0].date));
+  }, [records]);
+
+  const handleDelete = () => {
+    if (selectedGroupId) {
+      onDeleteGroup(selectedGroupId);
+      setIsConfirmOpen(false);
+      setSelectedGroupId(null);
+    }
+  };
+
+  const handleSettle = () => {
+    if (selectedGroupId && settleInfo) {
+      // 強制執行結清邏輯
+      onEarlySettlement(selectedGroupId, settleInfo.amount, settleInfo.first);
+      setIsSettleConfirmOpen(false);
+      setSelectedGroupId(null);
+      setSettleInfo(null);
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+      className="flex flex-col h-full bg-[#FFF9E3]"
+    >
+      <div className="flex-1 overflow-y-auto no-scrollbar px-6 space-y-4 pb-24 pt-4">
+        {installmentGroups.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
+            <div className="w-20 h-20 bg-white rounded-[30px] flex items-center justify-center text-stone-200 shadow-sm">
+              <CreditCard size={40} />
+            </div>
+            <p className="text-stone-300 font-bold">目前沒有進行中的分期項目</p>
+          </div>
+        ) : (
+          installmentGroups.map(group => {
+            const first = group[0];
+            const totalAmount = first.amount * (first.totalInstallments || 1);
+            const perAmount = first.amount;
+            const total = first.totalInstallments || 1;
+            
+            const today = new Date().toISOString().split('T')[0];
+            const paidCount = first.isCompleted ? total : group.filter(r => r.date <= today).length;
+            const progress = (paidCount / total) * 100;
+
+            return (
+              <div 
+                key={first.installmentGroupId}
+                className="bg-white p-6 rounded-[30px] border-2 border-white shadow-sm space-y-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-xl font-black text-[#5D4037]">{first.note?.split(' (分期')[0]}</span>
+                    <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">
+                      起始日：{first.date.replace(/-/g, '/')}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setSelectedGroupId(first.installmentGroupId!);
+                      setIsConfirmOpen(true);
+                    }}
+                    className="p-2 text-stone-200 hover:text-rose-400 transition-colors"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-stone-300">總金額</span>
+                    <span className="text-[18px] font-black text-[#E91E63]">
+                      ${totalAmount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-stone-300">每期金額</span>
+                    <span className="text-[18px] font-black text-[#E91E63]">
+                      ${perAmount.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-stone-300">還款進度</span>
+                    <span className="text-sm font-black text-[#5D4037]">第 {paidCount} / {total} 期</span>
+                  </div>
+                  <div className="h-3 bg-stone-50 rounded-full overflow-hidden border border-stone-100 shadow-inner">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progress}%` }}
+                      className="h-full bg-[#FFD54F] rounded-full"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  {first.isCompleted ? (
+                    <div className="w-full py-3 bg-[#FFD54F]/10 text-[#5D4037] rounded-xl font-bold text-sm text-center border border-[#FFD54F]/20">
+                      ✅ 已提前結清
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={() => {
+                        const today = new Date().toISOString().split('T')[0];
+                        const unpaidRecords = group.filter(r => r.date > today);
+                        const remainingAmount = unpaidRecords.reduce((sum, r) => sum + r.amount, 0);
+                        
+                        if (remainingAmount <= 0) {
+                          alert('此分期已無剩餘未付金額！');
+                          return;
+                        }
+
+                        setSelectedGroupId(first.installmentGroupId!);
+                        setSettleInfo({ amount: remainingAmount, first: first });
+                        setIsSettleConfirmOpen(true);
+                      }}
+                      className="w-full py-3 bg-stone-50 text-[#5D4037] rounded-xl font-bold text-sm hover:bg-[#FFD54F]/20 transition-colors"
+                    >
+                      提前結清
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <AnimatePresence>
+        {isConfirmOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setIsConfirmOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFF9E3] w-full max-w-sm rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white"
+            >
+              <h3 className="text-xl font-black text-[#5D4037] text-center mb-4">確定要刪除這筆分期付款嗎？</h3>
+              <p className="text-stone-400 font-bold text-center mb-8">刪除後將無法恢復所有相關紀錄。</p>
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => setIsConfirmOpen(false)}
+                  className="py-4 bg-white text-stone-400 rounded-2xl font-black shadow-sm"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleDelete}
+                  className="py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg shadow-stone-200"
+                >
+                  確定
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isSettleConfirmOpen && settleInfo && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setIsSettleConfirmOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFF9E3] w-full max-sm rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white"
+            >
+              <h3 className="text-xl font-black text-[#5D4037] text-center mb-4">提前結清確認</h3>
+              <p className="text-stone-400 font-bold text-center mb-8">確定要提前結清剩餘的 ${settleInfo.amount.toLocaleString()} 元嗎？這將會一次性入帳並結束此分期計畫。</p>
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => setIsSettleConfirmOpen(false)}
+                  className="py-4 bg-white text-stone-400 rounded-2xl font-black shadow-sm"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleSettle}
+                  className="py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg shadow-stone-200"
                 >
                   確定
                 </button>
@@ -2565,8 +2898,9 @@ function HistoryView({ records, accounts, filter, onBack, onUpdateRecord, onDele
 
     const startStr = formatLocalDate(start);
     const endStr = formatLocalDate(end);
+    const todayStr = new Date().toISOString().split('T')[0];
 
-    return records.filter(r => r.category !== '初始資金' && r.date >= startStr && r.date <= endStr)
+    return records.filter(r => r.category !== '初始資金' && r.date >= startStr && r.date <= endStr && r.date <= todayStr)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [records, filter]);
 
@@ -2606,7 +2940,7 @@ function HistoryView({ records, accounts, filter, onBack, onUpdateRecord, onDele
                   </span>
                 </div>
                 <div className="flex items-center justify-between mt-1">
-                  <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
+                  <span className={`font-black text-xl ${record.type === 'income' ? 'text-[#03A9F4]' : record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'}`}>
                     {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
                   </span>
                 </div>
@@ -2863,6 +3197,8 @@ function RecordModal({ accounts, categories, templates, onUpdateTemplates, onClo
   const [note, setNote] = useState('');
   const [exchangeRate, setExchangeRate] = useState('1');
   const [toAmount, setToAmount] = useState('0');
+  const [isInstallment, setIsInstallment] = useState(false);
+  const [totalInstallments, setTotalInstallments] = useState(1);
   const [showCalculator, setShowCalculator] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
 
@@ -2891,7 +3227,9 @@ function RecordModal({ accounts, categories, templates, onUpdateTemplates, onClo
         toAccountId: tab === 'transfer' ? toAccountId : undefined, 
         toAmount: tab === 'transfer' ? (parseFloat(toAmount) || finalAmount * rate) : undefined,
         exchangeRate: tab === 'transfer' ? rate : undefined,
-        date: selectedDate 
+        date: selectedDate,
+        isInstallment,
+        totalInstallments: isInstallment ? totalInstallments : undefined
       });
       return;
     }
@@ -3167,14 +3505,55 @@ function RecordModal({ accounts, categories, templates, onUpdateTemplates, onClo
 
               {/* Note Input */}
               {tab !== 'template' && (
-                <div className="space-y-2">
-                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">備註 (買了什麼？)</span>
-                  <input 
-                    value={note}
-                    onChange={e => setNote(e.target.value)}
-                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[16px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                    placeholder="例如：開源社雞排、演唱會周邊"
-                  />
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <span className="text-[18px] font-bold text-[#000000] uppercase px-2">備註 (買了什麼？)</span>
+                    <input 
+                      value={note}
+                      onChange={e => setNote(e.target.value)}
+                      className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[16px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                      placeholder="例如：開源社雞排、演唱會周邊"
+                    />
+                  </div>
+
+                  {/* Installment Section */}
+                  {tab === 'expense' && (
+                    <div className="space-y-4 bg-white/50 p-4 rounded-2xl border-2 border-white shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[18px] font-bold text-[#000000]">分期付款</span>
+                        <button 
+                          onClick={() => setIsInstallment(!isInstallment)}
+                          className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isInstallment ? 'left-7' : 'left-1'}`} />
+                        </button>
+                      </div>
+                      
+                      {isInstallment && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 overflow-hidden">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
+                              <input 
+                                type="number"
+                                min="1"
+                                max="36"
+                                value={totalInstallments}
+                                onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
+                                className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[18px] text-[#000000] outline-none shadow-sm focus:border-[#FFD54F]"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-stone-300 uppercase">每期金額</label>
+                              <div className="w-full p-3 bg-stone-50 border-2 border-transparent rounded-xl font-bold text-[18px] text-[#000000]">
+                                {Math.round(parseFloat(amount) / totalInstallments)}
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3200,7 +3579,7 @@ function RecordModal({ accounts, categories, templates, onUpdateTemplates, onClo
                   >
                     <span className="text-xs font-bold text-stone-300">TWD</span>
                     <div className="flex items-center gap-4">
-                      <span className="text-3xl font-black">{amount}</span>
+                      <span className={`text-3xl font-black ${tab === 'income' ? 'text-[#03A9F4]' : tab === 'expense' ? 'text-[#E91E63]' : 'text-[#5D4037]'}`}>{amount}</span>
                       <button onClick={(e) => { e.stopPropagation(); handleKey('AC'); }} className="w-10 h-10 bg-rose-50 text-rose-400 rounded-full flex items-center justify-center font-bold text-xs">AC</button>
                     </div>
                   </div>
