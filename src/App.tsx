@@ -12,6 +12,7 @@ import {
   BarChart3, 
   MoreHorizontal,
   ChevronDown,
+  ChevronUp,
   Train,
   Smartphone,
   Coins,
@@ -28,16 +29,27 @@ import {
   Eye,
   EyeOff,
   HelpCircle,
+  MoreVertical,
   Repeat,
   Briefcase,
   PieChart,
   Layers,
   Search,
-  Star
+  Star,
+  Mic,
+  Gift
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- Types ---
+
+interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  type: 'income' | 'expense';
+  sub: string[];
+}
 
 interface Transaction {
   id: string;
@@ -59,6 +71,7 @@ interface Account {
   icon: string;
   parentId?: string;
   currency: string;    // 幣別 (如 "TWD", "USD", "JPY")
+  closingDay?: number; // 信用卡結帳日 (1-31)
 }
 
 interface Template {
@@ -88,6 +101,18 @@ interface FixedRecord {
 }
 
 // --- Initial Data ---
+
+const INITIAL_CATEGORIES: Category[] = [
+  { id: 'c1', name: '食物', icon: '🍱', type: 'expense', sub: ['早餐', '午餐', '晚餐', '飲料', '零食'] },
+  { id: 'c2', name: '交通', icon: '🚗', type: 'expense', sub: ['捷運', '公車', '火車', '加油', '停車'] },
+  { id: 'c3', name: '購物', icon: '🛍️', type: 'expense', sub: ['服飾', '日用品', '電子產品', '美妝'] },
+  { id: 'c4', name: '娛樂', icon: '🎮', type: 'expense', sub: ['電影', '遊戲', 'KTV', '旅遊'] },
+  { id: 'c5', name: '生活', icon: '🏠', type: 'expense', sub: ['房租', '水電費', '電話費', '保險'] },
+  { id: 'c6', name: '醫療', icon: '🏥', type: 'expense', sub: ['診所', '藥局', '保健品'] },
+  { id: 'c7', name: '其他', icon: '✨', type: 'expense', sub: ['雜項', '捐款', '禮物'] },
+  { id: 'c8', name: '薪資', icon: '💼', type: 'income', sub: ['月薪', '獎金', '兼職'] },
+  { id: 'c9', name: '投資', icon: '📈', type: 'income', sub: ['股利', '利息', '價差'] },
+];
 
 const INITIAL_ACCOUNTS: Account[] = [
   { id: 'cash', name: '現金', type: 'cash', icon: '💰', currency: 'TWD' },
@@ -133,6 +158,10 @@ const formatLocalDate = (date: Date) => {
 export default function App() {
   const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar' | 'accountDetail' | 'history' | 'fixedRecords' | 'projects' | 'budget' | 'categories' | 'installments'>('home');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isAccountEditModalOpen, setIsAccountEditModalOpen] = useState(false);
+  const [isAccountSortModalOpen, setIsAccountSortModalOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(new Date()));
   const [records, setRecords] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('kk_adv_records');
@@ -141,6 +170,10 @@ export default function App() {
   const [accounts, setAccounts] = useState<Account[]>(() => {
     const saved = localStorage.getItem('kk_adv_accounts');
     return saved ? JSON.parse(saved) : INITIAL_ACCOUNTS;
+  });
+  const [categories, setCategories] = useState<Category[]>(() => {
+    const saved = localStorage.getItem('kk_adv_categories');
+    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
   });
 
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
@@ -170,6 +203,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('kk_adv_fixed_records', JSON.stringify(fixedRecords));
   }, [fixedRecords]);
+
+  useEffect(() => {
+    localStorage.setItem('kk_adv_categories', JSON.stringify(categories));
+  }, [categories]);
 
   const checkFixedRecords = () => {
     const today = new Date();
@@ -242,7 +279,13 @@ export default function App() {
     if (currentView === 'calendar') return '日曆明細';
     if (currentView === 'reports') return '收支報表';
     if (currentView === 'more') return '更多設定';
-    if (currentView === 'history') return '往來明細';
+    if (currentView === 'history') {
+      if (historyFilter.type === 'day') return '本日明細';
+      if (historyFilter.type === 'week') return '本週明細';
+      if (historyFilter.type === 'month') return '本月明細';
+      if (historyFilter.type === 'year') return '本年明細';
+      return '往來明細';
+    }
     if (currentView === 'fixedRecords') return '固定收支管理';
     if (currentView === 'projects') return '專案管理';
     if (currentView === 'budget') return '預算管理';
@@ -347,8 +390,26 @@ export default function App() {
     setRecords(prev => prev.filter(r => r.id !== record.id));
   };
 
+  const handleAddAccount = () => {
+    setEditingAccount({
+      id: Date.now().toString(),
+      name: '',
+      type: 'cash',
+      icon: '💰',
+      currency: 'TWD'
+    });
+    setIsAccountEditModalOpen(true);
+  };
+
   const handleSaveAccount = (updatedAcc: Account, initialAmount?: number) => {
-    setAccounts(prev => prev.map(a => a.id === updatedAcc.id ? updatedAcc : a));
+    setAccounts(prev => {
+      const exists = prev.find(a => a.id === updatedAcc.id);
+      if (exists) {
+        return prev.map(a => a.id === updatedAcc.id ? updatedAcc : a);
+      } else {
+        return [...prev, updatedAcc];
+      }
+    });
     
     if (initialAmount !== undefined) {
       setRecords(prev => {
@@ -371,6 +432,17 @@ export default function App() {
     if (selectedAccountForDetail?.id === updatedAcc.id) {
       setSelectedAccountForDetail(updatedAcc);
     }
+    setIsAccountEditModalOpen(false);
+    setEditingAccount(null);
+  };
+
+  const handleDeleteAccount = (id: string) => {
+    setAccounts(prev => prev.filter(a => a.id !== id && a.parentId !== id));
+    setRecords(prev => prev.filter(r => r.accountId !== id && r.toAccountId !== id));
+    setCurrentView('accounts');
+    setSelectedAccountForDetail(null);
+    setIsAccountEditModalOpen(false);
+    setEditingAccount(null);
   };
 
   return (
@@ -378,7 +450,7 @@ export default function App() {
       {/* Responsive Container for Desktop */}
       <div className="w-full max-w-md h-full flex flex-col bg-[#FFF9E3] relative shadow-2xl md:border-x border-stone-100">
         {/* Header */}
-        <header className="px-4 py-4 flex items-center justify-between bg-[#FFF9E3] z-30 flex-shrink-0">
+        <header className="px-4 py-4 flex items-center justify-between bg-[#FFF9E3] z-30 flex-shrink-0 relative">
           {currentView === 'home' ? (
             <Menu className="w-6 h-6 text-[#5D4037] cursor-pointer" onClick={() => setIsDrawerOpen(true)} />
           ) : (
@@ -392,8 +464,78 @@ export default function App() {
               <ChevronLeft className="w-7 h-7 text-[#5D4037]" />
             </button>
           )}
-          <div className="text-lg font-bold text-[#5D4037]">{headerTitle}</div>
-          <CalendarIcon className="w-6 h-6 cursor-pointer text-[#5D4037]" onClick={() => setCurrentView('calendar')} />
+          <div className="text-[24px] font-bold text-[#000000]">{headerTitle}</div>
+          
+          <div className="flex items-center gap-2">
+            {['fixedRecords', 'categories', 'history'].includes(currentView) ? (
+              <button 
+                onClick={() => {
+                  if (currentView === 'fixedRecords') {
+                    window.dispatchEvent(new CustomEvent('trigger-add-fixed-record'));
+                  } else if (currentView === 'categories') {
+                    window.dispatchEvent(new CustomEvent('trigger-add-category'));
+                  } else if (currentView === 'history') {
+                    setIsRecordModalOpen(true);
+                  }
+                }}
+                className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-md active:scale-95 transition-all"
+              >
+                <Plus size={24} className="text-[#5D4037]" />
+              </button>
+            ) : (
+              <div className="relative">
+                <button 
+                  onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+                  className="p-1 hover:bg-white/50 rounded-full transition-colors"
+                >
+                  <MoreVertical className="w-6 h-6 text-[#5D4037]" />
+                </button>
+
+                <AnimatePresence>
+                  {isMoreMenuOpen && (
+                    <>
+                      <motion.div 
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-40"
+                        onClick={() => setIsMoreMenuOpen(false)}
+                      />
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                        className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-stone-100 py-2 z-50 overflow-hidden"
+                      >
+                        <button 
+                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                          onClick={() => { setCurrentView('calendar'); setIsMoreMenuOpen(false); }}
+                        >
+                          <CalendarIcon size={18} className="text-stone-400" />
+                          <span className="font-bold text-sm">日曆模式</span>
+                        </button>
+                        <button 
+                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                          onClick={() => { setIsAccountSortModalOpen(true); setIsMoreMenuOpen(false); }}
+                        >
+                          <span className="text-lg font-bold text-stone-400 w-[18px] flex justify-center">☰↑</span>
+                          <span className="font-bold text-sm">帳戶排序</span>
+                        </button>
+                        <button 
+                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                          onClick={() => { 
+                            handleAddAccount();
+                            setIsMoreMenuOpen(false);
+                          }}
+                        >
+                          <Plus size={18} className="text-stone-400" />
+                          <span className="font-bold text-sm">新增帳戶</span>
+                        </button>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
         </header>
 
         {/* Side Drawer */}
@@ -484,28 +626,10 @@ export default function App() {
                 totalAssets={totalAssets}
                 totalLiabilities={totalLiabilities}
                 onAccountClick={(acc) => {
-                  setSelectedAccountForDetail(acc);
-                  setCurrentView('accountDetail');
+                  setEditingAccount(acc);
+                  setIsAccountEditModalOpen(true);
                 }}
-                onAddAccount={() => {
-                  const newId = Date.now().toString();
-                  const newAcc: Account = { id: newId, name: '新帳戶', type: 'cash', icon: '💰', currency: 'TWD' };
-                  setAccounts([...accounts, newAcc]);
-                  
-                  // Create initial balance record
-                  const initRecord: Transaction = {
-                    id: `init_${newId}`,
-                    amount: 0,
-                    category: '初始資金',
-                    date: new Date().toISOString().split('T')[0],
-                    type: 'income',
-                    accountId: newId
-                  };
-                  setRecords(prev => [...prev, initRecord]);
-                  
-                  setSelectedAccountForDetail(newAcc);
-                  setCurrentView('accountDetail');
-                }}
+                onAddAccount={handleAddAccount}
                 balances={accountBalances}
               />
             )}
@@ -514,12 +638,9 @@ export default function App() {
                 account={selectedAccountForDetail}
                 records={records}
                 onBack={() => setCurrentView('accounts')}
-                onSave={handleSaveAccount}
-                onDelete={(id) => {
-                  setAccounts(prev => prev.filter(a => a.id !== id && a.parentId !== id));
-                  setRecords(prev => prev.filter(r => r.accountId !== id && r.toAccountId !== id));
-                  setCurrentView('accounts');
-                  setSelectedAccountForDetail(null);
+                onEdit={() => {
+                  setEditingAccount(selectedAccountForDetail);
+                  setIsAccountEditModalOpen(true);
                 }}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
@@ -541,6 +662,7 @@ export default function App() {
               <FixedRecordsView 
                 fixedRecords={fixedRecords} 
                 accounts={accounts}
+                categories={categories}
                 onBack={() => setCurrentView('home')}
                 onSave={(fr) => {
                   if (fixedRecords.find(r => r.id === fr.id)) {
@@ -554,7 +676,7 @@ export default function App() {
             )}
             {currentView === 'projects' && <PlaceholderView title="專案管理" icon={<Briefcase size={48} />} onBack={() => setCurrentView('home')} />}
             {currentView === 'budget' && <PlaceholderView title="預算管理" icon={<PieChart size={48} />} onBack={() => setCurrentView('home')} />}
-            {currentView === 'categories' && <PlaceholderView title="分類管理" icon={<Layers size={48} />} onBack={() => setCurrentView('home')} />}
+            {currentView === 'categories' && <CategoryManagementPage categories={categories} onSave={setCategories} onBack={() => setCurrentView('home')} />}
             {currentView === 'installments' && <PlaceholderView title="分期付款管理" icon={<CreditCard size={48} />} onBack={() => setCurrentView('home')} />}
             {currentView === 'calendar' && (
               <CalendarView 
@@ -584,11 +706,48 @@ export default function App() {
           {isRecordModalOpen && (
             <RecordModal 
               accounts={accounts}
+              categories={categories}
               templates={templates}
               onUpdateTemplates={setTemplates}
               onClose={() => setIsRecordModalOpen(false)}
               onSave={handleSaveRecord}
               selectedDate={selectedDate}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Account Edit Modal */}
+        <AnimatePresence>
+          {isAccountEditModalOpen && editingAccount && (
+            <AccountEditModal 
+              account={editingAccount}
+              accounts={accounts}
+              records={records}
+              onClose={() => {
+                setIsAccountEditModalOpen(false);
+                setEditingAccount(null);
+              }}
+              onSave={handleSaveAccount}
+              onDelete={handleDeleteAccount}
+              onViewDetail={(acc) => {
+                setSelectedAccountForDetail(acc);
+                setCurrentView('accountDetail');
+                setIsAccountEditModalOpen(false);
+                setEditingAccount(null);
+              }}
+            />
+          )}
+        </AnimatePresence>
+        {/* Account Sort Modal */}
+        <AnimatePresence>
+          {isAccountSortModalOpen && (
+            <AccountSortModal 
+              accounts={accounts}
+              onClose={() => setIsAccountSortModalOpen(false)}
+              onSave={(newOrder) => {
+                setAccounts(newOrder);
+                setIsAccountSortModalOpen(false);
+              }}
             />
           )}
         </AnimatePresence>
@@ -941,34 +1100,22 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
         })}
       </div>
 
-      <div className="px-4 mt-6">
-        <button 
-          onClick={onAddAccount}
-          className="w-full h-16 bg-[#FFD54F] rounded-full flex items-center justify-center gap-2 shadow-lg border-4 border-white active:scale-95 transition-all"
-        >
-          <Plus className="w-6 h-6 bg-white rounded-full p-1 text-[#5D4037]" />
-          <span className="font-bold text-lg text-[#5D4037]">新增帳戶</span>
-        </button>
-      </div>
-
       {/* Bottom Buffer */}
       <div className="h-[120px] w-full" />
     </motion.div>
   );
 }
 
-function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdateRecord, onDeleteRecord, accounts, balance }: { 
+function AccountDetailView({ account, records, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, balance }: { 
   account: Account, 
   records: Transaction[],
   onBack: () => void,
-  onSave: (acc: Account, initialAmount: number) => void,
-  onDelete: (id: string) => void,
+  onEdit: () => void,
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
   onDeleteRecord: (record: Transaction) => void,
   accounts: Account[],
   balance: number
 }) {
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   
   const accountRecords = useMemo(() => {
@@ -1003,7 +1150,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
             </div>
           </div>
           <button 
-            onClick={() => setIsEditModalOpen(true)}
+            onClick={onEdit}
             className="w-14 h-14 bg-[#FFD54F] rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-all z-10"
           >
             <Pencil size={24} className="text-[#5D4037]" />
@@ -1061,7 +1208,7 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
                     {/* Line 3: Amount */}
                     <div className="flex items-center justify-between mt-1">
                       <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
-                        {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
+                         $ {record.amount.toLocaleString()}
                       </span>
                       {record.type === 'transfer' && (
                         <span className="text-[10px] font-black text-stone-300 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100">
@@ -1091,23 +1238,6 @@ function AccountDetailView({ account, records, onBack, onSave, onDelete, onUpdat
         {/* Bottom Buffer outside scroll area if needed */}
         <div className="h-[40px] w-full" />
       </div>
-
-      {/* Edit Account Modal */}
-      <AnimatePresence>
-        {isEditModalOpen && (
-          <AccountEditModal 
-            account={account}
-            accounts={accounts}
-            records={records}
-            onClose={() => setIsEditModalOpen(false)}
-            onSave={(updated, initialAmount) => {
-              onSave(updated, initialAmount);
-              setIsEditModalOpen(false);
-            }}
-            onDelete={onDelete}
-          />
-        )}
-      </AnimatePresence>
 
       {/* Edit Record Modal */}
       <AnimatePresence>
@@ -1222,11 +1352,11 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註</label>
+              <label className="text-[18px] font-bold text-[#000000] uppercase tracking-widest px-1">備註 (買了什麼？)</label>
               <input 
                 value={edited.note || ''}
                 onChange={e => setEdited({ ...edited, note: e.target.value })}
-                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                 placeholder="買了什麼？"
               />
             </div>
@@ -1309,14 +1439,16 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
   );
 }
 
-function AccountEditModal({ account, accounts, records, onClose, onSave, onDelete }: { 
+function AccountEditModal({ account, accounts, records, onClose, onSave, onDelete, onViewDetail }: { 
   account: Account, 
   accounts: Account[],
   records: Transaction[],
   onClose: () => void, 
   onSave: (acc: Account, initialAmount: number) => void,
-  onDelete: (id: string) => void
+  onDelete: (id: string) => void,
+  onViewDetail?: (acc: Account) => void
 }) {
+  const isNew = !accounts.find(a => a.id === account.id);
   const [editedAcc, setEditedAcc] = useState<Account>({ ...account });
   const [initialAmount, setInitialAmount] = useState(() => {
     const initRec = records.find(r => r.accountId === account.id && r.category === '初始資金');
@@ -1342,10 +1474,10 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
             <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
               <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
             </button>
-            <h3 className="text-xl font-black text-[#5D4037]">編輯帳戶</h3>
+            <h3 className="text-xl font-black text-[#5D4037]">{isNew ? '新增帳戶' : '編輯帳戶'}</h3>
           </div>
           <div className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-sm">
-            <Edit3 size={20} className="text-[#5D4037]" />
+            {isNew ? <Plus size={20} className="text-[#5D4037]" /> : <Edit3 size={20} className="text-[#5D4037]" />}
           </div>
         </div>
 
@@ -1369,11 +1501,13 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
                 <input 
                   type="number"
+                  disabled={!isNew}
                   value={initialAmount}
                   onChange={e => setInitialAmount(parseFloat(e.target.value) || 0)}
-                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  className={`w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all ${!isNew ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
               </div>
+              {!isNew && <p className="text-[10px] font-bold text-stone-300 px-1">現有帳戶不可修改初始金額</p>}
             </div>
 
             {/* Type Selection */}
@@ -1408,6 +1542,22 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
               </div>
             </div>
 
+            {/* Icon Selection */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">選擇圖示</label>
+              <HorizontalScrollArea>
+                {['💰', '🏦', '💳', '📔', '💵', '🪙', '📱', '🐷', '📈', '🏠', '🚗', '💼', '💎', '🛒', '🍱', '✈️', '🎮', '🎁'].map(icon => (
+                  <button 
+                    key={icon}
+                    onClick={() => setEditedAcc({ ...editedAcc, icon })}
+                    className={`flex-shrink-0 w-12 h-12 rounded-xl border-2 transition-all flex items-center justify-center text-xl ${editedAcc.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md scale-110' : 'bg-white border-stone-50 shadow-sm'}`}
+                  >
+                    {icon}
+                  </button>
+                ))}
+              </HorizontalScrollArea>
+            </div>
+
             {/* Parent Selection */}
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">所屬主帳戶</label>
@@ -1425,23 +1575,65 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                 <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
               </div>
             </div>
+
+            {/* Credit Card Closing Day */}
+            {(editedAcc.type === 'credit' || editedAcc.name.includes('卡')) && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡結帳日</label>
+                <div className="relative">
+                  <input 
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={editedAcc.closingDay || ''}
+                    onChange={e => {
+                      const val = parseInt(e.target.value);
+                      setEditedAcc({ ...editedAcc, closingDay: isNaN(val) ? undefined : Math.min(31, Math.max(1, val)) });
+                    }}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    placeholder="輸入日期 (1-31)"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-stone-300">日</span>
+                </div>
+                <p className="text-[10px] font-bold text-stone-300 px-1">設定結帳日以利後續計算帳單週期</p>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 pt-4">
-            <button 
-              onClick={() => onSave(editedAcc, initialAmount)}
-              className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
-            >
-              <Check size={24} /> 儲存變更
-            </button>
-            <button 
-              onClick={() => {
-                setShowDeleteConfirm(true);
-              }}
-              className="w-full py-3 text-rose-400 font-black flex items-center justify-center gap-2 text-sm hover:bg-rose-50 rounded-xl transition-colors"
-            >
-              <Trash2 size={18} /> 刪除帳戶
-            </button>
+            <div className="flex gap-3">
+              <button 
+                onClick={onClose}
+                className="flex-1 py-4 bg-stone-100 text-stone-400 rounded-2xl font-black text-lg active:scale-95 transition-all"
+              >
+                取消
+              </button>
+              <button 
+                onClick={() => onSave(editedAcc, initialAmount)}
+                className="flex-[2] py-4 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
+              >
+                <Check size={24} /> 儲存
+              </button>
+            </div>
+            
+            {!isNew && (
+              <div className="flex gap-3">
+                {onViewDetail && (
+                  <button 
+                    onClick={() => onViewDetail(editedAcc)}
+                    className="flex-1 py-3 bg-white border-2 border-stone-50 text-[#5D4037] rounded-xl font-bold text-sm active:scale-95 transition-all"
+                  >
+                    查看明細
+                  </button>
+                )}
+                <button 
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex-1 py-3 bg-rose-50 text-rose-400 rounded-xl font-bold text-sm active:scale-95 transition-all"
+                >
+                  刪除帳戶
+                </button>
+              </div>
+            )}
           </div>
           
           {/* Bottom Spacing */}
@@ -1452,26 +1644,26 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
         <AnimatePresence>
           {showDeleteConfirm && (
             <motion.div 
-              initial={{ opacity: 0, y: 100 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 100 }}
-              className="absolute inset-0 bg-rose-500 z-50 flex flex-col items-center justify-center p-8 text-white text-center gap-6"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-[#5D4037]/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-8 text-center"
             >
-              <Trash2 size={64} className="mb-2" />
-              <h4 className="text-2xl font-black">確定要刪除嗎？</h4>
-              <p className="text-sm font-bold opacity-80 text-rose-100">刪除後將無法復原，帳戶相關明細也會一併移除。</p>
-              <div className="flex w-full gap-3 mt-4">
-                <button 
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 py-4 bg-white/20 rounded-2xl font-bold hover:bg-white/30 transition-colors"
-                >
-                  取消
-                </button>
+              <div className="w-20 h-20 bg-rose-400 rounded-full flex items-center justify-center mb-6 shadow-lg">
+                <Trash2 size={40} className="text-white" />
+              </div>
+              <h4 className="text-xl font-black text-white mb-2">確定要刪除嗎？</h4>
+              <p className="text-white/60 text-sm mb-8 font-bold">刪除帳戶將會連同所有相關的明細紀錄一併移除，且無法復原。</p>
+              <div className="flex flex-col w-full gap-3">
                 <button 
                   onClick={() => onDelete(editedAcc.id)}
-                  className="flex-1 py-4 bg-white text-rose-500 rounded-2xl font-black shadow-lg active:scale-95 transition-all"
+                  className="w-full py-4 bg-rose-400 text-white rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all"
                 >
                   確定刪除
+                </button>
+                <button 
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="w-full py-4 bg-white/10 text-white rounded-2xl font-black text-lg active:scale-95 transition-all"
+                >
+                  我再想想
                 </button>
               </div>
             </motion.div>
@@ -1645,44 +1837,40 @@ function DrawerItem({ icon, label, onClick }: { icon: React.ReactNode, label: st
   );
 }
 
-function FixedRecordsView({ fixedRecords, accounts, onBack, onSave, onDelete }: { 
+function FixedRecordsView({ fixedRecords, accounts, categories, onBack, onSave, onDelete }: { 
   fixedRecords: FixedRecord[], 
   accounts: Account[], 
+  categories: Category[],
   onBack: () => void,
   onSave: (fr: FixedRecord) => void,
   onDelete: (id: string) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<FixedRecord | null>(null);
 
+  useEffect(() => {
+    const handleAdd = () => {
+      setEditingRecord({
+        id: Math.random().toString(36).substr(2, 9),
+        name: '',
+        amount: 0,
+        type: 'expense',
+        period: 'monthly',
+        day: 1,
+        accountId: accounts[0].id,
+        category: '其他',
+        autoEntry: true
+      });
+    };
+    window.addEventListener('trigger-add-fixed-record', handleAdd);
+    return () => window.removeEventListener('trigger-add-fixed-record', handleAdd);
+  }, [accounts]);
+
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
-      <div className="p-4 flex items-center justify-between">
-        <button onClick={onBack} className="p-2 hover:bg-white/50 rounded-full transition-colors">
-          <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
-        </button>
-        <span className="font-black text-lg text-[#5D4037]">固定收支管理</span>
-        <button 
-          onClick={() => setEditingRecord({
-            id: Math.random().toString(36).substr(2, 9),
-            name: '',
-            amount: 0,
-            type: 'expense',
-            period: 'monthly',
-            day: 1,
-            accountId: accounts[0].id,
-            category: '其他',
-            autoEntry: true
-          })}
-          className="p-2 bg-[#FFD54F] rounded-full shadow-sm"
-        >
-          <Plus className="w-5 h-5 text-[#5D4037]" />
-        </button>
-      </div>
-
-      <div className="flex-1 px-4 overflow-y-auto no-scrollbar pb-10">
+      <div className="flex-1 px-4 py-6 overflow-y-auto no-scrollbar pb-10">
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-6 space-y-4">
           {fixedRecords.length > 0 ? fixedRecords.map(record => (
             <div 
@@ -1729,6 +1917,7 @@ function FixedRecordsView({ fixedRecords, accounts, onBack, onSave, onDelete }: 
           <FixedRecordEditModal 
             record={editingRecord}
             accounts={accounts}
+            categories={categories}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onSave(updated);
@@ -1745,9 +1934,10 @@ function FixedRecordsView({ fixedRecords, accounts, onBack, onSave, onDelete }: 
   );
 }
 
-function FixedRecordEditModal({ record, accounts, onClose, onSave, onDelete }: { 
+function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, onDelete }: { 
   record: FixedRecord, 
   accounts: Account[], 
+  categories: Category[],
   onClose: () => void, 
   onSave: (fr: FixedRecord) => void,
   onDelete: () => void
@@ -1856,7 +2046,7 @@ function FixedRecordEditModal({ record, accounts, onClose, onSave, onDelete }: {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-stone-300 uppercase">扣款帳戶</label>
+              <label className="text-[18px] font-bold text-[#000000] uppercase">扣款帳戶</label>
               <HorizontalScrollArea className="px-8">
                 {accounts.map(acc => (
                   <button 
@@ -1867,39 +2057,39 @@ function FixedRecordEditModal({ record, accounts, onClose, onSave, onDelete }: {
                     }`}
                   >
                     <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
-                    <span className="text-[9px] font-bold text-center px-1 leading-tight">{acc.name}</span>
+                    <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
                   </button>
                 ))}
               </HorizontalScrollArea>
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-stone-300 uppercase">選擇分類</label>
+              <label className="text-[18px] font-bold text-[#000000] uppercase">選擇分類</label>
               <HorizontalScrollArea className="px-8">
-                {CATEGORIES.map(cat => (
+                {categories.map(cat => (
                   <button 
-                    key={cat.name}
+                    key={cat.id}
                     onClick={() => setEdited({ ...edited, category: cat.name })}
                     className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
                       edited.category.split(' > ')[0] === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
                     }`}
                   >
                     <div className={`w-10 h-10 ${edited.category.split(' > ')[0] === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl`}>{cat.icon}</div>
-                    <span className="text-[9px] font-bold text-center px-1 leading-tight">{cat.name}</span>
+                    <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
                   </button>
                 ))}
               </HorizontalScrollArea>
               
               {/* Sub Category Selection */}
-              {CATEGORIES.find(c => c.name === edited.category.split(' > ')[0]) && (
+              {categories.find(c => c.name === edited.category.split(' > ')[0]) && (
                 <div className="mt-2">
                   <HorizontalScrollArea className="px-8">
-                    {CATEGORIES.find(c => c.name === edited.category.split(' > ')[0])?.sub.map(sub => (
+                    {categories.find(c => c.name === edited.category.split(' > ')[0])?.sub.map(sub => (
                       <button 
                         key={sub}
                         onClick={() => setEdited({ ...edited, category: `${edited.category.split(' > ')[0]} > ${sub}` })}
-                        className={`flex-shrink-0 px-6 h-10 rounded-full font-bold border-2 transition-all text-xs ${
-                          edited.category.includes(sub) ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-stone-400'
+                        className={`flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 transition-all text-[18px] text-[#000000] ${
+                          edited.category.includes(sub) ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-[#000000]'
                         }`}
                       >
                         {sub}
@@ -1938,6 +2128,371 @@ function FixedRecordEditModal({ record, accounts, onClose, onSave, onDelete }: {
   );
 }
 
+function AccountSortModal({ accounts, onClose, onSave }: { 
+  accounts: Account[], 
+  onClose: () => void, 
+  onSave: (newOrder: Account[]) => void 
+}) {
+  const [sortedAccounts, setSortedAccounts] = useState([...accounts]);
+
+  const moveAccount = (index: number, direction: 'up' | 'down') => {
+    const newOrder = [...sortedAccounts];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newOrder.length) return;
+    
+    const temp = newOrder[index];
+    newOrder[index] = newOrder[targetIndex];
+    newOrder[targetIndex] = temp;
+    setSortedAccounts(newOrder);
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-[#5D4037]/40 backdrop-blur-md z-[80] flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[40px] flex flex-col shadow-2xl border-2 border-white overflow-hidden max-h-[80vh]"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-8 pb-4 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+              <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
+            </button>
+            <h3 className="text-xl font-black text-[#5D4037]">帳戶排序</h3>
+          </div>
+          <div className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-sm">
+            <span className="text-lg font-bold text-[#5D4037]">☰↑</span>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-2 space-y-2">
+          {sortedAccounts.map((acc, index) => (
+            <div 
+              key={acc.id}
+              className={`flex items-center gap-3 p-4 bg-white rounded-2xl border-2 border-stone-50 shadow-sm transition-all ${acc.parentId ? 'ml-6 scale-95 opacity-80' : ''}`}
+            >
+              <div className="w-10 h-10 bg-[#FFFDF5] rounded-xl flex items-center justify-center text-xl border border-stone-50">
+                {acc.icon}
+              </div>
+              <div className="flex-1 flex flex-col">
+                <span className="font-black text-[#5D4037] text-sm truncate">{acc.name}</span>
+                <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">{acc.currency}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button 
+                  disabled={index === 0}
+                  onClick={() => moveAccount(index, 'up')}
+                  className="p-2 hover:bg-stone-100 rounded-lg text-stone-300 disabled:opacity-20 transition-all"
+                >
+                  <ChevronUp size={20} />
+                </button>
+                <button 
+                  disabled={index === sortedAccounts.length - 1}
+                  onClick={() => moveAccount(index, 'down')}
+                  className="p-2 hover:bg-stone-100 rounded-lg text-stone-300 disabled:opacity-20 transition-all"
+                >
+                  <ChevronDown size={20} />
+                </button>
+              </div>
+            </div>
+          ))}
+          <div className="h-[40px]" />
+        </div>
+
+        <div className="p-8 pt-4 flex-shrink-0">
+          <button 
+            onClick={() => onSave(sortedAccounts)}
+            className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
+          >
+            <Check size={24} /> 完成排序
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function CategoryManagementPage({ categories, onSave, onBack }: { 
+  categories: Category[], 
+  onSave: (cats: Category[]) => void,
+  onBack: () => void 
+}) {
+  const [tab, setTab] = useState<'expense' | 'income'>('expense');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingCat, setEditingCat] = useState<Category | null>(null);
+  const [newCat, setNewCat] = useState<Partial<Category>>({ name: '', icon: '✨', type: 'expense', sub: [] });
+  
+  const [isSubModalOpen, setIsSubModalOpen] = useState(false);
+  const [newSubName, setNewSubName] = useState('');
+  const [newSubIcon, setNewSubIcon] = useState('⭐');
+
+  const filtered = categories.filter(c => c.type === tab);
+
+  useEffect(() => {
+    const handleAdd = () => {
+      setNewCat({ name: '', icon: '✨', type: tab, sub: [] });
+      setEditingCat(null);
+      setIsAddModalOpen(true);
+    };
+    window.addEventListener('trigger-add-category', handleAdd);
+    return () => window.removeEventListener('trigger-add-category', handleAdd);
+  }, [tab]);
+
+  const handleSave = () => {
+    if (!newCat.name) return;
+    const catToSave = {
+      id: editingCat?.id || Math.random().toString(36).substr(2, 9),
+      name: newCat.name,
+      icon: newCat.icon || '✨',
+      type: tab,
+      sub: newCat.sub || []
+    } as Category;
+
+    if (editingCat) {
+      onSave(categories.map(c => c.id === editingCat.id ? catToSave : c));
+    } else {
+      onSave([...categories, catToSave]);
+    }
+    setIsAddModalOpen(false);
+    setEditingCat(null);
+    setNewCat({ name: '', icon: '✨', type: 'expense', sub: [] });
+  };
+
+  const handleAddSub = () => {
+    if (!newSubName) return;
+    const subStr = `${newSubIcon} ${newSubName}`;
+    setNewCat(prev => ({
+      ...prev,
+      sub: [...(prev.sub || []), subStr]
+    }));
+    setNewSubName('');
+    setIsSubModalOpen(false);
+  };
+
+  const removeSub = (index: number) => {
+    setNewCat(prev => ({
+      ...prev,
+      sub: (prev.sub || []).filter((_, i) => i !== index)
+    }));
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+      className="flex flex-col h-full bg-[#FFF9E3]"
+    >
+      <div className="p-6 flex flex-col gap-6">
+        <div className="flex bg-white/50 p-1.5 rounded-2xl border-2 border-white shadow-sm">
+          {(['expense', 'income'] as const).map(t => (
+            <button 
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${tab === t ? 'bg-[#5D4037] text-white shadow-md' : 'text-stone-400'}`}
+            >
+              {t === 'expense' ? '支出分類' : '收入分類'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto no-scrollbar px-6 space-y-3 pb-24">
+        {filtered.map(cat => (
+          <div 
+            key={cat.id}
+            className="bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex items-center justify-between group"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50">
+                {cat.icon}
+              </div>
+              <div className="flex flex-col">
+                <span className="font-black text-[#5D4037]">{cat.name}</span>
+                <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">
+                  {cat.sub.length} 個子分類
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button 
+                onClick={() => { setEditingCat(cat); setNewCat(cat); setIsAddModalOpen(true); }}
+                className="p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] transition-all"
+              >
+                <Pencil size={18} />
+              </button>
+              <button 
+                onClick={() => onSave(categories.filter(c => c.id !== cat.id))}
+                className="p-2 hover:bg-rose-50 rounded-xl text-stone-200 hover:text-rose-400 transition-all"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add/Edit Modal */}
+      <AnimatePresence>
+        {isAddModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md"
+              onClick={() => setIsAddModalOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+              className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[85vh]"
+            >
+              <div className="p-8 pb-4 flex items-center justify-between">
+                <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯分類' : '新增分類'}</h3>
+                <button onClick={() => setIsAddModalOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                  <X size={20} className="text-stone-400" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto no-scrollbar p-8 pt-2 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類名稱</label>
+                  <input 
+                    value={newCat.name}
+                    onChange={e => setNewCat({ ...newCat, name: e.target.value })}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    placeholder="輸入分類名稱"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類圖示</label>
+                  <div className="grid grid-cols-6 gap-2">
+                    {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '👗', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
+                      <button 
+                        key={icon}
+                        onClick={() => setNewCat({ ...newCat, icon })}
+                        className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl transition-all ${newCat.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md scale-110' : 'bg-white border-stone-50 shadow-sm'}`}
+                      >
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest">子分類列表</label>
+                    <button 
+                      onClick={() => setIsSubModalOpen(true)}
+                      className="text-[10px] font-black text-[#FFD54F] uppercase tracking-widest flex items-center gap-1 hover:opacity-80 transition-opacity"
+                    >
+                      <Plus size={12} /> 新增子分類
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {newCat.sub?.map((sub, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-white p-3 rounded-xl border-2 border-stone-50 shadow-sm group">
+                        <span className="font-bold text-[#5D4037] text-sm">{sub}</span>
+                        <button 
+                          onClick={() => removeSub(idx)}
+                          className="p-1 text-stone-200 hover:text-rose-400 transition-colors"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                    {(!newCat.sub || newCat.sub.length === 0) && (
+                      <div className="text-center py-6 border-2 border-dashed border-stone-100 rounded-2xl">
+                        <span className="text-xs font-bold text-stone-300">尚未新增子分類</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 pt-4">
+                <button 
+                  onClick={handleSave}
+                  className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <Check size={20} /> 儲存分類
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Sub-category Add Modal */}
+      <AnimatePresence>
+        {isSubModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-[#5D4037]/20 backdrop-blur-sm"
+              onClick={() => setIsSubModalOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-[280px] rounded-[30px] shadow-2xl p-6 space-y-6"
+            >
+              <h4 className="font-black text-[#5D4037] text-center">新增子分類</h4>
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">名稱</label>
+                <input 
+                  autoFocus
+                  value={newSubName}
+                  onChange={e => setNewSubName(e.target.value)}
+                  className="w-full p-3 bg-stone-50 rounded-xl font-bold text-[#5D4037] outline-none border-2 border-transparent focus:border-[#FFD54F] text-sm"
+                  placeholder="子分類名稱"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">圖示</label>
+                <div className="flex justify-around bg-stone-50 p-2 rounded-xl">
+                  {[
+                    { icon: <Star size={20} />, label: '⭐' },
+                    { icon: <Mic size={20} />, label: '🎤' },
+                    { icon: <Gift size={20} />, label: '🎁' },
+                    { icon: <Star size={20} />, label: '💎' } // Using Star as fallback if Diamond not available, but I'll use Gem if I can find it
+                  ].map(item => (
+                    <button 
+                      key={item.label}
+                      onClick={() => setNewSubIcon(item.label)}
+                      className={`p-2 rounded-lg transition-all ${newSubIcon === item.label ? 'bg-[#FFD54F] text-[#5D4037] shadow-sm scale-110' : 'text-stone-300 hover:text-[#5D4037]'}`}
+                    >
+                      {item.icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setIsSubModalOpen(false)}
+                  className="flex-1 py-3 bg-stone-100 text-stone-400 rounded-xl font-black text-sm"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleAddSub}
+                  className="flex-1 py-3 bg-[#5D4037] text-white rounded-xl font-black text-sm shadow-lg active:scale-95"
+                >
+                  確定
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
 function PlaceholderView({ title, icon, onBack }: { title: string, icon: React.ReactNode, onBack: () => void }) {
   return (
     <motion.div 
@@ -1951,10 +2506,23 @@ function PlaceholderView({ title, icon, onBack }: { title: string, icon: React.R
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-black text-[#5D4037]">{title}</h2>
-            <p className="text-sm font-bold text-stone-300 leading-relaxed">
-              此功能正在開發中<br />敬請期待專業版的完整功能！
-            </p>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-black text-[#FFD54F] uppercase tracking-widest">Coming Soon</span>
+              <p className="text-sm font-bold text-stone-300 leading-relaxed">
+                此功能正在開發中<br />將在下個版本提供專業級的分析與管理！
+              </p>
+            </div>
           </div>
+          
+          <div className="w-full max-w-[200px] h-1.5 bg-stone-100 rounded-full overflow-hidden">
+            <motion.div 
+              initial={{ x: '-100%' }}
+              animate={{ x: '100%' }}
+              transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+              className="w-1/2 h-full bg-[#FFD54F]"
+            />
+          </div>
+
           <button 
             onClick={onBack}
             className="mt-4 px-8 py-3 bg-[#5D4037] text-white rounded-full font-bold shadow-lg active:scale-95 transition-transform"
@@ -1962,7 +2530,6 @@ function PlaceholderView({ title, icon, onBack }: { title: string, icon: React.R
             返回首頁
           </button>
         </div>
-        <div className="h-[40px]" />
       </div>
     </motion.div>
   );
@@ -2016,15 +2583,7 @@ function HistoryView({ records, accounts, filter, onBack, onUpdateRecord, onDele
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
-      <div className="p-4 flex items-center justify-between">
-        <button onClick={onBack} className="p-2 hover:bg-white/50 rounded-full transition-colors">
-          <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
-        </button>
-        <span className="font-black text-lg text-[#5D4037]">{filterLabel}</span>
-        <div className="w-10" />
-      </div>
-
-      <div className="flex-1 px-4 overflow-y-auto no-scrollbar pb-10">
+      <div className="flex-1 px-4 overflow-y-auto no-scrollbar pb-10 pt-4">
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-6 space-y-4">
           {filteredRecords.length > 0 ? filteredRecords.map(record => (
             <div 
@@ -2197,16 +2756,6 @@ function MoreView() {
   );
 }
 
-const CATEGORIES = [
-  { name: '食物', icon: '🍱', sub: ['早餐', '午餐', '晚餐', '飲料', '零食'] },
-  { name: '交通', icon: '🚗', sub: ['捷運', '公車', '火車', '加油', '停車'] },
-  { name: '購物', icon: '🛍️', sub: ['服飾', '日用品', '電子產品', '美妝'] },
-  { name: '娛樂', icon: '🎮', sub: ['電影', '遊戲', 'KTV', '旅遊'] },
-  { name: '生活', icon: '🏠', sub: ['房租', '水電費', '電話費', '保險'] },
-  { name: '醫療', icon: '🏥', sub: ['診所', '藥局', '保健品'] },
-  { name: '其他', icon: '✨', sub: ['雜項', '捐款', '禮物'] },
-];
-
 // --- Components ---
 
 function HorizontalScrollArea({ 
@@ -2296,8 +2845,9 @@ function HorizontalScrollArea({
   );
 }
 
-function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, selectedDate }: { 
+function RecordModal({ accounts, categories, templates, onUpdateTemplates, onClose, onSave, selectedDate }: { 
   accounts: Account[], 
+  categories: Category[],
   templates: Template[], 
   onUpdateTemplates: (t: Template[]) => void,
   onClose: () => void, 
@@ -2318,7 +2868,13 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
 
   const currentAccount = accounts.find(a => a.id === selectedAccountId);
   const currentToAccount = accounts.find(a => a.id === toAccountId);
-  const currentMainCat = CATEGORIES.find(c => c.name === mainCategory);
+  const currentMainCat = categories.find(c => c.name === mainCategory);
+
+  const filteredCategories = categories.filter(c => {
+    if (tab === 'expense') return c.type === 'expense';
+    if (tab === 'income') return c.type === 'income';
+    return false;
+  });
 
   const handleKey = (key: string) => {
     if (key === 'AC') { setAmount('0'); return; }
@@ -2415,7 +2971,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
         <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-6 px-1">
           {tab === 'template' ? (
             <div className="space-y-4 py-2">
-              <span className="text-[10px] font-bold text-stone-300 uppercase px-2">常用範本</span>
+              <span className="text-[20px] font-bold text-[#000000] uppercase px-2">常用範本</span>
               <HorizontalScrollArea>
                 {templates.map((t) => (
                   <div key={t.id} className="relative flex-shrink-0 w-[180px]">
@@ -2425,9 +2981,9 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                     >
                       <div className={`w-10 h-10 ${t.color} rounded-2xl flex items-center justify-center text-xl shadow-sm`}>{t.icon}</div>
                       <div className="flex flex-col">
-                        <span className="font-bold text-[#5D4037] text-sm truncate">{t.name}</span>
-                        <span className="text-[10px] text-stone-400 font-medium">{t.type === 'transfer' ? '轉帳' : t.category}</span>
-                        <span className={`font-black text-sm mt-1 ${t.type === 'income' ? 'text-blue-400' : 'text-rose-400'}`}>
+                        <span className="font-bold text-[#000000] text-[18px] truncate">{t.name}</span>
+                        <span className="text-[16px] text-stone-400 font-medium">{t.type === 'transfer' ? '轉帳' : t.category}</span>
+                        <span className={`font-black text-[18px] mt-1 ${t.type === 'income' ? 'text-blue-400' : 'text-rose-400'}`}>
                           {t.type === 'income' ? '+' : '-'}$ {t.amount.toLocaleString()}
                         </span>
                       </div>
@@ -2472,8 +3028,8 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                 <>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between px-2">
-                      <span className="text-[10px] font-bold text-stone-300 uppercase">1. 來源帳戶 (錢從哪裡出)</span>
-                      <span className="text-[10px] font-bold text-[#5D4037] bg-[#FFD54F]/20 px-2 py-0.5 rounded-full">
+                      <span className="text-[18px] font-bold text-[#000000] uppercase">1. 來源帳戶 (錢從哪裡出)</span>
+                      <span className="text-[16px] font-bold text-[#000000] bg-[#FFD54F]/20 px-2 py-0.5 rounded-full">
                         {currentAccount?.currency}
                       </span>
                     </div>
@@ -2487,15 +3043,15 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                           }`}
                         >
                           <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
-                          <span className="text-[9px] font-bold text-center px-1 leading-tight">{acc.name}</span>
+                          <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
                         </button>
                       ))}
                     </HorizontalScrollArea>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between px-2">
-                      <span className="text-[10px] font-bold text-stone-300 uppercase">2. 目的帳戶 (錢往哪裡去)</span>
-                      <span className="text-[10px] font-bold text-[#5D4037] bg-[#FFD54F]/20 px-2 py-0.5 rounded-full">
+                      <span className="text-[18px] font-bold text-[#000000] uppercase">2. 目的帳戶 (錢往哪裡去)</span>
+                      <span className="text-[16px] font-bold text-[#000000] bg-[#FFD54F]/20 px-2 py-0.5 rounded-full">
                         {currentToAccount?.currency}
                       </span>
                     </div>
@@ -2509,7 +3065,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                           }`}
                         >
                           <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
-                          <span className="text-[9px] font-bold text-center px-1 leading-tight">{acc.name}</span>
+                          <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
                         </button>
                       ))}
                     </HorizontalScrollArea>
@@ -2543,7 +3099,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                 </>
               ) : (
                 <div className="space-y-2">
-                  <span className="text-[10px] font-bold text-stone-300 uppercase px-2">1. 選擇帳戶</span>
+                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">1. 選擇帳戶</span>
                   <HorizontalScrollArea className="px-8">
                     {accounts.map(acc => (
                       <button 
@@ -2554,7 +3110,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                         }`}
                       >
                         <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
-                        <span className="text-[9px] font-bold text-center px-1 leading-tight">{acc.name}</span>
+                        <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
                       </button>
                     ))}
                   </HorizontalScrollArea>
@@ -2564,11 +3120,11 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
               {/* Step 2: Main Category Selection */}
               {tab !== 'transfer' && (
                 <div className="space-y-2">
-                  <span className="text-[10px] font-bold text-stone-300 uppercase px-2">2. 選擇主分類</span>
+                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">2. 選擇主分類</span>
                   <HorizontalScrollArea className="px-8">
-                    {CATEGORIES.map(cat => (
+                    {filteredCategories.map(cat => (
                       <button 
-                        key={cat.name}
+                        key={cat.id}
                         onClick={() => {
                           setMainCategory(cat.name);
                           setSubCategory(null);
@@ -2579,7 +3135,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                         }`}
                       >
                         <div className={`w-10 h-10 ${mainCategory === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl`}>{cat.icon}</div>
-                        <span className="text-[9px] font-bold text-center px-1 leading-tight">{cat.name}</span>
+                        <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
                       </button>
                     ))}
                   </HorizontalScrollArea>
@@ -2589,7 +3145,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
               {/* Step 3: Sub Category Selection */}
               {tab !== 'transfer' && mainCategory && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
-                  <span className="text-[10px] font-bold text-stone-300 uppercase px-2">3. 選擇子分類</span>
+                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">3. 選擇子分類</span>
                   <HorizontalScrollArea className="px-8">
                     {currentMainCat?.sub.map(sub => (
                       <button 
@@ -2598,8 +3154,8 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                           setSubCategory(sub);
                           setShowCalculator(true);
                         }}
-                        className={`flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 transition-all ${
-                          subCategory === sub ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-stone-400'
+                        className={`flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 transition-all text-[18px] text-[#000000] ${
+                          subCategory === sub ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-[#000000]'
                         }`}
                       >
                         {sub}
@@ -2612,11 +3168,11 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
               {/* Note Input */}
               {tab !== 'template' && (
                 <div className="space-y-2">
-                  <span className="text-[10px] font-bold text-stone-300 uppercase px-2">備註 (買了什麼？)</span>
+                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">備註 (買了什麼？)</span>
                   <input 
                     value={note}
                     onChange={e => setNote(e.target.value)}
-                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[16px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                     placeholder="例如：開源社雞排、演唱會周邊"
                   />
                 </div>
@@ -2660,16 +3216,16 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                       >
                         {/* Confirmation Status Bar */}
                         <div className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between">
-                          <div className="flex items-center gap-1 text-[10px] font-bold text-stone-500 overflow-hidden whitespace-nowrap">
-                            <span className="text-[#5D4037]">{currentAccount?.name}</span>
+                          <div className="flex items-center gap-1 text-[20px] font-bold text-[#000000] overflow-hidden whitespace-nowrap">
+                            <span className="text-[#000000]">{currentAccount?.name}</span>
                             <span>&gt;</span>
                             {tab === 'transfer' ? (
-                              <span className="text-[#5D4037]">{currentToAccount?.name}</span>
+                              <span className="text-[#000000]">{currentToAccount?.name}</span>
                             ) : (
                               <>
                                 <span>{mainCategory}</span>
                                 <span>&gt;</span>
-                                <span className="text-[#5D4037]">{subCategory}</span>
+                                <span className="text-[#000000]">{subCategory}</span>
                               </>
                             )}
                           </div>
@@ -2821,9 +3377,9 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-stone-300 uppercase">主分類</label>
                       <HorizontalScrollArea>
-                        {CATEGORIES.map(cat => (
+                        {categories.map(cat => (
                           <button 
-                            key={cat.name}
+                            key={cat.id}
                             onClick={() => setEditingTemplate({...editingTemplate, category: cat.name})}
                             className={`flex-shrink-0 px-4 py-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${editingTemplate.category.split(' > ')[0] === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037]' : 'bg-white border-white text-stone-400'}`}
                           >
@@ -2838,7 +3394,7 @@ function RecordModal({ accounts, templates, onUpdateTemplates, onClose, onSave, 
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">子分類</label>
                       <div className="grid grid-cols-3 gap-2">
-                        {CATEGORIES.find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub.map(sub => (
+                        {categories.find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub.map(sub => (
                           <button 
                             key={sub}
                             onClick={() => setEditingTemplate({...editingTemplate, category: `${editingTemplate.category.split(' > ')[0]} > ${sub}`})}
