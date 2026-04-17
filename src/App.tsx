@@ -75,6 +75,9 @@ interface Transaction {
   currentInstallment?: number;
   installmentGroupId?: string;
   isCompleted?: boolean;
+  status?: 'active' | 'settled';
+  paidCount?: number;
+  totalTerms?: number;
 }
 
 interface Account {
@@ -757,9 +760,11 @@ export default function App() {
                     if (r.installmentGroupId === groupId) {
                       return {
                         ...r,
-                        isInstallment: true, // 保持分期屬性以便在管理頁面識別
-                        isCompleted: true,   // 標記為已完成
-                        currentInstallment: r.totalInstallments // 將進度噴滿
+                        isInstallment: true,
+                        isCompleted: true,
+                        status: 'settled',
+                        currentInstallment: r.totalInstallments,
+                        paidCount: r.totalInstallments
                       };
                     }
                     return r;
@@ -775,7 +780,7 @@ export default function App() {
                     amount: remainingAmount,
                     date: today,
                     note: `${firstRecord.note?.split(' (分期')[0]} (分期提前結清)`,
-                    isInstallment: false, // 結清紀錄本身不屬於分期計畫
+                    isInstallment: false,
                     installmentGroupId: undefined,
                     currentInstallment: undefined,
                     totalInstallments: undefined
@@ -2612,14 +2617,17 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
 function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }: { 
   records: Transaction[], 
   onDeleteGroup: (groupId: string) => void,
-  onEarlySettlement: (groupId: string, remainingAmount: number, firstRecord: Transaction) => void
+  onEarlySettlement: (groupId: string, remainingAmount: number, firstRecord: Transaction, currentGroup: Transaction[]) => void
 }) {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSettleConfirmOpen, setIsSettleConfirmOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [settleInfo, setSettleInfo] = useState<{ amount: number, first: Transaction } | null>(null);
 
-  const installmentGroups = useMemo(() => {
+  // 使用 installments 狀態來管理 UI 顯示，確保強制重刷
+  const [installments, setInstallments] = useState<Transaction[][]>([]);
+
+  useEffect(() => {
     const groups: { [key: string]: Transaction[] } = {};
     records.forEach(r => {
       if (r.isInstallment && r.installmentGroupId) {
@@ -2627,7 +2635,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
         groups[r.installmentGroupId].push(r);
       }
     });
-    return Object.values(groups).sort((a, b) => b[0].date.localeCompare(a[0].date));
+    setInstallments(Object.values(groups).sort((a, b) => b[0].date.localeCompare(a[0].date)));
   }, [records]);
 
   const handleDelete = () => {
@@ -2640,8 +2648,26 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
 
   const handleSettle = () => {
     if (selectedGroupId && settleInfo) {
-      // 強制執行結清邏輯
-      onEarlySettlement(selectedGroupId, settleInfo.amount, settleInfo.first);
+      // 找出當前群組
+      const currentGroup = installments.find(g => g[0].installmentGroupId === selectedGroupId) || [];
+      const total = currentGroup[0]?.totalInstallments || 1;
+
+      // 強制本地更新 installments 狀態以立即反應 UI (噴滿)
+      setInstallments(prev => prev.map(g => {
+        if (g[0].installmentGroupId === selectedGroupId) {
+          return g.map(r => ({
+            ...r,
+            isCompleted: true,
+            status: 'settled',
+            paidCount: total,
+            currentInstallment: total
+          }));
+        }
+        return g;
+      }));
+
+      // 呼叫外部結清邏輯
+      onEarlySettlement(selectedGroupId, settleInfo.amount, settleInfo.first, currentGroup);
       setIsSettleConfirmOpen(false);
       setSelectedGroupId(null);
       setSettleInfo(null);
@@ -2654,7 +2680,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
       <div className="flex-1 overflow-y-auto no-scrollbar px-6 space-y-4 pb-24 pt-4">
-        {installmentGroups.length === 0 ? (
+        {installments.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
             <div className="w-20 h-20 bg-white rounded-[30px] flex items-center justify-center text-stone-200 shadow-sm">
               <CreditCard size={40} />
@@ -2662,14 +2688,15 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
             <p className="text-stone-300 font-bold">目前沒有進行中的分期項目</p>
           </div>
         ) : (
-          installmentGroups.map(group => {
+          installments.map(group => {
             const first = group[0];
+            const isSettled = first.status === 'settled' || group.some(r => r.isCompleted);
             const totalAmount = first.amount * (first.totalInstallments || 1);
             const perAmount = first.amount;
             const total = first.totalInstallments || 1;
             
             const today = new Date().toISOString().split('T')[0];
-            const paidCount = first.isCompleted ? total : group.filter(r => r.date <= today).length;
+            const paidCount = isSettled ? total : group.filter(r => r.date <= today).length;
             const progress = (paidCount / total) * 100;
 
             return (
@@ -2713,20 +2740,22 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-stone-300">還款進度</span>
-                    <span className="text-sm font-black text-[#5D4037]">第 {paidCount} / {total} 期</span>
+                    <span className="text-sm font-black text-[#5D4037]">
+                      {isSettled ? `第 ${total} / ${total} 期 (已結清)` : `第 ${paidCount} / ${total} 期`}
+                    </span>
                   </div>
                   <div className="h-3 bg-stone-50 rounded-full overflow-hidden border border-stone-100 shadow-inner">
                     <motion.div 
                       initial={{ width: 0 }}
                       animate={{ width: `${progress}%` }}
-                      className="h-full bg-[#FFD54F] rounded-full"
+                      className={`h-full rounded-full ${isSettled ? 'bg-[#4CAF50]' : 'bg-[#FFD54F]'}`}
                     />
                   </div>
                 </div>
 
                 <div className="pt-2">
-                  {first.isCompleted ? (
-                    <div className="w-full py-3 bg-[#FFD54F]/10 text-[#5D4037] rounded-xl font-bold text-sm text-center border border-[#FFD54F]/20">
+                  {isSettled ? (
+                    <div className="w-full py-3 bg-[#4CAF50]/10 text-[#4CAF50] rounded-xl font-bold text-sm text-center border border-[#4CAF50]/20">
                       ✅ 已提前結清
                     </div>
                   ) : (
