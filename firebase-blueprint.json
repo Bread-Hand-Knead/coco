@@ -1,0 +1,146 @@
+{
+  "entities": {
+    "account": {
+      "title": "Account",
+      "description": "Financial accounts like bank, cash, credit card",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["cash", "bank", "investment", "credit", "e-ticket"] },
+        "icon": { "type": "string" },
+        "parentId": { "type": "string" },
+        "currency": { "type": "string" },
+        "closingDay": { "type": "number" }
+      },
+      "required": ["id", "name", "type", "icon", "currency"]
+    },
+    "category": {
+      "title": "Category",
+      "description": "Income or expense categories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "icon": { "type": "string" },
+        "type": { "type": "string", "enum": ["income", "expense"] },
+        "sub": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "name", "icon", "type"]
+    },
+    "record": {
+      "title": "Transaction Record",
+      "description": "Financial transaction records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "note": { "type": "string" },
+        "date": { "type": "string" },
+        "postingDate": { "type": "string" },
+        "isPending": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["income", "expense", "transfer"] },
+        "accountId": { "type": "string" },
+        "toAccountId": { "type": "string" },
+        "toAmount": { "type": "number" },
+        "exchangeRate": { "type": "number" },
+        "isInstallment": { "type": "boolean" },
+        "totalInstallments": { "type": "number" },
+        "currentInstallment": { "type": "number" },
+        "installmentGroupId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "isCompleted": { "type": "boolean" },
+        "status": { "type": "string" },
+        "paidCount": { "type": "number" },
+        "paidTerms": { "type": "number" },
+        "totalTerms": { "type": "number" }
+      },
+      "required": ["id", "amount", "category", "date", "type", "accountId"]
+    },
+    "project": {
+      "title": "Project",
+      "description": "Project management for grouping records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "budget": { "type": "number" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "template": {
+      "title": "Transaction Template",
+      "description": "Ready-to-use transaction templates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "type": { "type": "string" },
+        "fromAccountId": { "type": "string" },
+        "toAccountId": { "type": "string" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "required": ["id", "name", "amount", "category", "type", "fromAccountId", "icon"]
+    },
+    "fixedRecord": {
+      "title": "Fixed Record",
+      "description": "Recurring income/expense setup",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string" },
+        "period": { "type": "string" },
+        "day": { "type": "number" },
+        "accountId": { "type": "string" },
+        "category": { "type": "string" },
+        "autoEntry": { "type": "boolean" },
+        "lastProcessedDate": { "type": "string" }
+      },
+      "required": ["id", "name", "amount", "type", "period", "day", "accountId", "category"]
+    },
+    "installment": {
+      "title": "Installment",
+      "description": "Active installment payment plans",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "accountId": { "type": "string" },
+        "category": { "type": "string" },
+        "startDate": { "type": "string" },
+        "totalTerms": { "type": "number" },
+        "period": { "type": "string" }
+      },
+      "required": ["id", "name", "totalAmount", "accountId", "category", "startDate", "totalTerms"]
+    },
+    "userProfile": {
+      "title": "User Profile",
+      "description": "User specific settings",
+      "type": "object",
+      "properties": {
+        "monthlyBudget": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "userProfile", "description": "User profile document" },
+    "/users/{userId}/accounts/{accountId}": { "schema": "account", "description": "User accounts" },
+    "/users/{userId}/categories/{categoryId}": { "schema": "category", "description": "User categories" },
+    "/users/{userId}/records/{recordId}": { "schema": "record", "description": "User transactions" },
+    "/users/{userId}/projects/{projectId}": { "schema": "project", "description": "User projects" },
+    "/users/{userId}/templates/{templateId}": { "schema": "template", "description": "User templates" },
+    "/users/{userId}/fixedRecords/{fixedRecordId}": { "schema": "fixedRecord", "description": "User fixed recurring records" },
+    "/users/{userId}/installments/{installmentId}": { "schema": "installment", "description": "User installments" }
+  }
+}

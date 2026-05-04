@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Quicksand", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "王漢宗中隸書", "王漢宗", "Quicksand", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer utilities {

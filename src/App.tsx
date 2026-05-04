@@ -49,9 +49,69 @@ import {
   Database,
   Download,
   Upload,
-  ShieldCheck
+  ShieldCheck,
+  LogOut,
+  Cloud,
+  CloudUpload,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  onAuthStateChanged, 
+  signInWithPopup, 
+  signOut,
+  User
+} from 'firebase/auth';
+import { 
+  doc, 
+  setDoc, 
+  collection, 
+  onSnapshot, 
+  deleteDoc,
+  getDocFromServer,
+  writeBatch,
+  serverTimestamp
+} from 'firebase/firestore';
+import { db, auth, googleProvider } from './lib/firebase';
+
+// --- Firebase Error Handling ---
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 // --- Types ---
 
@@ -96,6 +156,7 @@ interface Account {
   parentId?: string;
   currency: string;    // 幣別 (如 "TWD", "USD", "JPY")
   closingDay?: number; // 信用卡結帳日 (1-31)
+  order?: number;      // 排序權重
 }
 
 interface Template {
@@ -238,6 +299,8 @@ const getCategoryIcon = (categoryName: string, type: 'income' | 'expense' | 'tra
 };
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar' | 'accountDetail' | 'history' | 'fixedRecords' | 'projects' | 'budget' | 'categories' | 'installments'>('home');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -245,83 +308,259 @@ export default function App() {
   const [isAccountSortModalOpen, setIsAccountSortModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(new Date()));
-  const [records, setRecords] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('kk_adv_records');
-    return saved ? JSON.parse(saved) : INITIAL_RECORDS;
-  });
-  const [accounts, setAccounts] = useState<Account[]>(() => {
-    const saved = localStorage.getItem('kk_adv_accounts');
-    return saved ? JSON.parse(saved) : INITIAL_ACCOUNTS;
-  });
-  const [categories, setCategories] = useState<Category[]>(() => {
-    const saved = localStorage.getItem('kk_adv_categories');
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
-  });
-
-  const [monthlyBudget, setMonthlyBudget] = useState<number>(() => {
-    const saved = localStorage.getItem('kk_adv_monthly_budget');
-    return saved ? JSON.parse(saved) : 30000;
-  });
-
-  useEffect(() => {
-    localStorage.setItem('kk_adv_monthly_budget', JSON.stringify(monthlyBudget));
-  }, [monthlyBudget]);
-
+  const [records, setRecords] = useState<Transaction[]>(INITIAL_RECORDS);
+  const [accounts, setAccounts] = useState<Account[]>(INITIAL_ACCOUNTS);
+  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
+  const [monthlyBudget, setMonthlyBudget] = useState<number>(30000);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
   const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
   const [historyFilter, setHistoryFilter] = useState<{ type: 'day' | 'week' | 'month' | 'year', date: string }>({ type: 'day', date: selectedDate });
-  const [templates, setTemplates] = useState<Template[]>(() => {
-    const saved = localStorage.getItem('kk_adv_templates');
-    return saved ? JSON.parse(saved) : INITIAL_TEMPLATES;
-  });
-  const [fixedRecords, setFixedRecords] = useState<FixedRecord[]>(() => {
-    const saved = localStorage.getItem('kk_adv_fixed_records');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [installments, setInstallments] = useState<Installment[]>(() => {
-    const saved = localStorage.getItem('kk_adv_installments');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [projects, setProjects] = useState<Project[]>(() => {
-    const saved = localStorage.getItem('kk_adv_projects');
-    return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
-  });
+  const [templates, setTemplates] = useState<Template[]>(INITIAL_TEMPLATES);
+  const [fixedRecords, setFixedRecords] = useState<FixedRecord[]>([]);
+  const [installments, setInstallments] = useState<Installment[]>([]);
+  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
-  useEffect(() => {
-    localStorage.setItem('kk_adv_records', JSON.stringify(records));
-  }, [records]);
+  // --- Auth & Firebase Logic ---
 
   useEffect(() => {
-    localStorage.setItem('kk_adv_accounts', JSON.stringify(accounts));
-  }, [accounts]);
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    };
+    testConnection();
 
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthLoading(false);
+      if (!u) {
+        // Clear state if logged out if you want, or keep local
+      }
+    });
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error('Login failed', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      // Reset state to initial local data
+      setRecords(INITIAL_RECORDS);
+      setAccounts(INITIAL_ACCOUNTS);
+      setCategories(INITIAL_CATEGORIES);
+      setProjects(INITIAL_PROJECTS);
+    } catch (error) {
+      console.error('Logout failed', error);
+    }
+  };
+
+  // Real-time synchronization
   useEffect(() => {
-    localStorage.setItem('kk_adv_templates', JSON.stringify(templates));
-  }, [templates]);
+    if (!user) return;
 
-  useEffect(() => {
-    localStorage.setItem('kk_adv_fixed_records', JSON.stringify(fixedRecords));
-  }, [fixedRecords]);
+    const unsubRecords = onSnapshot(collection(db, 'users', user.uid, 'records'), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Transaction);
+      // Removed Length check to allow clearing records locally when DB is empty
+      setRecords(data);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/records`));
 
-  useEffect(() => {
-    localStorage.setItem('kk_adv_categories', JSON.stringify(categories));
-  }, [categories]);
+    const unsubAccounts = onSnapshot(collection(db, 'users', user.uid, 'accounts'), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Account);
+      if (snapshot.docs.length > 0) setAccounts(data);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/accounts`));
 
-  useEffect(() => {
-    localStorage.setItem('kk_adv_installments', JSON.stringify(installments));
-  }, [installments]);
+    const unsubCategories = onSnapshot(collection(db, 'users', user.uid, 'categories'), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Category);
+      if (snapshot.docs.length > 0) setCategories(data);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/categories`));
 
-  useEffect(() => {
-    localStorage.setItem('kk_adv_projects', JSON.stringify(projects));
-  }, [projects]);
+    const unsubProjects = onSnapshot(collection(db, 'users', user.uid, 'projects'), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Project);
+      if (snapshot.docs.length > 0) setProjects(data);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/projects`));
 
-  const checkFixedRecords = () => {
+    const unsubFixed = onSnapshot(collection(db, 'users', user.uid, 'fixedRecords'), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as FixedRecord);
+      setFixedRecords(data);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/fixedRecords`));
+
+    const unsubInstallments = onSnapshot(collection(db, 'users', user.uid, 'installments'), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Installment);
+      setInstallments(data);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/installments`));
+
+    const unsubTemplates = onSnapshot(collection(db, 'users', user.uid, 'templates'), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Template);
+      if (snapshot.docs.length > 0) setTemplates(data);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/templates`));
+
+    const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+      const data = snapshot.data();
+      if (data?.monthlyBudget) setMonthlyBudget(data.monthlyBudget);
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}`));
+
+    return () => {
+      unsubRecords();
+      unsubAccounts();
+      unsubCategories();
+      unsubProjects();
+      unsubFixed();
+      unsubInstallments();
+      unsubTemplates();
+      unsubProfile();
+    };
+  }, [user]);
+
+  // Firestore sync functions
+  const syncToCloud = async (path: string, data: any, id: string) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid, path, id), data);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/${path}/${id}`);
+    }
+  };
+
+  const deleteFromCloud = async (path: string, id: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, path, id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/${path}/${id}`);
+    }
+  };
+
+  const syncBudgetToCloud = async (budget: number) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), { monthlyBudget: budget }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}`);
+    }
+  };
+
+  const handleForceSync = async () => {
+    if (!user) {
+      alert('請先登入後再進行同步。');
+      return;
+    }
+
+    try {
+      const batch = writeBatch(db);
+      
+      categories.forEach(item => {
+        batch.set(doc(db, 'users', user.uid, 'categories', item.id), item);
+      });
+      accounts.forEach(item => {
+        batch.set(doc(db, 'users', user.uid, 'accounts', item.id), item);
+      });
+      records.forEach(item => {
+        batch.set(doc(db, 'users', user.uid, 'records', item.id), item);
+      });
+      projects.forEach(item => {
+        batch.set(doc(db, 'users', user.uid, 'projects', item.id), item);
+      });
+      templates.forEach(item => {
+        batch.set(doc(db, 'users', user.uid, 'templates', item.id), item);
+      });
+      fixedRecords.forEach(item => {
+        batch.set(doc(db, 'users', user.uid, 'fixedRecords', item.id), item);
+      });
+      installments.forEach(item => {
+        batch.set(doc(db, 'users', user.uid, 'installments', item.id), item);
+      });
+
+      await batch.commit();
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'force-sync');
+      throw error;
+    }
+  };
+
+  const handleSortAccounts = async (newOrder: Account[]) => {
+    // Assign order based on the new array index
+    const updatedAccounts = newOrder.map((acc, index) => ({
+      ...acc,
+      order: index
+    }));
+    
+    // Immediate local state update
+    setAccounts(updatedAccounts);
+    setIsAccountSortModalOpen(false);
+    
+    if (user) {
+      try {
+        const batch = writeBatch(db);
+        updatedAccounts.forEach(acc => {
+          // Sync only relevant fields to reduce overhead
+          batch.update(doc(db, 'users', user.uid, 'accounts', acc.id), { 
+            order: acc.order,
+            updatedAt: serverTimestamp() 
+          });
+        });
+        await batch.commit();
+        // Feedback is usually not needed for background sync, but user requested explicit feedback in logic elsewhere
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/accounts/sort`);
+      }
+    }
+  };
+
+  const handleUpdateCategories = async (newCats: Category[]) => {
+    if (user) {
+      // Find what changed
+      const batch = writeBatch(db);
+      newCats.forEach(cat => {
+        batch.set(doc(db, 'users', user.uid, 'categories', cat.id), cat);
+      });
+      await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/categories'));
+    } else {
+      setCategories(newCats);
+    }
+  };
+
+  const handleUpdateTemplates = async (newTemplates: Template[]) => {
+    if (user) {
+      const batch = writeBatch(db);
+      newTemplates.forEach(t => {
+        batch.set(doc(db, 'users', user.uid, 'templates', t.id), t);
+      });
+      await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/templates'));
+    } else {
+      setTemplates(newTemplates);
+    }
+  };
+
+  const handleUpdateProjects = async (newProjects: Project[]) => {
+    if (user) {
+      const batch = writeBatch(db);
+      newProjects.forEach(p => {
+        batch.set(doc(db, 'users', user.uid, 'projects', p.id), p);
+      });
+      await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/projects'));
+    } else {
+      setProjects(newProjects);
+    }
+  };
+
+  const checkFixedRecords = async () => {
     const today = new Date();
     const todayStr = formatLocalDate(today);
     
-    let updatedRecords = [...records];
     let updatedFixed = [...fixedRecords];
+    let recordsToSync: Transaction[] = [];
     let changed = false;
 
     updatedFixed = updatedFixed.map(fr => {
@@ -344,8 +583,7 @@ export default function App() {
           }
         }
       } else if (fr.period === 'yearly') {
-        // For simplicity, yearly on the same day/month
-        if (now.getDate() === fr.day && now.getMonth() === 0) { // Default to Jan if month not specified
+        if (now.getDate() === fr.day && now.getMonth() === 0) { 
           if (!lastProcessed || lastProcessed.getFullYear() !== now.getFullYear()) {
             shouldProcess = true;
           }
@@ -353,8 +591,9 @@ export default function App() {
       }
 
       if (shouldProcess) {
+        const id = `fixed_${fr.id}_${todayStr}`;
         const newTransaction: Transaction = {
-          id: `fixed_${fr.id}_${todayStr}`,
+          id,
           amount: fr.amount,
           category: fr.category,
           note: `[固定收支] ${fr.name}`,
@@ -362,7 +601,7 @@ export default function App() {
           type: fr.type,
           accountId: fr.accountId
         };
-        updatedRecords.push(newTransaction);
+        recordsToSync.push(newTransaction);
         changed = true;
         return { ...fr, lastProcessedDate: todayStr };
       }
@@ -370,8 +609,15 @@ export default function App() {
     });
 
     if (changed) {
-      setRecords(updatedRecords);
-      setFixedRecords(updatedFixed);
+      if (user) {
+        const batch = writeBatch(db);
+        recordsToSync.forEach(r => batch.set(doc(db, 'users', user.uid, 'records', r.id), r));
+        updatedFixed.forEach(f => batch.set(doc(db, 'users', user.uid, 'fixedRecords', f.id), f));
+        await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/fixed_sync'));
+      } else {
+        setRecords(prev => [...prev, ...recordsToSync]);
+        setFixedRecords(updatedFixed);
+      }
     }
   };
 
@@ -381,7 +627,7 @@ export default function App() {
 
   const headerTitle = useMemo(() => {
     if (currentView === 'accountDetail' && selectedAccountForDetail) {
-      return selectedAccountForDetail.name;
+      return `${selectedAccountForDetail.name} 往來明細`;
     }
     if (currentView === 'accounts') return '帳戶列表';
     if (currentView === 'calendar') return '日曆明細';
@@ -419,38 +665,54 @@ export default function App() {
   }, [currentView, selectedAccountForDetail, selectedDate]);
 
   const accountBalances = useMemo(() => {
+    // Recursive Balance Calculation
+    const getBaseBalance = (id: string) => {
+      let bal = 0;
+      records.forEach(r => {
+        if (!r.postingDate) return;
+        if (r.type === 'income' && r.accountId === id) bal += r.amount;
+        if (r.type === 'expense' && r.accountId === id) bal -= r.amount;
+        if (r.type === 'transfer') {
+          if (r.accountId === id) bal -= r.amount;
+          if (r.toAccountId === id) bal += (r.toAmount ?? (r.amount * (r.exchangeRate || 1)));
+        }
+      });
+      return bal;
+    };
+
+    const getRecursiveBalance = (id: string): number => {
+      let total = getBaseBalance(id);
+      const children = accounts.filter(a => a.parentId === id);
+      children.forEach(child => {
+        total += getRecursiveBalance(child.id);
+      });
+      return total;
+    };
+
+    const result: Record<string, number> = {};
+    accounts.forEach(acc => {
+      result[acc.id] = getRecursiveBalance(acc.id);
+    });
+
+    return result;
+  }, [accounts, records]);
+
+  // Provide a way to get ONLY the account's own balance (without children) for detail view logic if needed
+  const ownBalances = useMemo(() => {
     const balances: Record<string, number> = {};
     accounts.forEach(acc => {
-      balances[acc.id] = 0;
-    });
-
-    records.forEach(record => {
-      // Use postingDate for balance calculation. If no postingDate, it doesn't count towards balance.
-      if (!record.postingDate) return;
-
-      if (record.type === 'income') {
-        balances[record.accountId] = (balances[record.accountId] || 0) + record.amount;
-      } else if (record.type === 'expense') {
-        balances[record.accountId] = (balances[record.accountId] || 0) - record.amount;
-      } else if (record.type === 'transfer') {
-        // 來源帳戶：扣除原始金額
-        balances[record.accountId] = (balances[record.accountId] || 0) - record.amount;
-        
-        // 目標帳戶：增加換匯後的金額
-        if (record.toAccountId) {
-          const receivedAmount = record.toAmount ?? (record.amount * (record.exchangeRate || 1));
-          balances[record.toAccountId] = (balances[record.toAccountId] || 0) + receivedAmount;
+      let bal = 0;
+      records.forEach(r => {
+        if (!r.postingDate) return;
+        if (r.type === 'income' && r.accountId === acc.id) bal += r.amount;
+        if (r.type === 'expense' && r.accountId === acc.id) bal -= r.amount;
+        if (r.type === 'transfer') {
+          if (r.accountId === acc.id) bal -= r.amount;
+          if (r.toAccountId === acc.id) bal += (r.toAmount ?? (r.amount * (r.exchangeRate || 1)));
         }
-      }
+      });
+      balances[acc.id] = bal;
     });
-
-    // Handle group totals
-    accounts.forEach(acc => {
-      if (acc.parentId) {
-        balances[acc.parentId] = (balances[acc.parentId] || 0) + balances[acc.id];
-      }
-    });
-
     return balances;
   }, [accounts, records]);
 
@@ -521,49 +783,82 @@ export default function App() {
     };
   }, [records, selectedDate]);
 
-  const handleSaveRecord = (record: Omit<Transaction, 'id'>) => {
-    setRecords(prev => {
-      if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
-        const installmentGroupId = Date.now().toString();
-        const installmentRecords: Transaction[] = [];
-        const perAmount = Math.round(record.amount / record.totalInstallments);
+  const handleSaveRecord = async (record: Omit<Transaction, 'id'>) => {
+    if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
+      const installmentGroupId = Date.now().toString();
+      const perAmount = Math.round(record.amount / record.totalInstallments);
+      const startDate = new Date(record.date);
+      
+      const batch = user ? writeBatch(db) : null;
+
+      for (let i = 1; i <= record.totalInstallments; i++) {
+        const currentDate = new Date(startDate.getFullYear(), startDate.getMonth() + (i - 1), startDate.getDate());
+        const dateStr = formatLocalDate(currentDate);
         
-        const startDate = new Date(record.date);
-        
-        for (let i = 1; i <= record.totalInstallments; i++) {
-          const currentDate = new Date(startDate.getFullYear(), startDate.getMonth() + (i - 1), startDate.getDate());
-          
-          const y = currentDate.getFullYear();
-          const m = String(currentDate.getMonth() + 1).padStart(2, '0');
-          const d = String(currentDate.getDate()).padStart(2, '0');
-          const dateStr = `${y}-${m}-${d}`;
-          
-          installmentRecords.push({
-            ...record,
-            id: `${installmentGroupId}-${i}`,
-            amount: perAmount,
-            note: `${record.note || ''} (分期 ${i}/${record.totalInstallments})`.trim(),
-            date: record.date, // Original purchase date for all installments
-            postingDate: dateStr, // Accounting month
-            currentInstallment: i,
-            installmentGroupId
-          });
+        const id = `${installmentGroupId}-${i}`;
+        const newPart: Transaction = {
+          ...record,
+          id,
+          amount: perAmount,
+          note: `${record.note || ''} (分期 ${i}/${record.totalInstallments})`.trim(),
+          date: record.date,
+          postingDate: dateStr,
+          currentInstallment: i,
+          installmentGroupId
+        };
+
+        if (batch && user) {
+          batch.set(doc(db, 'users', user.uid, 'records', id), newPart);
+        } else {
+          setRecords(prev => [...prev, newPart]);
         }
-        return [...prev, ...installmentRecords];
-      } else {
-        const newRecord = { ...record, id: Date.now().toString() };
-        return [...prev, newRecord];
       }
-    });
+      if (batch) await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/records'));
+    } else {
+      const id = Date.now().toString();
+      const newRecord = { ...record, id };
+      if (user) {
+        await syncToCloud('records', newRecord, id);
+      } else {
+        setRecords(prev => [...prev, newRecord]);
+      }
+    }
     setIsRecordModalOpen(false);
   };
 
-  const handleUpdateRecord = (oldRecord: Transaction, newRecord: Transaction) => {
-    setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+  const handleUpdateRecord = async (oldRecord: Transaction, newRecord: Transaction) => {
+    if (user) {
+      await syncToCloud('records', newRecord, newRecord.id);
+    } else {
+      setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+    }
   };
 
+  const [recordToDelete, setRecordToDelete] = useState<Transaction | null>(null);
+
   const handleDeleteRecord = (record: Transaction) => {
-    setRecords(prev => prev.filter(r => r.id !== record.id));
+    setRecordToDelete(record);
+  };
+
+  const confirmDeleteRecord = async () => {
+    if (!recordToDelete) return;
+    const targetId = recordToDelete.id;
+    
+    // 1. 樂觀 UI (Optimistic UI): 立即從本地介面移除
+    setRecords(prev => prev.filter(r => r.id !== targetId));
+    
+    // 2. 執行背景異步刪除
+    if (user) {
+      try {
+        await deleteFromCloud('records', targetId);
+      } catch (error) {
+        console.error('Delete failed:', error);
+        alert('同步刪除失敗，請檢查網路連線或稍後再試。');
+        // 註：由於有 onSnapshot 即時同步，若雲端未成功刪除，該筆資料隨後會被 Snapshot 帶回
+      }
+    }
+    
+    setRecordToDelete(null);
   };
 
   const handleAddAccount = () => {
@@ -577,32 +872,43 @@ export default function App() {
     setIsAccountEditModalOpen(true);
   };
 
-  const handleSaveAccount = (updatedAcc: Account, initialAmount?: number) => {
-    setAccounts(prev => {
-      const exists = prev.find(a => a.id === updatedAcc.id);
-      if (exists) {
-        return prev.map(a => a.id === updatedAcc.id ? updatedAcc : a);
-      } else {
-        return [...prev, updatedAcc];
-      }
-    });
-    
-    if (initialAmount !== undefined) {
-      setRecords(prev => {
-        const existingInit = prev.find(r => r.accountId === updatedAcc.id && r.category === '初始資金');
-        if (existingInit) {
-          return prev.map(r => r.id === existingInit.id ? { ...r, amount: Math.abs(initialAmount), type: initialAmount >= 0 ? 'income' : 'expense' } : r);
+  const handleSaveAccount = async (updatedAcc: Account, initialAmount?: number) => {
+    if (user) {
+      await syncToCloud('accounts', updatedAcc, updatedAcc.id);
+    } else {
+      setAccounts(prev => {
+        const exists = prev.find(a => a.id === updatedAcc.id);
+        if (exists) {
+          return prev.map(a => a.id === updatedAcc.id ? updatedAcc : a);
         } else {
-          return [...prev, {
-            id: `init_${updatedAcc.id}_${Date.now()}`,
-            amount: Math.abs(initialAmount),
-            category: '初始資金',
-            date: new Date().toISOString().split('T')[0],
-            type: initialAmount >= 0 ? 'income' : 'expense',
-            accountId: updatedAcc.id
-          }];
+          return [...prev, updatedAcc];
         }
       });
+    }
+    
+    if (initialAmount !== undefined) {
+      const existingInit = records.find(r => r.accountId === updatedAcc.id && r.category === '初始資金');
+      const id = existingInit ? existingInit.id : `init_${updatedAcc.id}_${Date.now()}`;
+      const initRecord: Transaction = {
+        id,
+        amount: Math.abs(initialAmount),
+        category: '初始資金',
+        date: formatLocalDate(new Date()),
+        type: initialAmount >= 0 ? 'income' : 'expense',
+        accountId: updatedAcc.id
+      };
+
+      if (user) {
+        await syncToCloud('records', initRecord, id);
+      } else {
+        setRecords(prev => {
+          if (existingInit) {
+            return prev.map(r => r.id === id ? initRecord : r);
+          } else {
+            return [...prev, initRecord];
+          }
+        });
+      }
     }
 
     if (selectedAccountForDetail?.id === updatedAcc.id) {
@@ -612,9 +918,15 @@ export default function App() {
     setEditingAccount(null);
   };
 
-  const handleDeleteAccount = (id: string) => {
-    setAccounts(prev => prev.filter(a => a.id !== id && a.parentId !== id));
-    setRecords(prev => prev.filter(r => r.accountId !== id && r.toAccountId !== id));
+  const handleDeleteAccount = async (id: string) => {
+    if (user) {
+      // In a real app, you'd batch delete related records or use a Cloud Function
+      // For now, let's just delete the account. The records will technically be orpaned.
+      await deleteFromCloud('accounts', id);
+    } else {
+      setAccounts(prev => prev.filter(a => a.id !== id && a.parentId !== id));
+      setRecords(prev => prev.filter(r => r.accountId !== id && r.toAccountId !== id));
+    }
     setCurrentView('accounts');
     setSelectedAccountForDetail(null);
     setIsAccountEditModalOpen(false);
@@ -745,9 +1057,39 @@ export default function App() {
                 className="fixed inset-y-0 left-0 w-4/5 max-w-[300px] bg-white z-[70] shadow-2xl flex flex-col"
               >
                 {/* Drawer Header */}
-                <div className="h-40 bg-gradient-to-br from-[#FFF9E3] to-[#FFFDF5] p-6 flex flex-col justify-end gap-2 border-b border-stone-100">
-                  <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-3xl">🦊</div>
-                  <span className="text-xl font-black text-[#5D4037]">功能管理</span>
+                <div className="h-48 bg-gradient-to-br from-[#FFF9E3] to-[#FFFDF5] p-6 flex flex-col justify-end gap-3 border-b border-stone-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-white rounded-[24px] shadow-sm flex items-center justify-center text-3xl overflow-hidden border border-white">
+                      {user?.photoURL ? (
+                        <img src={user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+                      ) : '🦊'}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-xl font-black text-[#5D4037] leading-tight" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
+                        {user ? user.displayName : '訪客模式'}
+                      </span>
+                      <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">
+                        {user ? '雲端同步中' : '未登入'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {user ? (
+                    <button 
+                      onClick={handleLogout}
+                      className="flex items-center gap-2 text-xs font-bold text-stone-400 hover:text-rose-400 transition-colors"
+                    >
+                      <LogOut size={14} /> 登出帳號
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={handleLogin}
+                      className="w-full py-3 bg-[#5D4037] text-white rounded-2xl text-sm font-black flex items-center justify-center gap-2 shadow-lg shadow-stone-200 active:scale-95 transition-all"
+                      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                    >
+                      <Cloud size={16} /> 同步登入
+                    </button>
+                  )}
                 </div>
 
                 {/* Drawer Items */}
@@ -831,7 +1173,10 @@ export default function App() {
                 account={selectedAccountForDetail}
                 records={records}
                 selectedDate={selectedDate}
-                onBack={() => setCurrentView('accounts')}
+                onBack={() => {
+                  setSelectedAccountForDetail(null);
+                  setCurrentView('accounts');
+                }}
                 onEdit={() => {
                   setEditingAccount(selectedAccountForDetail);
                   setIsAccountEditModalOpen(true);
@@ -860,14 +1205,24 @@ export default function App() {
                 accounts={accounts}
                 categories={categories}
                 onBack={() => setCurrentView('home')}
-                onSave={(fr) => {
-                  if (fixedRecords.find(r => r.id === fr.id)) {
-                    setFixedRecords(prev => prev.map(r => r.id === fr.id ? fr : r));
+                onSave={async (fr) => {
+                  if (user) {
+                    await syncToCloud('fixedRecords', fr, fr.id);
                   } else {
-                    setFixedRecords(prev => [...prev, fr]);
+                    if (fixedRecords.find(r => r.id === fr.id)) {
+                      setFixedRecords(prev => prev.map(r => r.id === fr.id ? fr : r));
+                    } else {
+                      setFixedRecords(prev => [...prev, fr]);
+                    }
                   }
                 }}
-                onDelete={(id) => setFixedRecords(prev => prev.filter(r => r.id !== id))}
+                onDelete={async (id) => {
+                  if (user) {
+                    await deleteFromCloud('fixedRecords', id);
+                  } else {
+                    setFixedRecords(prev => prev.filter(r => r.id !== id));
+                  }
+                }}
               />
             )}
             {currentView === 'projects' && (
@@ -888,8 +1243,30 @@ export default function App() {
                 />
               )
             )}
-            {currentView === 'budget' && <PlaceholderView title="預算管理" icon={<PieChart size={48} />} onBack={() => setCurrentView('home')} />}
-            {currentView === 'categories' && <CategoryManagementPage categories={categories} onSave={setCategories} onBack={() => setCurrentView('home')} />}
+            {currentView === 'budget' && (
+              <PlaceholderView 
+                title="預算管理" 
+                icon={<PieChart size={48} />} 
+                onBack={() => setCurrentView('home')} 
+                content={
+                  <div className="flex flex-col gap-4 mt-8">
+                    <span className="text-[#5D4037] font-bold">目前每月預算：$ {monthlyBudget.toLocaleString()}</span>
+                    <input 
+                      type="range" min="5000" max="100000" step="5000"
+                      value={monthlyBudget}
+                      onChange={(e) => {
+                        const b = parseInt(e.target.value);
+                        setMonthlyBudget(b);
+                        syncBudgetToCloud(b);
+                      }}
+                      className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-[#5D4037]"
+                    />
+                    <p className="text-xs text-stone-400">變更後將自動同步到雲端</p>
+                  </div>
+                }
+              />
+            )}
+            {currentView === 'categories' && <CategoryManagementPage categories={categories} onSave={handleUpdateCategories} onBack={() => setCurrentView('home')} />}
             {currentView === 'installments' && (
               <InstallmentManagementPage 
                 records={records} 
@@ -953,9 +1330,16 @@ export default function App() {
                 accounts={accounts} 
                 installments={installments}
                 projects={projects}
+                categories={categories}
+                templates={templates}
+                fixedRecords={fixedRecords}
+                user={user}
+                onForceSync={handleForceSync}
                 setRecords={setRecords}
                 setInstallments={setInstallments}
                 setProjects={setProjects}
+                onUpdateTemplates={handleUpdateTemplates}
+                onUpdateCategories={handleUpdateCategories}
               />
             )}
           </AnimatePresence>
@@ -975,8 +1359,8 @@ export default function App() {
               accounts={accounts}
               categories={categories}
               templates={templates}
-              onUpdateTemplates={setTemplates}
-              onUpdateCategories={setCategories}
+              onUpdateTemplates={handleUpdateTemplates}
+              onUpdateCategories={handleUpdateCategories}
               onClose={() => setIsRecordModalOpen(false)}
               onSave={handleSaveRecord}
               selectedDate={selectedDate}
@@ -1012,11 +1396,48 @@ export default function App() {
             <AccountSortModal 
               accounts={accounts}
               onClose={() => setIsAccountSortModalOpen(false)}
-              onSave={(newOrder) => {
-                setAccounts(newOrder);
-                setIsAccountSortModalOpen(false);
-              }}
+              onSave={handleSortAccounts}
             />
+          )}
+        </AnimatePresence>
+
+        {/* Delete Confirmation Modal */}
+        <AnimatePresence>
+          {recordToDelete && (
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-[#5D4037]/60 backdrop-blur-md z-[100] flex items-center justify-center p-6"
+              onClick={() => setRecordToDelete(null)}
+            >
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+                className="bg-[#FFF9E3] w-full max-w-xs rounded-[44px] p-8 flex flex-col items-center gap-6 shadow-2xl border-4 border-white overflow-hidden text-center"
+                style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-4xl shadow-inner mb-2">
+                  🗑️
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-black text-[#5D4037]">刪除紀錄</h3>
+                  <p className="text-sm font-bold text-stone-400">確定要刪除這筆明細嗎？</p>
+                </div>
+                <div className="flex w-full gap-3 mt-2">
+                  <button 
+                    onClick={() => setRecordToDelete(null)}
+                    className="flex-1 py-4 bg-white text-stone-400 rounded-2xl font-black text-base shadow-sm active:scale-95 transition-all border-2 border-stone-50"
+                  >
+                    取消
+                  </button>
+                  <button 
+                    onClick={confirmDeleteRecord}
+                    className="flex-[1.5] py-4 bg-rose-500 text-white rounded-2xl font-black text-base shadow-lg shadow-rose-100 active:scale-95 transition-all"
+                  >
+                    確認刪除
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
@@ -1221,11 +1642,70 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
   };
 
   const groupedAccounts = useMemo(() => {
-    const groups: Partial<Record<Account['type'], Account[]>> = {};
-    accounts.filter(a => !a.parentId).forEach(acc => {
+    // Sort all accounts by order first
+    const sortedRawAccounts = [...accounts].sort((a, b) => (a.order || 0) - (b.order || 0));
+    const topLevelAccounts = sortedRawAccounts.filter(a => !a.parentId);
+    const groups: Partial<Record<Account['type'], any[]>> = {};
+    
+    topLevelAccounts.forEach(acc => {
       if (!groups[acc.type]) groups[acc.type] = [];
       groups[acc.type]!.push(acc);
     });
+
+    // Smart Bank Brand Merging
+    if (groups.bank) {
+      const bankItems: any[] = [];
+      const brandMap: Record<string, Account[]> = {};
+      const BRAND_KEYWORDS = ['國泰', '台新', '中信', '中國信託', '玉山', '富邦', '永豐', '郵局', '兆豐', '第一', '華南', '渣打', '匯豐', '星展'];
+      
+      const unassignedBanks: Account[] = [];
+      
+      groups.bank.forEach(acc => {
+        const foundBrand = BRAND_KEYWORDS.find(k => acc.name.startsWith(k));
+        if (foundBrand) {
+          const canonicalBrand = (foundBrand === '中信' || foundBrand === '中國信託') ? '中國信託' : foundBrand;
+          if (!brandMap[canonicalBrand]) brandMap[canonicalBrand] = [];
+          brandMap[canonicalBrand].push(acc);
+        } else {
+          unassignedBanks.push(acc);
+        }
+      });
+
+      // Add merged groups
+      Object.entries(brandMap).forEach(([brand, brandAccounts]) => {
+        if (brandAccounts.length > 1) {
+          // Inner sort for brand accounts
+          const sortedBrandAccounts = [...brandAccounts].sort((a, b) => (a.order || 0) - (b.order || 0));
+          bankItems.push({
+            id: `brand_${brand}`,
+            name: `${brand}${brand === '國泰' ? '世華銀行' : '銀行'}`,
+            type: 'bank',
+            icon: '🏦',
+            isBrandGroup: true,
+            childAccounts: sortedBrandAccounts
+          });
+        } else {
+          bankItems.push(brandAccounts[0]);
+        }
+      });
+      
+      bankItems.push(...unassignedBanks);
+      
+      // Re-sort bankItems because merging might have messed up the order
+      bankItems.sort((a, b) => {
+        const getOrder = (item: any) => {
+          if (item.isBrandGroup) {
+            // Use the minimum order of its children
+            return Math.min(...item.childAccounts.map((c: Account) => c.order || 0));
+          }
+          return item.order || 0;
+        };
+        return getOrder(a) - getOrder(b);
+      });
+
+      groups.bank = bankItems;
+    }
+
     return groups;
   }, [accounts]);
 
@@ -1237,12 +1717,12 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-      className="flex flex-col bg-[#FFF9E3]"
+      className="flex flex-col bg-[#FFF9E3] min-h-screen"
       style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
     >
       {/* Top Dashboard (CW Money Style) */}
       <div className="px-6 py-8 bg-[#FFF9E3]">
-        <div className="flex justify-between items-start mb-2">
+        <div className="flex justify-between items-start mb-2" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
               <span className="text-2xl font-black text-[#5D4037]">淨資產</span>
@@ -1275,11 +1755,12 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
 
       {/* Account List Groups */}
       <div className="flex flex-col gap-8 px-4 pb-24">
-        {(Object.entries(groupedAccounts) as [Account['type'], Account[]][]).map(([type, typeAccounts]) => {
+        {(Object.entries(groupedAccounts) as [Account['type'], any[]][]).map(([type, typeAccounts]) => {
           const typeTotal = typeAccounts.reduce((sum, acc) => {
-            const children = accounts.filter(c => c.parentId === acc.id);
-            const childrenTotal = children.reduce((cSum, c) => cSum + (balances[c.id] || 0), 0);
-            return sum + (balances[acc.id] || 0) + childrenTotal;
+            if (acc.isBrandGroup) {
+              return sum + acc.childAccounts.reduce((cSum: number, c: Account) => cSum + (balances[c.id] || 0), 0);
+            }
+            return sum + (balances[acc.id] || 0);
           }, 0);
 
           return (
@@ -1292,38 +1773,46 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                 </span>
               </div>
 
-              {/* Account Cards */}
+              {/* Level 1: Group/Parent Cards */}
               <div className="flex flex-col gap-4">
                 {typeAccounts.map(acc => {
-                  const children = accounts.filter(c => c.parentId === acc.id);
+                  const isBrandGroup = acc.isBrandGroup;
+                  const level2Accounts = isBrandGroup 
+                    ? [...acc.childAccounts].sort((a, b) => (a.order || 0) - (b.order || 0))
+                    : accounts.filter(c => c.parentId === acc.id).sort((a, b) => (a.order || 0) - (b.order || 0));
                   const isExpanded = expandedGroups.includes(acc.id);
-                  const hasChildren = children.length > 0;
-                  
-                  const childrenTotal = children.reduce((sum, c) => sum + (balances[c.id] || 0), 0);
-                  const displayAmount = (balances[acc.id] || 0) + childrenTotal;
+                  const hasLevel2 = level2Accounts.length > 0;
+                  const displayAmount = isBrandGroup 
+                    ? acc.childAccounts.reduce((sum: number, c: Account) => sum + (balances[c.id] || 0), 0)
+                    : (balances[acc.id] || 0);
 
                   return (
                     <div key={acc.id} className="flex flex-col gap-3">
-                      {/* Parent Account Card */}
+                      {/* Level 1 Card: Group Total */}
                       <div 
-                        onClick={() => onAccountClick(acc)}
-                        className="bg-white p-5 rounded-[32px] shadow-sm border border-white flex items-center gap-4 group cursor-pointer active:scale-[0.98] transition-all relative overflow-hidden"
+                        onClick={() => !isBrandGroup && onAccountClick(acc as Account)}
+                        className={`bg-white p-5 rounded-[32px] shadow-sm border-2 border-stone-50 flex items-center gap-4 group transition-all relative overflow-hidden ${!isBrandGroup ? 'cursor-pointer active:scale-[0.98]' : ''}`}
                       >
                         <div className="w-16 h-16 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-3xl shadow-sm border border-white">
                           {acc.icon}
                         </div>
                         <div className="flex-col flex flex-1">
-                          <span className="text-base font-bold text-stone-300 uppercase tracking-widest mb-1">{accountTypeLabels[acc.type]}</span>
+                          <span className="text-sm font-bold text-stone-300 uppercase tracking-widest mb-1 leading-none">
+                            {isBrandGroup ? `${acc.name}總額` : (acc.type === 'bank' ? `${acc.name}總額` : accountTypeLabels[acc.type as Account['type']])}
+                          </span>
                           <span className="text-xl font-black text-[#5D4037] leading-tight">{acc.name}</span>
-                          <span className={`text-[24px] font-black mt-1 ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                          <span className={`text-[26px] font-black mt-1 ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
                             <span className="text-lg mr-1">$</span>{formatAmount(displayAmount)}
                           </span>
                         </div>
                         
-                        {hasChildren && (
+                        {hasLevel2 && (
                           <div className="pr-1">
                             <button 
-                              onClick={(e) => toggleGroup(acc.id, e)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleGroup(acc.id, e);
+                              }}
                               className="w-10 h-10 rounded-full border-2 border-stone-100 flex items-center justify-center text-stone-400 hover:bg-stone-50 transition-colors shadow-sm"
                             >
                               <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
@@ -1334,33 +1823,104 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                         )}
                       </div>
 
-                      {/* Sub Accounts */}
+                      {/* Level 2 & 3: Nested List */}
                       <AnimatePresence>
-                        {hasChildren && isExpanded && (
+                        {isExpanded && (
                           <motion.div 
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="flex flex-col gap-2 pl-6 overflow-hidden"
+                            className="flex flex-col gap-4 pl-6 pr-1 overflow-hidden pb-4 relative"
                           >
-                            {children.map(child => (
-                              <div 
-                                key={child.id}
-                                onClick={() => onAccountClick(child)}
-                                className="bg-white/70 p-4 rounded-[24px] border border-stone-50 flex items-center gap-4 cursor-pointer active:scale-95 transition-all shadow-sm"
-                              >
-                                <div className="w-10 h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-xl shadow-inner">
-                                  {child.icon}
-                                </div>
-                                <div className="flex flex-col flex-1">
-                                  <span className="text-sm font-bold text-stone-300 uppercase tracking-widest">{child.type === 'bank' ? '子帳戶' : accountTypeLabels[child.type]}</span>
-                                  <span className="text-base font-bold text-[#5D4037] leading-tight">{child.name}</span>
-                                  <div className={`text-lg font-black mt-0.5 ${balances[child.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                                    <span className="text-xs mr-1">$</span>{formatAmount(balances[child.id] || 0)}
+                            {/* Vertical Line for Level 2 */}
+                            <div className="absolute left-[18px] top-0 bottom-8 w-0.5 bg-[#5D4037]/10 rounded-full" />
+
+                            {level2Accounts.map(l2acc => {
+                              const level3Accounts = accounts.filter(c => c.parentId === l2acc.id).sort((a, b) => (a.order || 0) - (b.order || 0));
+                              const isL2Expanded = expandedGroups.includes(l2acc.id);
+                              const hasLevel3 = level3Accounts.length > 0;
+
+                              return (
+                                <div key={l2acc.id} className="flex flex-col gap-2 relative">
+                                  {/* Level 2 Main Account Card */}
+                                  <div className="flex items-center gap-3">
+                                    {/* Horizontal connection line */}
+                                    <div className="w-3 h-0.5 bg-[#5D4037]/10 flex-shrink-0" />
+                                    
+                                    <div 
+                                      onClick={() => onAccountClick(l2acc)}
+                                      className="flex-1 bg-white/80 p-4 rounded-[24px] border border-white flex items-center gap-3 cursor-pointer active:scale-95 transition-all shadow-sm"
+                                    >
+                                      <div className="w-10 h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-xl shadow-inner">
+                                        {l2acc.icon}
+                                      </div>
+                                      <div className="flex flex-col flex-1 justify-center">
+                                        {l2acc.type !== 'credit' && l2acc.type !== 'e-ticket' && (
+                                          <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5">
+                                            主帳號
+                                          </span>
+                                        )}
+                                        <span className="text-base font-black text-[#5D4037] leading-tight">{l2acc.name}</span>
+                                        <div className={`text-lg font-black mt-0.5 ${balances[l2acc.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                                          <span className="text-xs mr-1">$</span>{formatAmount(balances[l2acc.id] || 0)}
+                                        </div>
+                                      </div>
+                                      {hasLevel3 && (
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleGroup(l2acc.id, e);
+                                          }}
+                                          className={`w-6 h-6 rounded-full flex items-center justify-center text-stone-400 transition-colors ${isL2Expanded ? 'bg-stone-100' : ''}`}
+                                        >
+                                          <motion.div animate={{ rotate: isL2Expanded ? 180 : 0 }}>
+                                            <ChevronDown size={14} />
+                                          </motion.div>
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
+
+                                  {/* Level 3: Sub-Accounts */}
+                                  <AnimatePresence>
+                                    {isL2Expanded && (
+                                      <motion.div 
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: 'auto', opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        className="flex flex-col gap-2 pl-10 pr-1 overflow-hidden pb-1 relative"
+                                      >
+                                        {/* Nested vertical line */}
+                                        <div className="absolute left-[34px] top-0 bottom-4 w-0.5 bg-[#5D4037]/5 rounded-full" />
+                                        
+                                        {level3Accounts.map(l3acc => (
+                                          <div key={l3acc.id} className="flex items-center gap-3">
+                                            <div className="w-3 h-0.5 bg-[#5D4037]/5 flex-shrink-0" />
+                                            <div 
+                                              onClick={() => onAccountClick(l3acc)}
+                                              className="flex-1 bg-white/40 p-3 rounded-[20px] border border-white/50 flex items-center gap-3 cursor-pointer active:scale-95 transition-all"
+                                            >
+                                              <div className="w-8 h-8 bg-white/80 rounded-lg flex-shrink-0 flex items-center justify-center text-lg shadow-sm">
+                                                {l3acc.icon}
+                                              </div>
+                                              <div className="flex flex-col flex-1 justify-center">
+                                                {l3acc.type !== 'credit' && l3acc.type !== 'e-ticket' && (
+                                                  <span className="text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5">子帳戶</span>
+                                                )}
+                                                <span className="text-sm font-bold text-[#5D4037] leading-tight">{l3acc.name}</span>
+                                                <div className={`text-base font-black ${balances[l3acc.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                                                  <span className="text-xs mr-1">$</span>{formatAmount(balances[l3acc.id] || 0)}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </motion.div>
                         )}
                       </AnimatePresence>
@@ -1373,7 +1933,6 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
         })}
       </div>
 
-      {/* Bottom Buffer */}
       <div className="h-[120px] w-full" />
     </motion.div>
   );
@@ -1392,28 +1951,53 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   categories: Category[]
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const d = new Date(selectedDate);
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+
+  const dateRangeStrings = useMemo(() => {
+    const firstDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const lastDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    
+    const fmt = (d: Date) => {
+      const y = d.getFullYear();
+      const m = (d.getMonth() + 1).toString().padStart(2, '0');
+      const day = d.getDate().toString().padStart(2, '0');
+      return `${y}/${m}/${day}`;
+    };
+    
+    return {
+      range: `${fmt(firstDay)} - ${fmt(lastDay)}`,
+      filter: `${currentMonth.getFullYear()}-${(currentMonth.getMonth() + 1).toString().padStart(2, '0')}`
+    };
+  }, [currentMonth]);
+
+  const changeMonth = (offset: number) => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+  };
   
   const accountRecords = useMemo(() => {
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
     const targetIds = [account.id, ...childrenIds];
-    const selectedYearMonth = selectedDate.substring(0, 7);
+    const targetYearMonth = dateRangeStrings.filter;
     
-    // 顯示歸屬於此月份的人帳紀錄，或是「待入帳」的紀錄
     return records.filter(r => 
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
       r.category !== '初始資金' &&
       (
-        (r.postingDate && r.postingDate.startsWith(selectedYearMonth)) ||
-        (!r.postingDate && r.isPending && r.date.startsWith(selectedYearMonth)) // 待入帳的也顯示在消費日月份
+        (r.postingDate && r.postingDate.startsWith(targetYearMonth)) ||
+        (!r.postingDate && r.isPending && r.date.startsWith(targetYearMonth))
       )
     )
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [records, account.id, accounts, selectedDate]);
+  }, [records, account.id, accounts, dateRangeStrings.filter]);
 
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
+      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
     >
       {/* Balance Section */}
       <div className="px-4 py-6">
@@ -1447,16 +2031,37 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
       {/* Transaction History Section */}
       <div className="flex-1 px-4 flex flex-col gap-4 mt-2">
-        <div className="flex items-center justify-between px-2">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-[#5D4037] rounded-lg flex items-center justify-center">
-              <History size={14} className="text-white" />
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-[#5D4037] rounded-lg flex items-center justify-center">
+                <History size={14} className="text-white" />
+              </div>
+              <span className="font-black text-base text-[#5D4037]">往來明細</span>
             </div>
-            <span className="font-black text-base text-[#5D4037]">往來明細</span>
+            <span className="text-[10px] font-bold text-stone-300 bg-white px-3 py-1 rounded-full border border-stone-100">
+              {accountRecords.length} 筆紀錄
+            </span>
           </div>
-          <span className="text-[10px] font-bold text-stone-300 bg-white px-3 py-1 rounded-full border border-stone-100">
-            {accountRecords.length} 筆紀錄
-          </span>
+          
+          {/* Month Switcher Row */}
+          <div className="flex items-center justify-center gap-4 bg-white/40 py-2 rounded-2xl mx-1">
+            <button 
+              onClick={() => changeMonth(-1)}
+              className="w-8 h-8 flex items-center justify-center text-[#5D4037] hover:bg-white/60 rounded-full transition-colors"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <span className="text-stone-500 font-bold text-sm tracking-tighter">
+              {dateRangeStrings.range}
+            </span>
+            <button 
+              onClick={() => changeMonth(1)}
+              className="w-8 h-8 flex items-center justify-center text-[#5D4037] hover:bg-white/60 rounded-full transition-colors"
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white overflow-hidden flex flex-col">
@@ -1694,7 +2299,7 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
                 onChange={e => setEdited({ ...edited, accountId: e.target.value })}
                 className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
               >
-                {accounts.map(a => (
+                {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
@@ -1709,7 +2314,7 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
                     onChange={e => setEdited({ ...edited, toAccountId: e.target.value })}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
                   >
-                    {accounts.map(a => (
+                    {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => (
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                   </select>
@@ -1782,7 +2387,8 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
     >
       <motion.div 
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-        className="bg-[#FFFDF5] w-full max-w-sm rounded-[40px] flex flex-col shadow-2xl border-2 border-white overflow-hidden max-h-[90vh]"
+        className="bg-[#FFF9E3] w-full max-w-sm rounded-[44px] flex flex-col shadow-2xl border-4 border-white overflow-hidden max-h-[90vh]"
+        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-8 pb-4 flex items-center justify-between flex-shrink-0">
@@ -1861,16 +2467,34 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
             {/* Icon Selection */}
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">選擇圖示</label>
-              <HorizontalScrollArea>
-                {['💰', '🏦', '💳', '📔', '💵', '🪙', '📱', '🐷', '📈', '🏠', '🚗', '💼', '💎', '🛒', '🍱', '✈️', '🎮', '🎁'].map(icon => (
-                  <button 
-                    key={icon}
-                    onClick={() => setEditedAcc({ ...editedAcc, icon })}
-                    className={`flex-shrink-0 w-12 h-12 rounded-xl border-2 transition-all flex items-center justify-center text-xl ${editedAcc.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md scale-110' : 'bg-white border-stone-50 shadow-sm'}`}
-                  >
-                    {icon}
-                  </button>
-                ))}
+              <HorizontalScrollArea className="px-1">
+                <div className="flex gap-2">
+                  {/* Custom Emoji Input */}
+                  <div className="relative flex-shrink-0">
+                    <input 
+                      type="text"
+                      maxLength={4}
+                      placeholder="⌨️"
+                      className="w-12 h-12 rounded-xl border-2 bg-white border-stone-50 shadow-sm text-center text-xl outline-none focus:border-[#FFD54F] focus:ring-2 focus:ring-[#FFD54F]/20 transition-all placeholder:opacity-50"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.trim()) {
+                          setEditedAcc({ ...editedAcc, icon: val.trim() });
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {['💰', '🏦', '💳', '📔', '💵', '🪙', '📱', '🐷', '📈', '🏠', '🚗', '💼', '💎', '🛒', '🍱', '✈️', '🎮', '🎁'].map(icon => (
+                    <button 
+                      key={icon}
+                      onClick={() => setEditedAcc({ ...editedAcc, icon })}
+                      className={`flex-shrink-0 w-12 h-12 rounded-xl border-2 transition-all flex items-center justify-center text-xl ${editedAcc.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md scale-110' : 'bg-white border-stone-50 shadow-sm'}`}
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                </div>
               </HorizontalScrollArea>
             </div>
 
@@ -1884,16 +2508,19 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl text-sm font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
                 >
                   <option value="">無 (作為主帳戶)</option>
-                  {accounts.filter(a => !a.parentId && a.id !== editedAcc.id).map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
+                  {accounts
+                    .filter(a => !a.parentId && a.id !== editedAcc.id)
+                    .sort((a, b) => (a.order || 0) - (b.order || 0))
+                    .map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
                 </select>
                 <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
               </div>
             </div>
 
             {/* Credit Card Closing Day */}
-            {(editedAcc.type === 'credit' || editedAcc.name.includes('卡')) && (
+            {editedAcc.type === 'credit' && (
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡結帳日</label>
                 <div className="relative">
@@ -1904,12 +2531,16 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                     value={editedAcc.closingDay || ''}
                     onChange={e => {
                       const val = parseInt(e.target.value);
-                      setEditedAcc({ ...editedAcc, closingDay: isNaN(val) ? undefined : Math.min(31, Math.max(1, val)) });
+                      const clampedVal = isNaN(val) ? undefined : Math.min(31, Math.max(1, val));
+                      setEditedAcc({ ...editedAcc, closingDay: clampedVal });
                     }}
-                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    className="w-full p-6 bg-white border-2 border-stone-50 rounded-[32px] font-black text-[#5D4037] text-2xl outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300"
                     placeholder="輸入日期 (1-31)"
+                    style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-stone-300">日</span>
+                  <div className="absolute right-6 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg border-2 border-stone-100 flex items-center justify-center text-stone-300">
+                    <span className="text-sm font-black">日</span>
+                  </div>
                 </div>
                 <p className="text-[10px] font-bold text-stone-300 px-1">設定結帳日以利後續計算帳單週期</p>
               </div>
@@ -2449,7 +3080,21 @@ function AccountSortModal({ accounts, onClose, onSave }: {
   onClose: () => void, 
   onSave: (newOrder: Account[]) => void 
 }) {
-  const [sortedAccounts, setSortedAccounts] = useState([...accounts]);
+  // Initialize by grouping children with parents to ensure subtree movement logic works
+  const [sortedAccounts, setSortedAccounts] = useState(() => {
+    const parents = accounts.filter(a => !a.parentId);
+    const result: Account[] = [];
+    parents.forEach(p => {
+      result.push(p);
+      const children = accounts.filter(c => c.parentId === p.id);
+      result.push(...children);
+    });
+    // Add any orphans just in case
+    accounts.forEach(a => {
+      if (!result.find(r => r.id === a.id)) result.push(a);
+    });
+    return result;
+  });
 
   const moveAccount = (index: number, direction: 'up' | 'down') => {
     const newOrder = [...sortedAccounts];
@@ -2474,6 +3119,7 @@ function AccountSortModal({ accounts, onClose, onSave }: {
       if (targetIndex < 0 || targetIndex >= newOrder.length) return;
       
       const targetItem = newOrder[targetIndex];
+      // Only swap if the target is also a child of the SAME parent
       if (targetItem.parentId === item.parentId) {
         newOrder[index] = targetItem;
         newOrder[targetIndex] = item;
@@ -2502,7 +3148,9 @@ function AccountSortModal({ accounts, onClose, onSave }: {
         
         const [targetStart, targetEnd] = getSubtreeRange(nextParentStart);
         const group = newOrder.splice(start, groupLength);
-        newOrder.splice(targetEnd - groupLength + 1, 0, ...group);
+        // Position it after the next group
+        const insertAt = targetEnd - groupLength + 1;
+        newOrder.splice(insertAt, 0, ...group);
       }
       setSortedAccounts(newOrder);
     }
@@ -2536,12 +3184,13 @@ function AccountSortModal({ accounts, onClose, onSave }: {
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-[#5D4037]/40 backdrop-blur-md z-[80] flex items-center justify-center p-6"
+      className="fixed inset-0 bg-[#5D4037]/60 backdrop-blur-md z-[80] flex items-center justify-center p-6"
       onClick={onClose}
     >
       <motion.div 
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-        className="bg-[#FFFDF5] w-full max-w-sm rounded-[40px] flex flex-col shadow-2xl border-2 border-white overflow-hidden max-h-[80vh]"
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[44px] flex flex-col shadow-2xl border-4 border-white overflow-hidden max-h-[85vh]"
+        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-8 pb-4 flex items-center justify-between flex-shrink-0">
@@ -2549,53 +3198,58 @@ function AccountSortModal({ accounts, onClose, onSave }: {
             <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
               <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
             </button>
-            <h3 className="text-xl font-black text-[#5D4037]">帳戶排序</h3>
+            <h3 className="text-2xl font-black text-[#5D4037]">帳戶排序</h3>
           </div>
-          <div className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-sm">
-            <span className="text-lg font-bold text-[#5D4037]">☰↑</span>
+          <div className="w-12 h-12 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-md">
+            <span className="text-xl font-bold text-[#5D4037]">☰↑</span>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-2 space-y-3">
-          {sortedAccounts.map((acc, index) => (
-            <div 
-              key={acc.id}
-              className={`flex items-center gap-3 p-4 bg-white rounded-2xl border-2 border-stone-50 shadow-sm transition-all ${acc.parentId ? 'ml-8 border-l-4 border-stone-100/50 opacity-90 scale-98' : 'z-10 relative'}`}
-            >
-              <div className="w-10 h-10 bg-[#FFFDF5] rounded-xl flex items-center justify-center text-xl border border-stone-50">
-                {acc.icon}
+        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4 space-y-4">
+          {sortedAccounts.map((acc, index) => {
+            const isChild = !!acc.parentId;
+            return (
+              <div 
+                key={acc.id}
+                className={`flex items-center gap-3 p-4 bg-white rounded-3xl border-2 border-stone-50 shadow-sm transition-all group ${isChild ? 'ml-10 border-l-8 border-[#5D4037]/5 bg-white/70 scale-95' : 'relative'}`}
+              >
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl border border-stone-50 shadow-sm ${isChild ? 'bg-white' : 'bg-[#FFFDF5]'}`}>
+                  {acc.icon}
+                </div>
+                <div className="flex-1 flex flex-col min-w-0">
+                  <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-1">
+                    {isChild ? '子帳戶' : '主帳戶'}
+                  </span>
+                  <span className={`font-black text-[#5D4037] truncate ${isChild ? 'text-sm' : 'text-base'}`}>{acc.name}</span>
+                </div>
+                <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                  <button 
+                    disabled={!canMoveUp(index)}
+                    onClick={() => moveAccount(index, 'up')}
+                    className="p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] disabled:opacity-5 transition-all active:scale-75"
+                  >
+                    <ChevronUp size={24} />
+                  </button>
+                  <button 
+                    disabled={!canMoveDown(index)}
+                    onClick={() => moveAccount(index, 'down')}
+                    className="p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] disabled:opacity-5 transition-all active:scale-75"
+                  >
+                    <ChevronDown size={24} />
+                  </button>
+                </div>
               </div>
-              <div className="flex-1 flex flex-col min-w-0">
-                <span className="font-black text-[#5D4037] text-sm truncate">{acc.name}</span>
-                <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">{acc.currency}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <button 
-                  disabled={!canMoveUp(index)}
-                  onClick={() => moveAccount(index, 'up')}
-                  className="p-1.5 hover:bg-stone-50 rounded-lg text-stone-300 disabled:opacity-10 transition-all active:scale-90"
-                >
-                  <ChevronUp size={20} />
-                </button>
-                <button 
-                  disabled={!canMoveDown(index)}
-                  onClick={() => moveAccount(index, 'down')}
-                  className="p-1.5 hover:bg-stone-50 rounded-lg text-stone-300 disabled:opacity-10 transition-all active:scale-90"
-                >
-                  <ChevronDown size={20} />
-                </button>
-              </div>
-            </div>
-          ))}
-          <div className="h-[40px]" />
+            );
+          })}
+          <div className="h-6" />
         </div>
 
-        <div className="p-8 pt-4 flex-shrink-0 bg-white/50 backdrop-blur-sm border-t border-stone-50">
+        <div className="p-8 pt-4 flex-shrink-0 bg-white/80 backdrop-blur-sm border-t border-stone-100">
           <button 
             onClick={() => onSave(sortedAccounts)}
-            className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
+            className="w-full py-5 bg-[#5D4037] text-white rounded-3xl font-black text-xl flex items-center justify-center gap-3 shadow-[0_10px_30px_-10px_rgba(93,64,55,0.4)] active:scale-95 transition-all"
           >
-            <Check size={24} /> 完成排序
+            <Check size={28} /> 完成排序
           </button>
         </div>
       </motion.div>
@@ -3287,7 +3941,7 @@ function ProjectDetailView({ project, records, accounts, categories, onBack }: {
   );
 }
 
-function PlaceholderView({ title, icon, onBack }: { title: string, icon: React.ReactNode, onBack: () => void }) {
+function PlaceholderView({ title, icon, onBack, content }: { title: string, icon: React.ReactNode, onBack: () => void, content?: React.ReactNode }) {
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
@@ -3308,6 +3962,8 @@ function PlaceholderView({ title, icon, onBack }: { title: string, icon: React.R
             </div>
           </div>
           
+          {content}
+
           <div className="w-full max-w-[200px] h-1.5 bg-stone-100 rounded-full overflow-hidden">
             <motion.div 
               initial={{ x: '-100%' }}
@@ -3524,20 +4180,52 @@ function MoreView({
   accounts, 
   installments, 
   projects,
+  categories,
+  templates,
+  fixedRecords,
+  user,
+  onForceSync,
   setRecords, 
   setInstallments,
-  setProjects
+  setProjects,
+  onUpdateTemplates,
+  onUpdateCategories
 }: { 
   records: Transaction[], 
   accounts: Account[], 
   installments: Installment[],
   projects: Project[],
+  categories: Category[],
+  templates: Template[],
+  fixedRecords: FixedRecord[],
+  user: User | null,
+  onForceSync: () => Promise<boolean | undefined>,
   setRecords: (r: Transaction[]) => void,
   setInstallments: (i: Installment[]) => void,
-  setProjects: (p: Project[]) => void
+  setProjects: (p: Project[]) => void,
+  onUpdateTemplates: (t: Template[]) => void,
+  onUpdateCategories: (c: Category[]) => void
 }) {
   const [showSyncModal, setShowSyncModal] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleManualSync = async () => {
+    if (!user) {
+      alert('請先登入後再進行同步。');
+      return;
+    }
+    
+    setIsSyncing(true);
+    try {
+      await onForceSync();
+      alert('同步完成');
+    } catch (err) {
+      alert('同步失敗，請檢查網路連線。');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleExportCSV = () => {
     const headers = ['消費日期', '入帳日期', '類型', '類別', '金額', '帳戶', '備註'];
@@ -3645,6 +4333,17 @@ function MoreView({
         >
           <span className="font-bold text-[#5D4037]">備份與還原</span>
           <ChevronRight size={20} className="text-stone-300" />
+        </button>
+        <button 
+          onClick={handleManualSync}
+          disabled={isSyncing}
+          className="flex items-center justify-between py-3 border-b border-stone-50 text-left w-full active:opacity-60"
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-[#5D4037]">立即同步至雲端</span>
+            {isSyncing && <Loader2 size={16} className="text-[#FBC02D] animate-spin" />}
+          </div>
+          <CloudUpload size={20} className={isSyncing ? 'text-[#FBC02D]' : 'text-stone-300'} />
         </button>
         <div className="flex items-center justify-between py-3">
           <span className="font-bold text-[#5D4037]">關於 KK 記帳</span>
