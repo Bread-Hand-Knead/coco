@@ -306,7 +306,9 @@ export default function App() {
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isAccountEditModalOpen, setIsAccountEditModalOpen] = useState(false);
   const [isAccountSortModalOpen, setIsAccountSortModalOpen] = useState(false);
+  const [isProjectEditModalOpen, setIsProjectEditModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(new Date()));
   const [records, setRecords] = useState<Transaction[]>(INITIAL_RECORDS);
   const [accounts, setAccounts] = useState<Account[]>(INITIAL_ACCOUNTS);
@@ -339,7 +341,15 @@ export default function App() {
       setUser(u);
       setAuthLoading(false);
       if (!u) {
-        // Clear state if logged out if you want, or keep local
+        // Reset state to initial local data on logout
+        setRecords(INITIAL_RECORDS);
+        setAccounts(INITIAL_ACCOUNTS);
+        setCategories(INITIAL_CATEGORIES);
+        setProjects(INITIAL_PROJECTS);
+        setTemplates(INITIAL_TEMPLATES);
+        setFixedRecords([]);
+        setInstallments([]);
+        setMonthlyBudget(30000);
       }
     });
   }, []);
@@ -355,11 +365,6 @@ export default function App() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      // Reset state to initial local data
-      setRecords(INITIAL_RECORDS);
-      setAccounts(INITIAL_ACCOUNTS);
-      setCategories(INITIAL_CATEGORIES);
-      setProjects(INITIAL_PROJECTS);
     } catch (error) {
       console.error('Logout failed', error);
     }
@@ -752,7 +757,7 @@ export default function App() {
     const endOfWeekStr = formatLocalDate(endOfWeek);
 
     // Filter out initial balance records from statistics
-    const filteredRecords = records.filter(r => r.category !== '初始資金');
+    const filteredRecords = records;
     
     // Monthly/Weekly/Daily stats now use postingDate
     const daily = filteredRecords.filter(r => (r.postingDate || r.date) === selectedDate);
@@ -916,6 +921,32 @@ export default function App() {
     }
     setIsAccountEditModalOpen(false);
     setEditingAccount(null);
+  };
+
+  const handleSaveProject = async (p: Project) => {
+    if (user) {
+      await syncToCloud('projects', p, p.id);
+    } else {
+      setProjects(prev => {
+        if (prev.find(x => x.id === p.id)) {
+          return prev.map(x => x.id === p.id ? p : x);
+        } else {
+          return [...prev, p];
+        }
+      });
+    }
+    setIsProjectEditModalOpen(false);
+    setEditingProject(null);
+  };
+
+  const handleDeleteProject = async (id: string) => {
+    if (user) { // Delete is handled by deleteFromCloud usually but projects need specific handling to avoid orphans if it were a full app
+      await deleteFromCloud('projects', id);
+    } else {
+      setProjects(prev => prev.filter(p => p.id !== id));
+    }
+    setIsProjectEditModalOpen(false);
+    setEditingProject(null);
   };
 
   const handleDeleteAccount = async (id: string) => {
@@ -1233,12 +1264,18 @@ export default function App() {
                   accounts={accounts}
                   categories={categories}
                   onBack={() => setSelectedProjectId(null)}
+                  onUpdateRecord={handleUpdateRecord}
+                  onDeleteRecord={handleDeleteRecord}
                 />
               ) : (
                 <ProjectsView 
                   projects={projects}
                   records={records}
                   onProjectClick={(id) => setSelectedProjectId(id)}
+                  onEditProject={(p) => {
+                    setEditingProject(p);
+                    setIsProjectEditModalOpen(true);
+                  }}
                   onBack={() => setCurrentView('home')}
                 />
               )
@@ -1397,6 +1434,21 @@ export default function App() {
               accounts={accounts}
               onClose={() => setIsAccountSortModalOpen(false)}
               onSave={handleSortAccounts}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Project Edit Modal */}
+        <AnimatePresence>
+          {isProjectEditModalOpen && editingProject && (
+            <ProjectEditModal 
+              project={editingProject}
+              onClose={() => {
+                setIsProjectEditModalOpen(false);
+                setEditingProject(null);
+              }}
+              onSave={handleSaveProject}
+              onDelete={handleDeleteProject}
             />
           )}
         </AnimatePresence>
@@ -2376,6 +2428,24 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
     if (!initRec) return 0;
     return initRec.type === 'income' ? initRec.amount : -initRec.amount;
   });
+
+  const otherRecordsSum = useMemo(() => {
+    let sum = 0;
+    records.forEach(r => {
+      if (r.category === '初始資金') return;
+      if (r.accountId === account.id) {
+        if (r.type === 'income') sum += r.amount;
+        if (r.type === 'expense') sum -= r.amount;
+        if (r.type === 'transfer') sum -= r.amount;
+      }
+      if (r.type === 'transfer' && r.toAccountId === account.id) {
+        sum += (r.toAmount ?? (r.amount * (r.exchangeRate || 1)));
+      }
+    });
+    return sum;
+  }, [records, account.id]);
+
+  const currentTotal = initialAmount + otherRecordsSum;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket'];
 
@@ -2423,13 +2493,18 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
                 <input 
                   type="number"
-                  disabled={!isNew}
                   value={initialAmount}
                   onChange={e => setInitialAmount(parseFloat(e.target.value) || 0)}
-                  className={`w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all ${!isNew ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
                 />
               </div>
-              {!isNew && <p className="text-[10px] font-bold text-stone-300 px-1">現有帳戶不可修改初始金額</p>}
+              <div className="mt-2 flex items-center justify-between px-1 bg-stone-50/50 p-3 rounded-xl border border-stone-100">
+                <span className="text-[10px] font-bold text-stone-400">目前餘額 (連動計算)</span>
+                <span className={`text-base font-black ${currentTotal < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                  $ {currentTotal.toLocaleString()}
+                </span>
+              </div>
             </div>
 
             {/* Type Selection */}
@@ -2625,7 +2700,7 @@ function CalendarView({ records, accounts, onBack }: { records: Transaction[], a
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewDate, setViewDate] = useState(new Date()); // Current month being viewed
   
-  const filteredRecords = useMemo(() => records.filter(r => r.category !== '初始資金'), [records]);
+  const filteredRecords = useMemo(() => records, [records]);
   const dayRecords = useMemo(() => filteredRecords.filter(r => r.date === selectedDate), [filteredRecords, selectedDate]);
   
   const dayStats = useMemo(() => {
@@ -3257,6 +3332,94 @@ function AccountSortModal({ accounts, onClose, onSave }: {
   );
 }
 
+function ProjectEditModal({ project, onClose, onSave, onDelete }: { 
+  project: Project, 
+  onClose: () => void, 
+  onSave: (p: Project) => void,
+  onDelete: (id: string) => void
+}) {
+  const [edited, setEdited] = useState<Project>({ ...project });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-[#5D4037]/60 backdrop-blur-md z-[80] flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[44px] flex flex-col shadow-2xl border-4 border-white overflow-hidden"
+        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <AnimatePresence>
+          {showDeleteConfirm && (
+            <motion.div 
+              initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 100 }}
+              className="absolute inset-0 bg-rose-500 z-[90] flex flex-col items-center justify-center p-8 text-white text-center gap-6"
+            >
+              <Trash2 size={64} className="mb-2" />
+              <h4 className="text-2xl font-black">確定要刪除專案嗎？</h4>
+              <p className="text-sm font-bold opacity-80 text-rose-100">刪除後將無法復原內容，現有交易紀錄的專案關聯將消失。</p>
+              <div className="flex w-full gap-3 mt-4">
+                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-4 bg-white/20 rounded-2xl font-bold">取消</button>
+                <button onClick={() => onDelete(project.id)} className="flex-1 py-4 bg-white text-rose-500 rounded-2xl font-black shadow-lg">確定刪除</button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="p-8 pb-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+             <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+              <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
+            </button>
+            <h3 className="text-2xl font-black text-[#5D4037]">編輯專案</h3>
+          </div>
+          <button onClick={() => setShowDeleteConfirm(true)} className="p-3 text-rose-400 hover:bg-rose-50 rounded-2xl transition-colors">
+            <Trash2 size={24} />
+          </button>
+        </div>
+
+        <div className="p-8 space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">專案名稱</label>
+            <input 
+              value={edited.name}
+              onChange={e => setEdited({ ...edited, name: e.target.value })}
+              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+              placeholder="輸入專案名稱..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">專案圖示</label>
+            <div className="grid grid-cols-5 gap-2">
+              {['📝', '✈️', '📱', '👗', '🏠', '💼', '🍱', '🍔', '🎨', '🎬'].map(icon => (
+                <button 
+                  key={icon}
+                  onClick={() => setEdited({ ...edited, icon })}
+                  className={`w-12 h-12 rounded-2xl text-xl flex items-center justify-center transition-all ${edited.icon === icon ? 'bg-[#FFD54F] shadow-md scale-110' : 'bg-white border-2 border-stone-50 hover:bg-stone-50'}`}
+                >
+                  {icon}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button 
+            onClick={() => onSave(edited)}
+            className="w-full py-5 bg-[#5D4037] text-white rounded-[24px] font-black text-xl flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all mt-4"
+          >
+            <Check size={28} /> 儲存設定
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function CategoryManagementPage({ categories, onSave, onBack }: { 
   categories: Category[], 
   onSave: (cats: Category[]) => void,
@@ -3757,10 +3920,11 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
   );
 }
 
-function ProjectsView({ projects, records, onProjectClick, onBack }: { 
+function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack }: { 
   projects: Project[], 
   records: Transaction[], 
   onProjectClick: (id: string) => void,
+  onEditProject: (p: Project) => void,
   onBack: () => void 
 }) {
   const getProjectStats = (projectId: string) => {
@@ -3789,11 +3953,12 @@ function ProjectsView({ projects, records, onProjectClick, onBack }: {
         <div className="divide-y divide-stone-100">
           {projects.map(project => {
             const stats = getProjectStats(project.id);
+            const isDefault = project.id === 'p1';
             return (
               <div 
                 key={project.id}
                 onClick={() => onProjectClick(project.id)}
-                className="flex items-center gap-4 px-4 py-3 active:bg-stone-50 transition-colors cursor-pointer"
+                className="flex items-center gap-4 px-4 py-4 active:bg-stone-50 transition-colors cursor-pointer group"
               >
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shadow-sm ${
                   project.name === '追星' ? 'bg-blue-400' : 
@@ -3801,15 +3966,30 @@ function ProjectsView({ projects, records, onProjectClick, onBack }: {
                   project.name === '頭髮' ? 'bg-pink-400' :
                   project.name === '弟弟' ? 'bg-orange-400' :
                   project.name === '利息' ? 'bg-green-400' : 'bg-blue-400'
-                } text-white`}>
+                } text-white transition-transform group-active:scale-95`}>
                   {project.icon}
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 flex flex-col">
                   <span className="text-[17px] font-bold text-[#5D4037]">{project.name}</span>
                 </div>
-                <div className="text-right">
-                  <div className="text-[15px] font-bold text-[#E91E63]">${stats.expense.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
-                  <div className="text-[15px] font-bold text-[#03A9F4]">${stats.income.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
+                
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <div className="text-[15px] font-bold text-rose-400">${stats.expense.toLocaleString()}</div>
+                    <div className="text-[15px] font-bold text-blue-400">${stats.income.toLocaleString()}</div>
+                  </div>
+                  
+                  {!isDefault && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditProject(project);
+                      }}
+                      className="p-2 text-stone-300 hover:text-[#5D4037] transition-colors"
+                    >
+                      <Settings2 size={18} />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -3820,17 +4000,20 @@ function ProjectsView({ projects, records, onProjectClick, onBack }: {
   );
 }
 
-function ProjectDetailView({ project, records, accounts, categories, onBack }: { 
+function ProjectDetailView({ project, records, accounts, categories, onBack, onUpdateRecord, onDeleteRecord }: { 
   project: Project, 
   records: Transaction[], 
   accounts: Account[], 
   categories: Category[],
-  onBack: () => void 
+  onBack: () => void,
+  onUpdateRecord: (oldRec: Transaction, newRec: Transaction) => void,
+  onDeleteRecord: (rec: Transaction) => void
 }) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
 
   const monthRangeLabel = useMemo(() => {
     const [y, m] = currentMonth.split('/').map(Number);
@@ -3915,7 +4098,12 @@ function ProjectDetailView({ project, records, accounts, categories, onBack }: {
               {group.records.map(record => {
                 const recordAccount = accounts.find(a => a.id === record.accountId);
                 return (
-                <div key={record.id} className="flex items-center gap-4 px-6 py-3" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
+                <div 
+                  key={record.id} 
+                  onClick={() => setEditingRecord(record)}
+                  className="flex items-center gap-4 px-6 py-3 cursor-pointer active:bg-stone-50 transition-colors" 
+                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                >
                   <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center text-xl">
                     {getCategoryIcon(record.category, record.type, categories)}
                   </div>
@@ -3937,6 +4125,24 @@ function ProjectDetailView({ project, records, accounts, categories, onBack }: {
           </div>
         ))}
       </div>
+
+      <AnimatePresence>
+        {editingRecord && (
+          <EditRecordModal 
+            record={editingRecord}
+            accounts={accounts}
+            onClose={() => setEditingRecord(null)}
+            onSave={(updated) => {
+              onUpdateRecord(editingRecord, updated);
+              setEditingRecord(null);
+            }}
+            onDelete={() => {
+              onDeleteRecord(editingRecord);
+              setEditingRecord(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -4106,7 +4312,7 @@ function HistoryView({ records, accounts, categories, filter, onBack, onUpdateRe
 }
 
 function ReportsView({ records }: { records: Transaction[] }) {
-  const filteredRecords = useMemo(() => records.filter(r => r.category !== '初始資金'), [records]);
+  const filteredRecords = useMemo(() => records, [records]);
   
   const monthlyStats = useMemo(() => {
     const now = new Date();
