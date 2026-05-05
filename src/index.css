@@ -15,17 +15,17 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
+    width: 5px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #EEDCC3;
+    background: rgba(93, 64, 55, 0.3);
     border-radius: 10px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #D7BC9D;
+    background: rgba(93, 64, 55, 0.5);
   }
 }
 

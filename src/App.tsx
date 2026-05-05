@@ -72,6 +72,21 @@ import {
   writeBatch,
   serverTimestamp
 } from 'firebase/firestore';
+import { 
+  PieChart as RePieChart, 
+  Pie, 
+  Cell, 
+  ResponsiveContainer, 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  Legend,
+  LineChart,
+  Line
+} from 'recharts';
+import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, isSameMonth, parseISO } from 'date-fns';
 import { db, auth, googleProvider } from './lib/firebase';
 
 // --- Firebase Error Handling ---
@@ -203,6 +218,7 @@ interface Project {
   icon?: string;
   color?: string;
   description?: string;
+  parentId?: string;
 }
 
 // --- Initial Data ---
@@ -428,10 +444,24 @@ export default function App() {
   }, [user]);
 
   // Firestore sync functions
+  const cleanData = (obj: any) => {
+    if (obj === null || typeof obj !== 'object') return obj;
+    const newObj = Array.isArray(obj) ? [...obj] : { ...obj };
+    Object.keys(newObj).forEach(key => {
+      if (newObj[key] === undefined) {
+        delete newObj[key];
+      } else if (newObj[key] !== null && typeof newObj[key] === 'object') {
+        newObj[key] = cleanData(newObj[key]);
+      }
+    });
+    return newObj;
+  };
+
   const syncToCloud = async (path: string, data: any, id: string) => {
     if (!user) return;
     try {
-      await setDoc(doc(db, 'users', user.uid, path, id), data);
+      const sanitizedData = cleanData(data);
+      await setDoc(doc(db, 'users', user.uid, path, id), sanitizedData);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/${path}/${id}`);
     }
@@ -465,25 +495,25 @@ export default function App() {
       const batch = writeBatch(db);
       
       categories.forEach(item => {
-        batch.set(doc(db, 'users', user.uid, 'categories', item.id), item);
+        batch.set(doc(db, 'users', user.uid, 'categories', item.id), cleanData(item));
       });
       accounts.forEach(item => {
-        batch.set(doc(db, 'users', user.uid, 'accounts', item.id), item);
+        batch.set(doc(db, 'users', user.uid, 'accounts', item.id), cleanData(item));
       });
       records.forEach(item => {
-        batch.set(doc(db, 'users', user.uid, 'records', item.id), item);
+        batch.set(doc(db, 'users', user.uid, 'records', item.id), cleanData(item));
       });
       projects.forEach(item => {
-        batch.set(doc(db, 'users', user.uid, 'projects', item.id), item);
+        batch.set(doc(db, 'users', user.uid, 'projects', item.id), cleanData(item));
       });
       templates.forEach(item => {
-        batch.set(doc(db, 'users', user.uid, 'templates', item.id), item);
+        batch.set(doc(db, 'users', user.uid, 'templates', item.id), cleanData(item));
       });
       fixedRecords.forEach(item => {
-        batch.set(doc(db, 'users', user.uid, 'fixedRecords', item.id), item);
+        batch.set(doc(db, 'users', user.uid, 'fixedRecords', item.id), cleanData(item));
       });
       installments.forEach(item => {
-        batch.set(doc(db, 'users', user.uid, 'installments', item.id), item);
+        batch.set(doc(db, 'users', user.uid, 'installments', item.id), cleanData(item));
       });
 
       await batch.commit();
@@ -528,7 +558,7 @@ export default function App() {
       // Find what changed
       const batch = writeBatch(db);
       newCats.forEach(cat => {
-        batch.set(doc(db, 'users', user.uid, 'categories', cat.id), cat);
+        batch.set(doc(db, 'users', user.uid, 'categories', cat.id), cleanData(cat));
       });
       await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/categories'));
     } else {
@@ -540,7 +570,7 @@ export default function App() {
     if (user) {
       const batch = writeBatch(db);
       newTemplates.forEach(t => {
-        batch.set(doc(db, 'users', user.uid, 'templates', t.id), t);
+        batch.set(doc(db, 'users', user.uid, 'templates', t.id), cleanData(t));
       });
       await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/templates'));
     } else {
@@ -552,7 +582,7 @@ export default function App() {
     if (user) {
       const batch = writeBatch(db);
       newProjects.forEach(p => {
-        batch.set(doc(db, 'users', user.uid, 'projects', p.id), p);
+        batch.set(doc(db, 'users', user.uid, 'projects', p.id), cleanData(p));
       });
       await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/projects'));
     } else {
@@ -616,8 +646,8 @@ export default function App() {
     if (changed) {
       if (user) {
         const batch = writeBatch(db);
-        recordsToSync.forEach(r => batch.set(doc(db, 'users', user.uid, 'records', r.id), r));
-        updatedFixed.forEach(f => batch.set(doc(db, 'users', user.uid, 'fixedRecords', f.id), f));
+        recordsToSync.forEach(r => batch.set(doc(db, 'users', user.uid, 'records', r.id), cleanData(r)));
+        updatedFixed.forEach(f => batch.set(doc(db, 'users', user.uid, 'fixedRecords', f.id), cleanData(f)));
         await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/fixed_sync'));
       } else {
         setRecords(prev => [...prev, ...recordsToSync]);
@@ -813,7 +843,7 @@ export default function App() {
         };
 
         if (batch && user) {
-          batch.set(doc(db, 'users', user.uid, 'records', id), newPart);
+          batch.set(doc(db, 'users', user.uid, 'records', id), cleanData(newPart));
         } else {
           setRecords(prev => [...prev, newPart]);
         }
@@ -875,6 +905,15 @@ export default function App() {
       currency: 'TWD'
     });
     setIsAccountEditModalOpen(true);
+  };
+
+  const handleAddProject = () => {
+    setEditingProject({
+      id: `p_${Date.now()}`,
+      name: '',
+      icon: '📝'
+    });
+    setIsProjectEditModalOpen(true);
   };
 
   const handleSaveAccount = async (updatedAcc: Account, initialAmount?: number) => {
@@ -992,12 +1031,16 @@ export default function App() {
                 {selectedProjectId ? (
                   <>
                     <button className="p-2 hover:bg-white/50 rounded-full transition-colors"><Settings2 size={24} className="text-[#5D4037]" /></button>
-                    <button className="p-2 hover:bg-white/50 rounded-full transition-colors"><MoreHorizontal size={24} className="text-[#5D4037]" /></button>
                   </>
                 ) : (
                   <>
                     <button className="p-2 hover:bg-white/50 rounded-full transition-colors"><Layers size={24} className="text-[#5D4037]" /></button>
-                    <button className="p-2 hover:bg-white/50 rounded-full transition-colors"><Plus size={24} className="text-[#5D4037]" /></button>
+                    <button 
+                      onClick={handleAddProject}
+                      className="p-2 hover:bg-white/50 rounded-full transition-colors"
+                    >
+                      <Plus size={24} className="text-[#5D4037]" />
+                    </button>
                   </>
                 )}
               </div>
@@ -1018,57 +1061,59 @@ export default function App() {
                 <Plus size={24} className="text-[#5D4037]" />
               </button>
             ) : (
-              <div className="relative">
-                <button 
-                  onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
-                  className="p-1 hover:bg-white/50 rounded-full transition-colors"
-                >
-                  <MoreVertical className="w-6 h-6 text-[#5D4037]" />
-                </button>
+              !['projects'].includes(currentView) && (
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+                    className="p-1 hover:bg-white/50 rounded-full transition-colors"
+                  >
+                    <MoreVertical className="w-6 h-6 text-[#5D4037]" />
+                  </button>
 
-                <AnimatePresence>
-                  {isMoreMenuOpen && (
-                    <>
-                      <motion.div 
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-40"
-                        onClick={() => setIsMoreMenuOpen(false)}
-                      />
-                      <motion.div 
-                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                        className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-stone-100 py-2 z-50 overflow-hidden"
-                      >
-                        <button 
-                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
-                          onClick={() => { setCurrentView('calendar'); setIsMoreMenuOpen(false); }}
+                  <AnimatePresence>
+                    {isMoreMenuOpen && (
+                      <>
+                        <motion.div 
+                          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                          className="fixed inset-0 z-40"
+                          onClick={() => setIsMoreMenuOpen(false)}
+                        />
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                          className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-stone-100 py-2 z-50 overflow-hidden"
                         >
-                          <CalendarIcon size={18} className="text-stone-400" />
-                          <span className="font-bold text-sm">日曆模式</span>
-                        </button>
-                        <button 
-                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
-                          onClick={() => { setIsAccountSortModalOpen(true); setIsMoreMenuOpen(false); }}
-                        >
-                          <span className="text-lg font-bold text-stone-400 w-[18px] flex justify-center">☰↑</span>
-                          <span className="font-bold text-sm">帳戶排序</span>
-                        </button>
-                        <button 
-                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
-                          onClick={() => { 
-                            handleAddAccount();
-                            setIsMoreMenuOpen(false);
-                          }}
-                        >
-                          <Plus size={18} className="text-stone-400" />
-                          <span className="font-bold text-sm">新增帳戶</span>
-                        </button>
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
-              </div>
+                          <button 
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                            onClick={() => { setCurrentView('calendar'); setIsMoreMenuOpen(false); }}
+                          >
+                            <CalendarIcon size={18} className="text-stone-400" />
+                            <span className="font-bold text-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>日曆模式</span>
+                          </button>
+                          <button 
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                            onClick={() => { setIsAccountSortModalOpen(true); setIsMoreMenuOpen(false); }}
+                          >
+                            <span className="text-lg font-bold text-stone-400 w-[18px] flex justify-center">☰↑</span>
+                            <span className="font-bold text-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>帳戶排序</span>
+                          </button>
+                          <button 
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                            onClick={() => { 
+                              handleAddAccount();
+                              setIsMoreMenuOpen(false);
+                            }}
+                          >
+                            <Plus size={18} className="text-stone-400" />
+                            <span className="font-bold text-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>新增帳戶</span>
+                          </button>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )
             )}
           </div>
         </header>
@@ -1215,6 +1260,7 @@ export default function App() {
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
                 accounts={accounts}
+                projects={projects}
                 balance={accountBalances[selectedAccountForDetail.id] || 0}
                 categories={categories}
               />
@@ -1224,6 +1270,7 @@ export default function App() {
                 records={records} 
                 accounts={accounts} 
                 categories={categories}
+                projects={projects}
                 filter={historyFilter}
                 onBack={() => setCurrentView('home')}
                 onUpdateRecord={handleUpdateRecord}
@@ -1263,9 +1310,11 @@ export default function App() {
                   records={records}
                   accounts={accounts}
                   categories={categories}
+                  projects={projects}
                   onBack={() => setSelectedProjectId(null)}
                   onUpdateRecord={handleUpdateRecord}
                   onDeleteRecord={handleDeleteRecord}
+                  onAddRecord={() => setIsRecordModalOpen(true)}
                 />
               ) : (
                 <ProjectsView 
@@ -1359,7 +1408,11 @@ export default function App() {
               />
             )}
             {currentView === 'reports' && (
-              <ReportsView records={records} />
+              <ReportsView 
+                records={records} 
+                projects={projects}
+                categories={categories}
+              />
             )}
             {currentView === 'more' && (
               <MoreView 
@@ -1396,6 +1449,8 @@ export default function App() {
               accounts={accounts}
               categories={categories}
               templates={templates}
+              projects={projects}
+              initialProjectId={selectedProjectId || undefined}
               onUpdateTemplates={handleUpdateTemplates}
               onUpdateCategories={handleUpdateCategories}
               onClose={() => setIsRecordModalOpen(false)}
@@ -1443,6 +1498,7 @@ export default function App() {
           {isProjectEditModalOpen && editingProject && (
             <ProjectEditModal 
               project={editingProject}
+              projects={projects}
               onClose={() => {
                 setIsProjectEditModalOpen(false);
                 setEditingProject(null);
@@ -1843,18 +1899,18 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                       {/* Level 1 Card: Group Total */}
                       <div 
                         onClick={() => !isBrandGroup && onAccountClick(acc as Account)}
-                        className={`bg-white p-5 rounded-[32px] shadow-sm border-2 border-stone-50 flex items-center gap-4 group transition-all relative overflow-hidden ${!isBrandGroup ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+                        className={`bg-white p-4 sm:p-5 rounded-[32px] shadow-sm border-2 border-stone-50 flex flex-row items-center gap-3 sm:gap-4 group transition-all relative overflow-hidden ${!isBrandGroup ? 'cursor-pointer active:scale-[0.98]' : ''}`}
                       >
-                        <div className="w-16 h-16 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-3xl shadow-sm border border-white">
+                        <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl sm:text-3xl shadow-sm border border-white">
                           {acc.icon}
                         </div>
-                        <div className="flex-col flex flex-1">
-                          <span className="text-sm font-bold text-stone-300 uppercase tracking-widest mb-1 leading-none">
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <span className="text-[10px] sm:text-xs font-bold text-stone-300 uppercase tracking-widest mb-1 leading-none truncate">
                             {isBrandGroup ? `${acc.name}總額` : (acc.type === 'bank' ? `${acc.name}總額` : accountTypeLabels[acc.type as Account['type']])}
                           </span>
-                          <span className="text-xl font-black text-[#5D4037] leading-tight">{acc.name}</span>
-                          <span className={`text-[26px] font-black mt-1 ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                            <span className="text-lg mr-1">$</span>{formatAmount(displayAmount)}
+                          <span className="text-lg sm:text-xl font-black text-[#5D4037] leading-tight truncate">{acc.name}</span>
+                          <span className={`text-xl sm:text-[26px] font-black mt-1 ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                            <span className="text-base sm:text-lg mr-1">$</span>{formatAmount(displayAmount)}
                           </span>
                         </div>
                         
@@ -1901,19 +1957,19 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                     
                                     <div 
                                       onClick={() => onAccountClick(l2acc)}
-                                      className="flex-1 bg-white/80 p-4 rounded-[24px] border border-white flex items-center gap-3 cursor-pointer active:scale-95 transition-all shadow-sm"
+                                      className="flex-1 bg-white/80 p-3 sm:p-4 rounded-[24px] border border-white flex flex-row items-center gap-2 sm:gap-3 cursor-pointer active:scale-95 transition-all shadow-sm overflow-hidden"
                                     >
-                                      <div className="w-10 h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-xl shadow-inner">
+                                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-lg sm:text-xl shadow-inner">
                                         {l2acc.icon}
                                       </div>
-                                      <div className="flex flex-col flex-1 justify-center">
+                                      <div className="flex flex-col flex-1 min-w-0 justify-center">
                                         {l2acc.type !== 'credit' && l2acc.type !== 'e-ticket' && (
-                                          <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5">
+                                          <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">
                                             主帳號
                                           </span>
                                         )}
-                                        <span className="text-base font-black text-[#5D4037] leading-tight">{l2acc.name}</span>
-                                        <div className={`text-lg font-black mt-0.5 ${balances[l2acc.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                                        <span className="text-sm sm:text-base font-black text-[#5D4037] leading-tight truncate">{l2acc.name}</span>
+                                        <div className={`text-base sm:text-lg font-black mt-0.5 ${balances[l2acc.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
                                           <span className="text-xs mr-1">$</span>{formatAmount(balances[l2acc.id] || 0)}
                                         </div>
                                       </div>
@@ -1950,17 +2006,17 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                             <div className="w-3 h-0.5 bg-[#5D4037]/5 flex-shrink-0" />
                                             <div 
                                               onClick={() => onAccountClick(l3acc)}
-                                              className="flex-1 bg-white/40 p-3 rounded-[20px] border border-white/50 flex items-center gap-3 cursor-pointer active:scale-95 transition-all"
+                                              className="flex-1 bg-white/40 p-2 sm:p-3 rounded-[20px] border border-white/50 flex flex-row items-center gap-2 sm:gap-3 cursor-pointer active:scale-95 transition-all overflow-hidden"
                                             >
-                                              <div className="w-8 h-8 bg-white/80 rounded-lg flex-shrink-0 flex items-center justify-center text-lg shadow-sm">
+                                              <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white/80 rounded-lg flex-shrink-0 flex items-center justify-center text-base sm:text-lg shadow-sm">
                                                 {l3acc.icon}
                                               </div>
-                                              <div className="flex flex-col flex-1 justify-center">
+                                              <div className="flex flex-col flex-1 min-w-0 justify-center">
                                                 {l3acc.type !== 'credit' && l3acc.type !== 'e-ticket' && (
-                                                  <span className="text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5">子帳戶</span>
+                                                  <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">子帳戶</span>
                                                 )}
-                                                <span className="text-sm font-bold text-[#5D4037] leading-tight">{l3acc.name}</span>
-                                                <div className={`text-base font-black ${balances[l3acc.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                                                <span className="text-xs sm:text-sm font-bold text-[#5D4037] leading-tight truncate">{l3acc.name}</span>
+                                                <div className={`text-sm sm:text-base font-black ${balances[l3acc.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
                                                   <span className="text-xs mr-1">$</span>{formatAmount(balances[l3acc.id] || 0)}
                                                 </div>
                                               </div>
@@ -1990,7 +2046,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
   );
 }
 
-function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, balance, categories }: { 
+function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, projects, balance, categories }: { 
   account: Account, 
   records: Transaction[],
   selectedDate: string,
@@ -1999,6 +2055,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
   onDeleteRecord: (record: Transaction) => void,
   accounts: Account[],
+  projects: Project[],
   balance: number,
   categories: Category[]
 }) {
@@ -2091,8 +2148,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               </div>
               <span className="font-black text-base text-[#5D4037]">往來明細</span>
             </div>
-            <span className="text-[10px] font-bold text-stone-300 bg-white px-3 py-1 rounded-full border border-stone-100">
-              {accountRecords.length} 筆紀錄
+            <span className="text-[13px] font-black text-stone-400 bg-white px-5 py-2 rounded-full border border-stone-100 flex items-center gap-2 shadow-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
+              <span>{accountRecords.length} 筆紀錄</span>
+              <span className="text-stone-200 font-normal">|</span>
+              <span>結餘：<span className={`font-black ${accountRecords.reduce((sum, r) => r.type === 'income' ? sum + r.amount : r.type === 'expense' ? sum - r.amount : sum, 0) >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                ${Math.abs(accountRecords.reduce((sum, r) => r.type === 'income' ? sum + r.amount : r.type === 'expense' ? sum - r.amount : sum, 0)).toLocaleString()}
+              </span></span>
             </span>
           </div>
           
@@ -2192,6 +2253,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           <EditRecordModal 
             record={editingRecord}
             accounts={accounts}
+            projects={projects}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onUpdateRecord(editingRecord, updated);
@@ -2208,15 +2270,18 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   );
 }
 
-function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
+function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete }: {
   record: Transaction,
   accounts: Account[],
+  projects: Project[],
   onClose: () => void,
   onSave: (updated: Transaction) => void,
   onDelete: () => void
 }) {
   const [edited, setEdited] = useState<Transaction>({ ...record });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState('');
 
   return (
     <motion.div 
@@ -2228,7 +2293,81 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
         className="bg-[#FFFDF5] w-full max-w-sm rounded-[30px] flex flex-col shadow-2xl relative overflow-hidden max-h-[90vh]"
         onClick={e => e.stopPropagation()}
+        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
       >
+        <AnimatePresence>
+          {isProjectPickerOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+              <motion.div 
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md"
+                onClick={() => setIsProjectPickerOpen(false)}
+              />
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+                className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh]"
+                style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+              >
+                <div className="p-6 pb-2 border-b border-stone-50 flex items-center justify-between">
+                  <h3 className="text-xl font-black text-[#5D4037]">選取專案</h3>
+                  <button onClick={() => setIsProjectPickerOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                    <X size={20} className="text-stone-400" />
+                  </button>
+                </div>
+                
+                <div className="p-4 border-b border-stone-50">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300" />
+                    <input 
+                      value={projectSearch}
+                      onChange={e => setProjectSearch(e.target.value)}
+                      placeholder="搜尋專案..."
+                      className="w-full pl-10 pr-4 py-3 bg-white border-2 border-stone-50 rounded-2xl text-sm font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
+                  {projects.filter(p => !p.parentId && (p.name.includes(projectSearch) || projects.some(c => c.parentId === p.id && c.name.includes(projectSearch)))).map(p => {
+                    const children = projects.filter(c => c.parentId === p.id && (c.name.includes(projectSearch) || p.name.includes(projectSearch)));
+                    return (
+                      <div key={p.id} className="space-y-1">
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation();
+                            setEdited({ ...edited, projectId: p.id }); 
+                            setIsProjectPickerOpen(false); 
+                          }}
+                          className={`w-full p-4 rounded-3xl flex items-center gap-3 transition-all ${(edited.projectId || 'p1') === p.id ? 'bg-[#FFD54F] shadow-md scale-[1.02]' : 'bg-white hover:bg-[#FFFDF5] shadow-sm border border-stone-50'}`}
+                        >
+                          <span className="text-xl">{p.icon}</span>
+                          <span className="font-black text-[#5D4037]">{p.name}</span>
+                          {(edited.projectId || 'p1') === p.id && <Check size={18} className="ml-auto text-[#5D4037]" />}
+                        </button>
+                        {children.map(c => (
+                          <button 
+                            key={c.id}
+                            onClick={(e) => { 
+                              e.stopPropagation();
+                              setEdited({ ...edited, projectId: c.id }); 
+                              setIsProjectPickerOpen(false); 
+                            }}
+                            className={`w-[90%] ml-auto p-3 rounded-2xl flex items-center gap-3 transition-all ${(edited.projectId || 'p1') === c.id ? 'bg-[#FFEDAE] shadow-md scale-[1.02]' : 'bg-stone-50/50 hover:bg-stone-100 shadow-sm border border-stone-50/50'}`}
+                          >
+                            <span className="text-lg">{c.icon}</span>
+                            <span className="font-bold text-[#5D4037] text-sm">{c.name}</span>
+                            {(edited.projectId || 'p1') === c.id && <Check size={16} className="ml-auto text-[#5D4037]" />}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* Delete Confirmation Overlay */}
         <AnimatePresence>
           {showDeleteConfirm && (
@@ -2299,13 +2438,32 @@ function EditRecordModal({ record, accounts, onClose, onSave, onDelete }: {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[18px] font-bold text-[#000000] uppercase tracking-widest px-1">備註 (買了什麼？)</label>
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註 (買了什麼？)</label>
               <input 
                 value={edited.note || ''}
                 onChange={e => setEdited({ ...edited, note: e.target.value })}
                 className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                 placeholder="買了什麼？"
               />
+            </div>
+
+            {/* Project Picker */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">所屬專案</label>
+              <div 
+                onClick={() => setIsProjectPickerOpen(true)}
+                className="w-full p-4 bg-white border-2 border-[#FFD54F]/30 rounded-2xl flex items-center gap-3 cursor-pointer hover:bg-stone-50 transition-all shadow-sm"
+              >
+                <div className="w-8 h-8 bg-[#FFFDF5] rounded-lg flex items-center justify-center shadow-inner border border-[#FFD54F]/20">
+                  <Layers size={14} className="text-[#FFD54F]" />
+                </div>
+                <div className="flex-1">
+                  <span className="text-[15px] font-black text-[#5D4037]">
+                    {projects.find(p => p.id === (edited.projectId || 'p1'))?.icon} {projects.find(p => p.id === (edited.projectId || 'p1'))?.name || '無特別專案'}
+                  </span>
+                </div>
+                <ChevronRight size={18} className="text-stone-300" />
+              </div>
             </div>
 
             <div className="space-y-4 bg-stone-50/50 p-4 rounded-3xl border border-white shadow-sm flex flex-col gap-4">
@@ -3332,14 +3490,19 @@ function AccountSortModal({ accounts, onClose, onSave }: {
   );
 }
 
-function ProjectEditModal({ project, onClose, onSave, onDelete }: { 
+function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: { 
   project: Project, 
+  projects: Project[],
   onClose: () => void, 
   onSave: (p: Project) => void,
   onDelete: (id: string) => void
 }) {
   const [edited, setEdited] = useState<Project>({ ...project });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Eligible parents are projects that are not the current project and don't have a parent themselves (to simplify to 2 levels)
+  // or just not the current project. The prompt suggests a 2-level structure ("主專案" and "子專案").
+  const eligibleParents = projects.filter(p => p.id !== project.id && !p.parentId && p.id !== 'p1');
 
   return (
     <motion.div 
@@ -3382,7 +3545,7 @@ function ProjectEditModal({ project, onClose, onSave, onDelete }: {
           </button>
         </div>
 
-        <div className="p-8 space-y-6">
+        <div className="flex-1 overflow-y-auto custom-scrollbar max-h-[60vh] p-8 pt-0 space-y-6">
           <div className="space-y-2">
             <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">專案名稱</label>
             <input 
@@ -3394,9 +3557,39 @@ function ProjectEditModal({ project, onClose, onSave, onDelete }: {
           </div>
 
           <div className="space-y-2">
+            <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">所屬主專案</label>
+            <select 
+              value={edited.parentId || ''}
+              onChange={e => setEdited({ ...edited, parentId: e.target.value || undefined })}
+              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all appearance-none cursor-pointer"
+            >
+              <option value="">(無主專案)</option>
+              {eligibleParents.map(p => (
+                <option key={p.id} value={p.id}>{p.icon} {p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">自訂 Emoji</label>
+            <input 
+              type="text"
+              placeholder="輸入 Emoji..."
+              value={edited.icon}
+              onChange={e => {
+                const val = e.target.value;
+                // Simple logic to take the last character if it's an emoji-like input
+                setEdited({ ...edited, icon: val.slice(-2).trim() || edited.icon });
+              }}
+              className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+              maxLength={2}
+            />
+          </div>
+
+          <div className="space-y-2">
             <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">專案圖示</label>
             <div className="grid grid-cols-5 gap-2">
-              {['📝', '✈️', '📱', '👗', '🏠', '💼', '🍱', '🍔', '🎨', '🎬'].map(icon => (
+              {['📝', '✈️', '📱', '👗', '🏠', '💼', '🍱', '🍔', '🎨', '🎬', '🚆', '🚲', '🍕', '🍰', '☕', '🎸', '🎮', '💡', '🧼', '💊'].map(icon => (
                 <button 
                   key={icon}
                   onClick={() => setEdited({ ...edited, icon })}
@@ -3410,7 +3603,7 @@ function ProjectEditModal({ project, onClose, onSave, onDelete }: {
 
           <button 
             onClick={() => onSave(edited)}
-            className="w-full py-5 bg-[#5D4037] text-white rounded-[24px] font-black text-xl flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all mt-4"
+            className="w-full py-5 bg-[#5D4037] text-white rounded-[24px] font-black text-[20px] flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all mt-4 sticky bottom-0"
           >
             <Check size={28} /> 儲存設定
           </button>
@@ -3927,21 +4120,27 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
   onEditProject: (p: Project) => void,
   onBack: () => void 
 }) {
-  const getProjectStats = (projectId: string) => {
-    const pRecords = records.filter(r => r.projectId === projectId || (!projectId && !r.projectId));
-    // If it's the "No Project" one, we might need a specific check. 
-    // In the screenshot, "無特別專案" has a lot of money, so it probably includes all non-project records.
-    let targetRecords = [];
-    if (projectId === 'p1') {
-      targetRecords = records.filter(r => !r.projectId || r.projectId === 'p1');
-    } else {
-      targetRecords = records.filter(r => r.projectId === projectId);
-    }
+  const getProjectStats = (projectId: string): { expense: number, income: number } => {
+    // Support hierarchical summation
+    const childProjectIds = projects.filter(p => p.parentId === projectId).map(p => p.id);
+    const allIds = [projectId, ...childProjectIds];
+
+    const targetRecords = records.filter(r => {
+      const rPid = r.projectId || 'p1';
+      if (projectId === 'p1') {
+        return !r.projectId || allIds.includes(r.projectId);
+      }
+      return allIds.includes(r.projectId || '');
+    });
 
     const expense = targetRecords.filter(r => r.type === 'expense').reduce((sum, r) => sum + r.amount, 0);
     const income = targetRecords.filter(r => r.type === 'income').reduce((sum, r) => sum + r.amount, 0);
     return { expense, income };
   };
+
+  // Group projects into a tree
+  const rootProjects = projects.filter(p => !p.parentId);
+  const getChildren = (parentId: string) => projects.filter(p => p.parentId === parentId);
 
   return (
     <motion.div 
@@ -3951,47 +4150,27 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
     >
       <div className="flex-1 overflow-y-auto no-scrollbar">
         <div className="divide-y divide-stone-100">
-          {projects.map(project => {
-            const stats = getProjectStats(project.id);
-            const isDefault = project.id === 'p1';
+          {rootProjects.map(project => {
+            const children = getChildren(project.id);
             return (
-              <div 
-                key={project.id}
-                onClick={() => onProjectClick(project.id)}
-                className="flex items-center gap-4 px-4 py-4 active:bg-stone-50 transition-colors cursor-pointer group"
-              >
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shadow-sm ${
-                  project.name === '追星' ? 'bg-blue-400' : 
-                  project.name === '買手機的錢' ? 'bg-red-400' :
-                  project.name === '頭髮' ? 'bg-pink-400' :
-                  project.name === '弟弟' ? 'bg-orange-400' :
-                  project.name === '利息' ? 'bg-green-400' : 'bg-blue-400'
-                } text-white transition-transform group-active:scale-95`}>
-                  {project.icon}
-                </div>
-                <div className="flex-1 flex flex-col">
-                  <span className="text-[17px] font-bold text-[#5D4037]">{project.name}</span>
-                </div>
-                
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <div className="text-[15px] font-bold text-rose-400">${stats.expense.toLocaleString()}</div>
-                    <div className="text-[15px] font-bold text-blue-400">${stats.income.toLocaleString()}</div>
-                  </div>
-                  
-                  {!isDefault && (
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEditProject(project);
-                      }}
-                      className="p-2 text-stone-300 hover:text-[#5D4037] transition-colors"
-                    >
-                      <Settings2 size={18} />
-                    </button>
-                  )}
-                </div>
-              </div>
+              <React.Fragment key={project.id}>
+                <ProjectItem 
+                  project={project} 
+                  stats={getProjectStats(project.id)} 
+                  onProjectClick={onProjectClick} 
+                  onEditProject={onEditProject}
+                />
+                {children.map(child => (
+                  <ProjectItem 
+                    key={child.id}
+                    project={child} 
+                    stats={getProjectStats(child.id)} 
+                    onProjectClick={onProjectClick} 
+                    onEditProject={onEditProject}
+                    isChild
+                  />
+                ))}
+              </React.Fragment>
             );
           })}
         </div>
@@ -4000,14 +4179,67 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
   );
 }
 
-function ProjectDetailView({ project, records, accounts, categories, onBack, onUpdateRecord, onDeleteRecord }: { 
+function ProjectItem({ project, stats, onProjectClick, onEditProject, isChild }: {
+  project: Project,
+  stats: { expense: number, income: number },
+  onProjectClick: (id: string) => void,
+  onEditProject: (p: Project) => void,
+  isChild?: boolean,
+  key?: React.Key
+}) {
+  const isDefault = project.id === 'p1';
+  return (
+    <div 
+      onClick={() => onProjectClick(project.id)}
+      className={`flex items-center gap-4 py-4 active:bg-stone-50 transition-colors cursor-pointer group ${isChild ? 'pl-12 pr-4' : 'px-4'}`}
+    >
+      <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shadow-sm ${
+        isChild ? 'scale-90 opacity-80' : ''
+      } ${
+        project.name === '追星' ? 'bg-blue-400' : 
+        project.name === '買手機的錢' ? 'bg-red-400' :
+        project.name === '頭髮' ? 'bg-pink-400' :
+        project.name === '弟弟' ? 'bg-orange-400' :
+        project.name === '利息' ? 'bg-green-400' : 'bg-blue-400'
+      } text-white transition-transform group-active:scale-95`}>
+        {project.icon}
+      </div>
+      <div className="flex-1 flex flex-col">
+        <span className={`font-bold text-[#5D4037] ${isChild ? 'text-[15px]' : 'text-[17px]'}`}>{project.name}</span>
+      </div>
+      
+      <div className="flex items-center gap-4">
+        <div className="text-right">
+          <div className="text-[15px] font-bold text-rose-400">${stats.expense.toLocaleString()}</div>
+          <div className="text-[15px] font-bold text-blue-400">${stats.income.toLocaleString()}</div>
+        </div>
+        
+        {!isDefault && (
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditProject(project);
+            }}
+            className="p-2 text-stone-300 hover:text-[#5D4037] transition-colors"
+          >
+            <Settings2 size={18} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectDetailView({ project, records, accounts, categories, projects, onBack, onUpdateRecord, onDeleteRecord, onAddRecord }: { 
   project: Project, 
   records: Transaction[], 
   accounts: Account[], 
   categories: Category[],
+  projects: Project[],
   onBack: () => void,
   onUpdateRecord: (oldRec: Transaction, newRec: Transaction) => void,
-  onDeleteRecord: (rec: Transaction) => void
+  onDeleteRecord: (rec: Transaction) => void,
+  onAddRecord: () => void
 }) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
@@ -4085,10 +4317,10 @@ function ProjectDetailView({ project, records, accounts, categories, onBack, onU
       {/* Stats Summary */}
       <div className="flex justify-between px-6 py-2 border-b border-stone-50 text-sm font-bold text-stone-500">
         <span>項目：{filteredRecords.length} 筆</span>
-        <span>結餘：<span className={balance >= 0 ? 'text-blue-500' : 'text-red-500'}>${balance < 0 ? '-' : ''}{Math.abs(balance).toLocaleString()}</span></span>
+        <span>結餘：<span className={balance >= 0 ? 'text-blue-600' : 'text-red-500'}>${balance < 0 ? '-' : ''}{Math.abs(balance).toLocaleString()}</span></span>
       </div>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar">
+      <div className="flex-1 overflow-y-auto no-scrollbar relative">
         {groupedRecords.map(group => (
           <div key={group.date} className="mt-4">
             <div className="px-6 py-2 text-[15px] font-bold text-stone-400 border-b border-stone-50">
@@ -4124,6 +4356,14 @@ function ProjectDetailView({ project, records, accounts, categories, onBack, onU
             </div>
           </div>
         ))}
+        
+        {/* Floating Add Button for Project */}
+        <button 
+          onClick={onAddRecord}
+          className="fixed bottom-24 right-6 w-14 h-14 bg-[#5D4037] text-white rounded-full flex items-center justify-center shadow-2xl active:scale-95 transition-all z-10"
+        >
+          <Plus size={32} />
+        </button>
       </div>
 
       <AnimatePresence>
@@ -4131,6 +4371,7 @@ function ProjectDetailView({ project, records, accounts, categories, onBack, onU
           <EditRecordModal 
             record={editingRecord}
             accounts={accounts}
+            projects={projects}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onUpdateRecord(editingRecord, updated);
@@ -4191,10 +4432,11 @@ function PlaceholderView({ title, icon, onBack, content }: { title: string, icon
   );
 }
 
-function HistoryView({ records, accounts, categories, filter, onBack, onUpdateRecord, onDeleteRecord }: { 
+function HistoryView({ records, accounts, categories, projects, filter, onBack, onUpdateRecord, onDeleteRecord }: { 
   records: Transaction[], 
   accounts: Account[], 
   categories: Category[],
+  projects: Project[],
   filter: { type: 'day' | 'week' | 'month' | 'year', date: string },
   onBack: () => void,
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
@@ -4236,12 +4478,32 @@ function HistoryView({ records, accounts, categories, filter, onBack, onUpdateRe
     return '';
   }, [filter]);
 
+  const historyBalance = useMemo(() => {
+    return filteredRecords.reduce((acc, r) => {
+      if (r.type === 'income') return acc + r.amount;
+      if (r.type === 'expense') return acc - r.amount;
+      return acc;
+    }, 0);
+  }, [filteredRecords]);
+
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
       <div className="flex-1 px-4 overflow-y-auto no-scrollbar pb-10 pt-4">
+        {/* Period Summary Header */}
+        <div className="mx-2 mb-4 p-4 bg-[#FFFDF5] rounded-3xl border border-[#FFD54F]/30 flex items-center justify-between text-[13px] font-black text-[#5D4037] shadow-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
+          <div className="flex items-center gap-2">
+            <CalendarIcon size={14} className="text-[#FFD54F]" />
+            <span>{filterLabel}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="bg-white/50 px-2 py-0.5 rounded-lg border border-[#FFD54F]/10">{filteredRecords.length} 筆紀錄</span>
+            <span>結餘：<span className={historyBalance >= 0 ? 'text-blue-600' : 'text-red-500'}>${Math.abs(historyBalance).toLocaleString()}</span></span>
+          </div>
+        </div>
+
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-6 space-y-4">
           {filteredRecords.length > 0 ? filteredRecords.map(record => (
             <div 
@@ -4295,6 +4557,7 @@ function HistoryView({ records, accounts, categories, filter, onBack, onUpdateRe
           <EditRecordModal 
             record={editingRecord}
             accounts={accounts}
+            projects={projects}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onUpdateRecord(editingRecord, updated);
@@ -4311,72 +4574,217 @@ function HistoryView({ records, accounts, categories, filter, onBack, onUpdateRe
   );
 }
 
-function ReportsView({ records }: { records: Transaction[] }) {
-  const filteredRecords = useMemo(() => records, [records]);
+function ReportsView({ records, projects, categories }: { 
+  records: Transaction[], 
+  projects: Project[], 
+  categories: Category[] 
+}) {
+  const [dateRange, setDateRange] = useState<'thisMonth' | 'last3Months' | 'last6Months' | 'lastYear'>('thisMonth');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   
-  const monthlyStats = useMemo(() => {
+  const COLORS = ['#FFD54F', '#FFAB91', '#81C784', '#90CAF9', '#CE93D8', '#BCAAA4', '#B0BEC5', '#FFCCBC', '#C5E1A5', '#FFF59D'];
+
+  const filteredByProject = useMemo(() => {
+    if (selectedProjectId === 'all') return records;
+    return records.filter(r => r.projectId === selectedProjectId);
+  }, [records, selectedProjectId]);
+
+  const dateInterval = useMemo(() => {
     const now = new Date();
-    const monthStr = now.toISOString().substring(0, 7);
-    const monthly = filteredRecords.filter(r => (r.postingDate || '').startsWith(monthStr));
+    let start = startOfMonth(now);
+    let end = endOfMonth(now);
+
+    if (dateRange === 'last3Months') start = subMonths(startOfMonth(now), 2);
+    if (dateRange === 'last6Months') start = subMonths(startOfMonth(now), 5);
+    if (dateRange === 'lastYear') start = subMonths(startOfMonth(now), 11);
+
+    return { start, end };
+  }, [dateRange]);
+
+  const stats = useMemo(() => {
+    const periodRecords = filteredByProject.filter(r => {
+      const d = parseISO(r.postingDate || r.date);
+      return d >= dateInterval.start && d <= dateInterval.end;
+    });
+
+    const income = periodRecords.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0);
+    const expense = periodRecords.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0);
     
-    const categories: Record<string, number> = {};
-    monthly.filter(r => r.type === 'expense').forEach(r => {
+    // Category Pie Data
+    const catMap: Record<string, number> = {};
+    periodRecords.filter(r => r.type === 'expense').forEach(r => {
       const cat = r.category.split(' > ')[0];
-      categories[cat] = (categories[cat] || 0) + r.amount;
+      catMap[cat] = (catMap[cat] || 0) + r.amount;
     });
     
-    return {
-      income: monthly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
-      expense: monthly.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
-      categories: Object.entries(categories).sort((a, b) => b[1] - a[1])
-    };
-  }, [filteredRecords]);
+    const pieData = Object.entries(catMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    // Trend Data
+    const months = eachMonthOfInterval({ start: dateInterval.start, end: dateInterval.end });
+    const trendData = months.map(m => {
+      const mStr = format(m, 'yyyy-MM');
+      const mRecords = periodRecords.filter(r => (r.postingDate || r.date).startsWith(mStr));
+      return {
+        name: format(m, 'MMM'),
+        fullName: format(m, 'yyyy/MM'),
+        income: mRecords.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+        expense: mRecords.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
+      };
+    });
+
+    return { income, expense, balance: income - expense, pieData, trendData };
+  }, [filteredByProject, dateInterval]);
 
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="flex flex-col gap-6 px-4 py-6"
+      className="flex-1 flex flex-col gap-6 px-4 py-8 bg-[#FFF9E3]/30 min-h-full pb-24 overflow-y-auto"
+      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
     >
-      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-4">
-        <div className="flex justify-between items-center">
-          <span className="font-black text-lg">本月收支概況</span>
-          <span className="text-xs font-bold text-stone-300">2026/04</span>
+      {/* Filters */}
+      <div className="flex flex-col gap-4">
+        <div className="flex bg-white/60 p-1 rounded-2xl border border-stone-100 shadow-sm overflow-x-auto no-scrollbar">
+          {(['thisMonth', 'last3Months', 'last6Months', 'lastYear'] as const).map(range => (
+            <button
+              key={range}
+              onClick={() => setDateRange(range)}
+              className={`flex-1 min-w-[80px] py-2 px-3 rounded-xl text-xs font-black transition-all ${dateRange === range ? 'bg-[#FFD54F] text-[#5D4037] shadow-md' : 'text-stone-400 hover:text-stone-600'}`}
+            >
+              {range === 'thisMonth' ? '本月' : range === 'last3Months' ? '近三月' : range === 'last6Months' ? '近半年' : '近一年'}
+            </button>
+          ))}
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-blue-50 p-4 rounded-2xl flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-blue-400 uppercase">總收入</span>
-            <span className="text-xl font-black text-blue-600">$ {monthlyStats.income.toLocaleString()}</span>
+        
+        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1">
+          <button
+            onClick={() => setSelectedProjectId('all')}
+            className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border ${selectedProjectId === 'all' ? 'bg-[#5D4037] text-[#FFFDF5] border-[#5D4037]' : 'bg-white text-stone-500 border-stone-100'}`}
+          >
+            全部分類
+          </button>
+          {projects.map(p => (
+            <button
+              key={p.id}
+              onClick={() => setSelectedProjectId(p.id)}
+              className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-2 ${selectedProjectId === p.id ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F]' : 'bg-white text-stone-500 border-stone-100'}`}
+            >
+              <span>{p.icon}</span>
+              <span>{p.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white rounded-3xl p-5 shadow-sm border border-stone-50 flex flex-col gap-1">
+          <div className="flex items-center gap-2 text-blue-400">
+            <div className="w-5 h-5 rounded-lg bg-blue-50 flex items-center justify-center">
+              <Plus size={12} strokeWidth={3} />
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest">總收入</span>
           </div>
-          <div className="bg-rose-50 p-4 rounded-2xl flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-rose-400 uppercase">總支出</span>
-            <span className="text-xl font-black text-rose-600">$ {monthlyStats.expense.toLocaleString()}</span>
+          <span className="text-xl font-black text-blue-600">${stats.income.toLocaleString()}</span>
+        </div>
+        <div className="bg-white rounded-3xl p-5 shadow-sm border border-stone-50 flex flex-col gap-1">
+          <div className="flex items-center gap-2 text-rose-400">
+            <div className="w-5 h-5 rounded-lg bg-rose-50 flex items-center justify-center">
+              <div className="w-2.5 h-0.5 bg-rose-400 rounded-full" />
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest">總支出</span>
+          </div>
+          <span className="text-xl font-black text-rose-600">${stats.expense.toLocaleString()}</span>
+        </div>
+        <div className="col-span-2 bg-[#FFD54F] rounded-3xl p-5 shadow-md flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-black text-[#5D4037]/50 uppercase tracking-widest">目前結餘</span>
+            <span className="text-2xl font-black text-[#5D4037]">${stats.balance.toLocaleString()}</span>
+          </div>
+          <div className="w-12 h-12 bg-white/30 rounded-2xl flex items-center justify-center">
+            <Wallet className="text-[#5D4037]" />
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-4">
-        <span className="font-black text-lg">支出分類統計</span>
-        <div className="flex flex-col gap-4">
-          {monthlyStats.categories.length > 0 ? monthlyStats.categories.map(([cat, amt]) => (
-            <div key={cat} className="flex flex-col gap-2">
-              <div className="flex justify-between text-sm font-bold">
-                <span>{cat}</span>
-                <span>$ {amt.toLocaleString()}</span>
-              </div>
-              <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-[#FFD54F]" 
-                  style={{ width: `${(amt / monthlyStats.expense) * 100}%` }}
-                />
-              </div>
-            </div>
-          )) : (
-            <div className="py-10 text-center text-stone-300 font-bold">本月尚無支出紀錄</div>
-          )}
+      {/* Trend Chart */}
+      <div className="bg-white rounded-[40px] p-6 shadow-sm border-2 border-white flex flex-col gap-6">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={18} className="text-[#FFD54F]" />
+          <span className="font-black text-[#5D4037]">收支趨勢圖</span>
+        </div>
+        <div className="h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stats.trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <XAxis dataKey="name" fontSize={10} fontWeight="bold" axisLine={false} tickLine={false} tick={{ fill: '#A8A29E' }} />
+              <YAxis fontSize={10} fontWeight="bold" axisLine={false} tickLine={false} tick={{ fill: '#A8A29E' }} />
+              <Tooltip 
+                contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontFamily: '"王漢宗中隸書", sans-serif' }}
+                cursor={{ fill: '#FFFDF5', opacity: 0.5 }}
+              />
+              <Bar dataKey="income" name="收入" fill="#93C5FD" radius={[6, 6, 0, 0]} barSize={12} />
+              <Bar dataKey="expense" name="支出" fill="#FCA5A5" radius={[6, 6, 0, 0]} barSize={12} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
-      
-      <div className="h-[40px]" />
+
+      {/* Category Pie Chart */}
+      <div className="bg-white rounded-[40px] p-6 shadow-sm border-2 border-white flex flex-col gap-6">
+        <div className="flex items-center gap-2">
+          <PieChart size={18} className="text-[#FFD54F]" />
+          <span className="font-black text-[#5D4037]">支出分類佔比</span>
+        </div>
+        <div className="h-64 w-full relative">
+          {stats.pieData.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <RePieChart>
+                <Pie
+                  data={stats.pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {stats.pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  formatter={(value: number) => `$${value.toLocaleString()}`}
+                  contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontFamily: '"王漢宗中隸書", sans-serif' }}
+                />
+              </RePieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-stone-300 font-bold italic">該區間尚無支出紀錄</div>
+          )}
+          {stats.pieData.length > 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-[10px] font-black text-stone-400">總計支出</span>
+              <span className="text-lg font-black text-[#5D4037]">${stats.expense.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+        
+        {/* Legend Custom */}
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          {stats.pieData.map((entry, index) => (
+            <div key={entry.name} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                <span className="text-xs font-bold text-[#5D4037] truncate">{entry.name}</span>
+              </div>
+              <span className="text-[10px] font-black text-stone-400">{((entry.value / stats.expense) * 100).toFixed(1)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="h-[60px]" />
     </motion.div>
   );
 }
@@ -4433,9 +4841,27 @@ function MoreView({
     }
   };
 
+  const [showCsvModal, setShowCsvModal] = useState(false);
+  const [exportRange, setExportRange] = useState(() => {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return {
+      start: firstDay.toISOString().split('T')[0],
+      end: lastDay.toISOString().split('T')[0]
+    };
+  });
+
   const handleExportCSV = () => {
     const headers = ['消費日期', '入帳日期', '類型', '類別', '金額', '帳戶', '備註'];
-    const rows = records.map(r => {
+    
+    // Filter records by date range
+    const filtered = records.filter(r => {
+      const date = r.date;
+      return date >= exportRange.start && date <= exportRange.end;
+    }).sort((a, b) => a.date.localeCompare(b.date));
+
+    const rows = filtered.map(r => {
       const account = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
       const type = r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳');
       return [
@@ -4457,13 +4883,15 @@ function MoreView({
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const startStr = exportRange.start.replace(/-/g, '');
+    const endStr = exportRange.end.replace(/-/g, '');
     link.setAttribute('href', url);
-    link.setAttribute('download', `KK_Expense_Export_${dateStr}.csv`);
+    link.setAttribute('download', `KK記帳_${startStr}-${endStr}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setShowCsvModal(false);
   };
 
   const handleBackup = () => {
@@ -4527,7 +4955,7 @@ function MoreView({
       <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-2">
         <span className="font-black text-lg mb-2 text-[#5D4037]">系統設定</span>
         <button 
-          onClick={handleExportCSV}
+          onClick={() => setShowCsvModal(true)}
           className="flex items-center justify-between py-3 border-b border-stone-50 text-left w-full active:opacity-60"
         >
           <span className="font-bold text-[#5D4037]">匯出資料 (CSV)</span>
@@ -4646,6 +5074,68 @@ function MoreView({
       </div>
       
       <div className="h-[40px]" />
+
+      <AnimatePresence>
+        {showCsvModal && (
+          <div 
+            className="fixed inset-0 bg-[#5D4037]/60 backdrop-blur-md z-[110] flex items-center justify-center p-6"
+            onClick={() => setShowCsvModal(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              className="bg-[#FFF9E3] rounded-[44px] w-full max-w-sm shadow-2xl relative flex flex-col p-8 border-4 border-white"
+              style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm">
+                  <Download size={24} className="text-[#5D4037]" />
+                </div>
+                <h3 className="text-2xl font-black text-[#5D4037]">匯出明細區間</h3>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">開始日期</label>
+                  <input 
+                    type="date"
+                    value={exportRange.start}
+                    onChange={e => setExportRange({ ...exportRange, start: e.target.value })}
+                    className="w-full p-4 bg-white border-2 border-stone-100 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">結束日期</label>
+                  <input 
+                    type="date"
+                    value={exportRange.end}
+                    onChange={e => setExportRange({ ...exportRange, end: e.target.value })}
+                    className="w-full p-4 bg-white border-2 border-stone-100 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={() => setShowCsvModal(false)}
+                    className="flex-1 py-4 bg-stone-100 text-[#5D4037]/60 rounded-2xl font-bold active:scale-95 transition-all text-[15px]"
+                  >
+                    取消
+                  </button>
+                  <button 
+                    onClick={handleExportCSV}
+                    className="flex-1 py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all text-[15px]"
+                  >
+                    確認匯出
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -4739,10 +5229,12 @@ function HorizontalScrollArea({
   );
 }
 
-function RecordModal({ accounts, categories, templates, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate }: { 
+function RecordModal({ accounts, categories, templates, projects, initialProjectId, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate }: { 
   accounts: Account[], 
   categories: Category[],
   templates: Template[], 
+  projects: Project[],
+  initialProjectId?: string,
   onUpdateTemplates: (t: Template[]) => void,
   onUpdateCategories: (c: Category[]) => void,
   onClose: () => void, 
@@ -4767,6 +5259,11 @@ function RecordModal({ accounts, categories, templates, onUpdateTemplates, onUpd
   const [postingDate, setPostingDate] = useState(selectedDate);
   const [isPending, setIsPending] = useState(false);
   const [isDateExpanded, setIsDateExpanded] = useState(true);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || 'p1');
+
+  // For Project Picker Search
+  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState('');
 
   // Check if current account is credit card
   const isCreditCard = useMemo(() => {
@@ -4848,7 +5345,8 @@ function RecordModal({ accounts, categories, templates, onUpdateTemplates, onUpd
         postingDate: isPending ? undefined : postingDate,
         isPending: isPending,
         isInstallment,
-        totalInstallments: isInstallment ? totalInstallments : undefined
+        totalInstallments: isInstallment ? totalInstallments : undefined,
+        projectId: selectedProjectId !== 'p1' ? selectedProjectId : undefined
       });
       return;
     }
@@ -4925,102 +5423,117 @@ function RecordModal({ accounts, categories, templates, onUpdateTemplates, onUpd
           </div>
         </div>
 
-        {/* Date Selection Area */}
+        {/* Date & Project Selection Area */}
         {tab !== 'template' && (
-          <AnimatePresence mode="wait">
-            {!isCreditCard || (tab !== 'expense' && tab !== 'income') ? (
-              <motion.div 
-                key="single-date"
-                initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                animate={{ opacity: 1, height: "auto", marginBottom: 20 }}
-                exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                className="mx-6 flex items-center justify-center gap-2 py-2.5 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
-                style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
-              >
-                <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
-                  <CalendarIcon size={14} className="text-[#FFD54F]" />
-                  <span>日期：</span>
-                  <input 
-                    type="date"
-                    value={consumptionDate}
-                    onChange={e => {
-                      setConsumptionDate(e.target.value);
-                      setPostingDate(e.target.value);
-                    }}
-                    className="bg-transparent outline-none cursor-pointer"
-                  />
-                </div>
-              </motion.div>
-            ) : isDateExpanded ? (
-              <motion.div 
-                key="expanded"
-                initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-                animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 24 }}
-                exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-                className="bg-[#FFFDF5] p-5 pb-8 rounded-[30px] border border-stone-100 shadow-sm flex flex-col gap-5 mx-2" 
-                style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
-              >
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1.5 px-1">
-                      <CalendarIcon size={12} /> 消費日 (實際購買)
-                    </label>
+          <div className="flex flex-col gap-2">
+            <AnimatePresence mode="wait">
+              {!isCreditCard || (tab !== 'expense' && tab !== 'income') ? (
+                <motion.div 
+                  key="single-date"
+                  initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                  animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
+                  exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                  className="mx-6 flex items-center justify-center gap-2 py-2.5 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
+                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                >
+                  <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
+                    <CalendarIcon size={14} className="text-[#FFD54F]" />
+                    <span>日期：</span>
                     <input 
                       type="date"
                       value={consumptionDate}
-                      onChange={e => setConsumptionDate(e.target.value)}
-                      className="bg-white border-2 border-stone-50 rounded-xl px-4 py-2 text-sm font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                      onChange={e => {
+                        setConsumptionDate(e.target.value);
+                        setPostingDate(e.target.value);
+                      }}
+                      className="bg-transparent outline-none cursor-pointer"
                     />
                   </div>
-                  <div className={`flex flex-col gap-1.5 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1.5 px-1">
-                      <Banknote size={12} /> 入帳日 (信用卡帳單)
-                    </label>
-                    <input 
-                      type="date"
-                      value={postingDate}
-                      onChange={e => setPostingDate(e.target.value)}
-                      className="bg-white border-2 border-stone-50 rounded-xl px-4 py-2 text-sm font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                    />
+                </motion.div>
+              ) : isDateExpanded ? (
+                <motion.div 
+                  key="expanded"
+                  initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
+                  animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
+                  exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
+                  className="bg-[#FFFDF5] p-5 pb-8 rounded-[30px] border border-stone-100 shadow-sm flex flex-col gap-5 mx-2" 
+                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                >
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1.5 px-1">
+                        <CalendarIcon size={12} /> 消費日 (實際購買)
+                      </label>
+                      <input 
+                        type="date"
+                        value={consumptionDate}
+                        onChange={e => setConsumptionDate(e.target.value)}
+                        className="bg-white border-2 border-stone-50 rounded-xl px-4 py-2 text-sm font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                      />
+                    </div>
+                    <div className={`flex flex-col gap-1.5 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                      <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1.5 px-1">
+                        <Banknote size={12} /> 入帳日 (信用卡帳單)
+                      </label>
+                      <input 
+                        type="date"
+                        value={postingDate}
+                        onChange={e => setPostingDate(e.target.value)}
+                        className="bg-white border-2 border-stone-50 rounded-xl px-4 py-2 text-sm font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center justify-between pl-1">
-                  <button 
-                    onClick={() => setIsDateExpanded(false)}
-                    className="text-[#5D4037] text-[11px] font-bold bg-[#FFD54F] px-4 py-1.5 rounded-full shadow-sm active:scale-95 transition-all"
-                  >
-                    完成日期選擇
-                  </button>
-                  <div className="flex items-center gap-3 pr-1">
-                    <span className="text-[11px] font-bold text-stone-400">待入帳 (暫不計入本月平衡)</span>
+                  <div className="flex items-center justify-between pl-1">
                     <button 
-                      onClick={() => setIsPending(!isPending)}
-                      className={`w-9 h-4.5 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-200'}`}
+                      onClick={() => setIsDateExpanded(false)}
+                      className="text-[#5D4037] text-[11px] font-bold bg-[#FFD54F] px-4 py-1.5 rounded-full shadow-sm active:scale-95 transition-all"
                     >
-                      <div className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-5' : 'left-0.5'}`} />
+                      完成日期選擇
                     </button>
+                    <div className="flex items-center gap-3 pr-1">
+                      <span className="text-[11px] font-bold text-stone-400">待入帳 (暫不計入本月平衡)</span>
+                      <button 
+                        onClick={() => setIsPending(!isPending)}
+                        className={`w-9 h-4.5 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-200'}`}
+                      >
+                        <div className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-5' : 'left-0.5'}`} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div 
-                key="collapsed"
-                initial={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
-                animate={{ opacity: 1, y: 0, height: "auto", marginBottom: 16 }}
-                exit={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
-                onClick={() => setIsDateExpanded(true)}
-                className="mx-6 flex items-center justify-center gap-2 py-2.5 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 cursor-pointer hover:bg-stone-50 transition-colors shadow-sm"
-                style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
-              >
-                <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
-                  <CalendarIcon size={14} className="text-[#FFD54F]" />
-                  <span>消費：{consumptionDate.replace(/-/g, '/')}</span>
-                  <span className="text-stone-300">|</span>
-                  <span>入帳：{isPending ? '待入帳' : postingDate.replace(/-/g, '/')}</span>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                </motion.div>
+              ) : (
+                <motion.div 
+                  key="collapsed"
+                  initial={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
+                  animate={{ opacity: 1, y: 0, height: "auto", marginBottom: 0 }}
+                  exit={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
+                  onClick={() => setIsDateExpanded(true)}
+                  className="mx-6 flex items-center justify-center gap-2 py-2.5 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 cursor-pointer hover:bg-stone-50 transition-colors shadow-sm"
+                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                >
+                  <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
+                    <CalendarIcon size={14} className="text-[#FFD54F]" />
+                    <span>消費：{consumptionDate.replace(/-/g, '/')}</span>
+                    <span className="text-stone-300">|</span>
+                    <span>入帳：{isPending ? '待入帳' : postingDate.replace(/-/g, '/')}</span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Project Picker Trigger */}
+            <div 
+              onClick={() => setIsProjectPickerOpen(true)}
+              className="mx-6 flex items-center justify-center gap-2 py-2.5 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm"
+              style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+            >
+              <Layers size={14} className="text-[#FFD54F]" />
+              <span className="text-[13px] font-bold text-[#5D4037]">所屬專案：</span>
+              <span className="text-[13px] font-black text-[#5D4037]">
+                {projects.find(p => p.id === selectedProjectId)?.icon} {projects.find(p => p.id === selectedProjectId)?.name || '無特別專案'}
+              </span>
+            </div>
+          </div>
         )}
 
         {/* Scrollable Content Area */}
@@ -5373,6 +5886,80 @@ function RecordModal({ accounts, categories, templates, onUpdateTemplates, onUpd
           )}
         </div>
       </motion.div>
+
+      {/* Project Selection Modal */}
+      <AnimatePresence>
+        {isProjectPickerOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md"
+              onClick={() => setIsProjectPickerOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+              className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh]"
+              style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+            >
+              <div className="p-6 pb-2 border-b border-stone-50 flex items-center justify-between">
+                <h3 className="text-xl font-black text-[#5D4037]">選取專案</h3>
+                <button onClick={() => setIsProjectPickerOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                  <X size={20} className="text-stone-400" />
+                </button>
+              </div>
+              
+              <div className="p-4 border-b border-stone-50">
+                <div className="relative">
+                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300" />
+                  <input 
+                    value={projectSearch}
+                    onChange={e => setProjectSearch(e.target.value)}
+                    placeholder="搜尋專案..."
+                    className="w-full pl-10 pr-4 py-3 bg-white border-2 border-stone-50 rounded-2xl text-sm font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
+                {projects.filter(p => !p.parentId && (p.name.includes(projectSearch) || projects.some(c => c.parentId === p.id && c.name.includes(projectSearch)))).map(p => {
+                  const children = projects.filter(c => c.parentId === p.id && (c.name.includes(projectSearch) || p.name.includes(projectSearch)));
+                  return (
+                    <div key={p.id} className="space-y-1">
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation();
+                          setSelectedProjectId(p.id); 
+                          setIsProjectPickerOpen(false); 
+                        }}
+                        className={`w-full p-4 rounded-3xl flex items-center gap-3 transition-all ${selectedProjectId === p.id ? 'bg-[#FFD54F] shadow-md scale-[1.02]' : 'bg-white hover:bg-[#FFFDF5] shadow-sm border border-stone-50'}`}
+                      >
+                        <span className="text-xl">{p.icon}</span>
+                        <span className="font-black text-[#5D4037]">{p.name}</span>
+                        {selectedProjectId === p.id && <Check size={18} className="ml-auto text-[#5D4037]" />}
+                      </button>
+                      {children.map(c => (
+                        <button 
+                          key={c.id}
+                          onClick={(e) => { 
+                            e.stopPropagation();
+                            setSelectedProjectId(c.id); 
+                            setIsProjectPickerOpen(false); 
+                          }}
+                          className={`w-[90%] ml-auto p-3 rounded-2xl flex items-center gap-3 transition-all ${selectedProjectId === c.id ? 'bg-[#FFEDAE] shadow-md scale-[1.02]' : 'bg-stone-50/50 hover:bg-stone-100 shadow-sm border border-stone-50/50'}`}
+                        >
+                          <span className="text-lg">{c.icon}</span>
+                          <span className="font-bold text-[#5D4037] text-sm">{c.name}</span>
+                          {selectedProjectId === c.id && <Check size={16} className="ml-auto text-[#5D4037]" />}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Template Edit Modal */}
       <AnimatePresence>
