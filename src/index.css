@@ -5,27 +5,38 @@
   --font-sans: "王漢宗中隸書", "王漢宗", "Quicksand", ui-sans-serif, system-ui, sans-serif;
 }
 
-@layer utilities {
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(210, 180, 140, 0.4) transparent;
+    font-family: inherit;
   }
 
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 5px;
+  /* Webkit browsers */
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
   }
-  .custom-scrollbar::-webkit-scrollbar-track {
+
+  *::-webkit-scrollbar-track {
     background: transparent;
   }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(93, 64, 55, 0.3);
+
+  *::-webkit-scrollbar-thumb {
+    background: rgba(210, 180, 140, 0.4); /* #D2B48C with transparency */
     border-radius: 10px;
+    transition: background 0.2s ease;
   }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(93, 64, 55, 0.5);
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(210, 180, 140, 0.7);
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent body scroll if app is full screen */
   }
 }
 

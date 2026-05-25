@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0977550961",
-  "appId": "1:685352150254:web:83556b6d9521b93923bfff",
-  "apiKey": "AIzaSyCjtbPAjGSs9FpraJ2W48-isrt038huiNM",
-  "authDomain": "gen-lang-client-0977550961.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-412d97ca-6a2a-482c-8802-dda92f4881a9",
-  "storageBucket": "gen-lang-client-0977550961.firebasestorage.app",
-  "messagingSenderId": "685352150254",
-  "measurementId": ""
+  "apiKey": "AIzaSyA_Kuwu33FfSCRkBfAwiSfKWeqlQxpQYZs",
+  "authDomain": "koko-ledger.firebaseapp.com",
+  "projectId": "koko-ledger",
+  "storageBucket": "koko-ledger.firebasestorage.app",
+  "messagingSenderId": "796235424606",
+  "appId": "1:796235424606:web:b0d4fcbe8039eef72425cf",
+  "measurementId": "G-PDFBT1SQ7E",
+  "firestoreDatabaseId": "(default)"
 }

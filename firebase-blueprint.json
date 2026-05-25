@@ -137,7 +137,7 @@
     "/users/{userId}": { "schema": "userProfile", "description": "User profile document" },
     "/users/{userId}/accounts/{accountId}": { "schema": "account", "description": "User accounts" },
     "/users/{userId}/categories/{categoryId}": { "schema": "category", "description": "User categories" },
-    "/users/{userId}/records/{recordId}": { "schema": "record", "description": "User transactions" },
+    "/users/{userId}/transactions/{transactionId}": { "schema": "record", "description": "User transactions" },
     "/users/{userId}/projects/{projectId}": { "schema": "project", "description": "User projects" },
     "/users/{userId}/templates/{templateId}": { "schema": "template", "description": "User templates" },
     "/users/{userId}/fixedRecords/{fixedRecordId}": { "schema": "fixedRecord", "description": "User fixed recurring records" },

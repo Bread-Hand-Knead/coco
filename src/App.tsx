@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   Menu, 
   Calendar as CalendarIcon, 
@@ -53,7 +54,7 @@ import {
   LogOut,
   Cloud,
   CloudUpload,
-  Loader2
+  Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -136,6 +137,7 @@ interface Category {
   icon: string;
   type: 'income' | 'expense';
   sub: string[];
+  order?: number;
 }
 
 interface Transaction {
@@ -143,6 +145,7 @@ interface Transaction {
   amount: number;      // 原始金額 (來源帳戶幣別)
   category: string;
   note?: string;
+  remark?: string;
   date: string;        // 消費日 YYYY-MM-DD
   postingDate?: string; // 入帳日 YYYY-MM-DD
   isPending?: boolean;  // 待入帳
@@ -156,22 +159,36 @@ interface Transaction {
   currentInstallment?: number;
   installmentGroupId?: string;
   projectId?: string;
+  fee?: number;
   isCompleted?: boolean;
   status?: 'active' | 'settled';
   paidCount?: number;
   paidTerms?: number;
   totalTerms?: number;
+  currency?: string;   // 幣別 (如 "TWD", "USD", "JPY", "KRW")
+  order?: number;
+  _importSourceAccountName?: string;
+  _importDestAccountName?: string;
+  _importProjectName?: string;
+  _importBalance?: number;
+  _isMergedTransfer?: boolean;
+  _mergedRecordIds?: string[];
+  _mergedDisplayName?: string;
 }
+
+type CurrencyMode = 'TWD' | 'FOREIGN' | null;
 
 interface Account {
   id: string;
   name: string;
-  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket';
+  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket' | 'e-payment' | 'points' | 'other';
   icon: string;
   parentId?: string;
   currency: string;    // 幣別 (如 "TWD", "USD", "JPY")
   closingDay?: number; // 信用卡結帳日 (1-31)
+  initialBalance?: number; // 初始金額
   order?: number;      // 排序權重
+  creditLimit?: number; // 信用總額度
 }
 
 interface Template {
@@ -198,6 +215,7 @@ interface FixedRecord {
   category: string;
   autoEntry: boolean;
   lastProcessedDate?: string; // YYYY-MM-DD
+  note?: string;
 }
 
 interface Installment {
@@ -224,43 +242,23 @@ interface Project {
 // --- Initial Data ---
 
 const INITIAL_CATEGORIES: Category[] = [
-  { id: 'c1', name: '食物', icon: '🍱', type: 'expense', sub: ['早餐', '午餐', '晚餐', '飲料', '零食'] },
-  { id: 'c2', name: '交通', icon: '🚗', type: 'expense', sub: ['捷運', '公車', '火車', '加油', '停車'] },
-  { id: 'c3', name: '購物', icon: '🛍️', type: 'expense', sub: ['服飾', '日用品', '電子產品', '美妝'] },
-  { id: 'c4', name: '娛樂', icon: '🍿', type: 'expense', sub: ['電影', '遊戲', 'KTV', '旅遊'] },
-  { id: 'c10', name: '電影', icon: '🎬', type: 'expense', sub: ['威秀電影', '國賓影城', 'Netflix'] },
-  { id: 'c5', name: '生活', icon: '🏠', type: 'expense', sub: ['房租', '水電費', '電話費', '保險'] },
-  { id: 'c6', name: '醫療', icon: '🏥', type: 'expense', sub: ['診所', '藥局', '保健品'] },
-  { id: 'c7', name: '其他', icon: '✨', type: 'expense', sub: ['雜項', '捐款', '禮物'] },
-  { id: 'c8', name: '薪資', icon: '💼', type: 'income', sub: ['月薪', '獎金', '兼職'] },
-  { id: 'c9', name: '投資', icon: '📈', type: 'income', sub: ['股利', '利息', '價差'] },
+  { id: 'c1', name: '食物', icon: '🍱', type: 'expense', sub: ['早餐', '午餐', '晚餐', '飲料', '零食'], order: 1 },
+  { id: 'c2', name: '交通', icon: '🚗', type: 'expense', sub: ['捷運', '公車', '火車', '加油', '停車'], order: 2 },
+  { id: 'c3', name: '購物', icon: '🛍️', type: 'expense', sub: ['服飾', '日用品', '電子產品', '美妝'], order: 3 },
+  { id: 'c4', name: '娛樂', icon: '🍿', type: 'expense', sub: ['電影', '遊戲', 'KTV', '旅遊'], order: 4 },
+  { id: 'c10', name: '電影', icon: '🎬', type: 'expense', sub: ['威秀電影', '國賓影城', 'Netflix'], order: 5 },
+  { id: 'c5', name: '生活', icon: '🏠', type: 'expense', sub: ['房租', '水電費', '電話費', '保險'], order: 6 },
+  { id: 'c6', name: '醫療', icon: '🏥', type: 'expense', sub: ['診所', '藥局', '保健品'], order: 7 },
+  { id: 'c7', name: '其他', icon: '✨', type: 'expense', sub: ['雜項', '捐款', '禮物'], order: 8 },
+  { id: 'c8', name: '薪資', icon: '💼', type: 'income', sub: ['月薪', '獎金', '兼職'], order: 1 },
+  { id: 'c9', name: '投資', icon: '📈', type: 'income', sub: ['股利', '利息', '價差'], order: 2 },
 ];
 
 const INITIAL_ACCOUNTS: Account[] = [
-  { id: 'cash', name: '現金', type: 'cash', icon: '💰', currency: 'TWD' },
-  { id: 'bank_ts_group', name: '台新銀行', type: 'bank', icon: '🏦', currency: 'TWD' },
-  { id: 'bank_ts_1', name: '台新 - 活存', type: 'bank', icon: '🏦', parentId: 'bank_ts_group', currency: 'TWD' },
-  { id: 'bank_ts_2', name: '台新 - 儲蓄', type: 'bank', icon: '🏦', parentId: 'bank_ts_group', currency: 'TWD' },
-  { id: 'inv_cathay', name: '國泰證券 (006208)', type: 'investment', icon: '📈', currency: 'TWD' },
-  { id: 'credit_ts', name: '台新信用卡', type: 'credit', icon: '💳', currency: 'TWD' },
-  { id: 'easycard', name: '悠遊卡', type: 'e-ticket', icon: '🚌', currency: 'TWD' },
+  { id: 'cash', name: '現金', type: 'cash', icon: '💰', currency: 'TWD', order: 1 },
 ];
 
-const INITIAL_RECORDS: Transaction[] = [
-  { id: 'init_cash', amount: 3500, category: '初始資金', date: '2026-04-01', postingDate: '2026-04-01', type: 'income', accountId: 'cash' },
-  { id: 'init_bank_1', amount: 150000, category: '初始資金', date: '2026-04-01', postingDate: '2026-04-01', type: 'income', accountId: 'bank_ts_1' },
-  { id: 'init_bank_2', amount: 25800, category: '初始資金', date: '2026-04-01', postingDate: '2026-04-01', type: 'income', accountId: 'bank_ts_2' },
-  { id: 'init_inv', amount: 450000, category: '初始資金', date: '2026-04-01', postingDate: '2026-04-01', type: 'income', accountId: 'inv_cathay' },
-  { id: 'init_credit', amount: 8240, category: '初始資金', date: '2026-04-01', postingDate: '2026-04-01', type: 'expense', accountId: 'credit_ts' },
-  { id: 'init_easy', amount: 500, category: '初始資金', date: '2026-04-01', postingDate: '2026-04-01', type: 'income', accountId: 'easycard' },
-  { id: 'p_rec_1', amount: 110, category: '日常用品', note: '絲花潤澤化妝棉40片*1.0=$59,絲花潤澤化妝...', date: '2026-05-02', postingDate: '2026-05-02', type: 'expense', accountId: 'cash', projectId: 'p1' },
-  { id: 'p_rec_2', amount: 149, category: '美妝保養', note: '醫幸福物語兒童醫用口罩3*1.0=$149', date: '2026-05-02', postingDate: '2026-05-02', type: 'expense', accountId: 'cash', projectId: 'p1' },
-  { id: 'p_rec_3', amount: 130, category: '數位服務', note: 'Google Play 應用程式*1.0=$124', date: '2026-05-01', postingDate: '2026-05-01', type: 'expense', accountId: 'bank_ts_1', projectId: 'p1' },
-  { id: 'p_rec_4', amount: 130, category: '數位服務', note: 'Google Play 應用程式*1.0=$123', date: '2026-05-01', postingDate: '2026-05-01', type: 'expense', accountId: 'bank_ts_1', projectId: 'p1' },
-  { id: 'p_rec_5', amount: 199, category: '數位服務', note: 'YouTube*1.0=$190', date: '2026-05-01', postingDate: '2026-05-01', type: 'expense', accountId: 'bank_ts_1', projectId: 'p1' },
-  { id: 'p_rec_6', amount: 5510, category: '演唱會', note: '偶像見面會', date: '2026-05-01', postingDate: '2026-05-01', type: 'income', accountId: 'bank_ts_1', projectId: 'p3' },
-  { id: 'p_rec_7', amount: 94322, category: '演唱會', note: '總體花費', date: '2026-05-01', postingDate: '2026-05-01', type: 'expense', accountId: 'bank_ts_1', projectId: 'p3' },
-];
+const INITIAL_RECORDS: Transaction[] = [];
 
 const INITIAL_TEMPLATES: Template[] = [
   { id: 't1', name: '火車通勤', amount: 41, category: '交通', type: 'expense', fromAccountId: 'cash', icon: '🚂', color: 'bg-blue-50' },
@@ -269,20 +267,12 @@ const INITIAL_TEMPLATES: Template[] = [
 ];
 
 const INITIAL_PROJECTS: Project[] = [
-  { id: 'p1', name: '無特別專案', icon: '📝' },
-  { id: 'p2', name: '骨科', icon: '📝' },
-  { id: 'p3', name: '追星', icon: '✈️' },
-  { id: 'p4', name: '買手機的錢', icon: '📱' },
-  { id: 'p5', name: '旅遊基金', icon: '📝' },
-  { id: 'p6', name: '頭髮', icon: '👗' },
-  { id: 'p7', name: '飲食(要扣伙食費的錢)', icon: '📝' },
-  { id: 'p8', name: '弟弟', icon: '👨‍👩‍👧‍👦' },
-  { id: 'p9', name: '股票', icon: '📝' },
-  { id: 'p10', name: '利息', icon: '🏠' },
-  { id: 'p11', name: '幫家裡的機車加油', icon: '📝' },
+  { id: 'p1', name: '預設專案', icon: '📂', color: 'bg-stone-100', description: '系統預設專案' },
 ];
 
 // --- Main App ---
+
+import { getCategoryIcon, getFontFamily } from './lib/financeUtils';
 
 // Helper to parse date string "YYYY-MM-DD" to local Date object
 const parseLocalDate = (dateStr: string) => {
@@ -298,28 +288,161 @@ const formatLocalDate = (date: Date) => {
   return `${y}-${m}-${d}`;
 };
 
-const getCategoryIcon = (categoryName: string, type: 'income' | 'expense' | 'transfer', categories: Category[]) => {
-  if (categoryName === '初始資金') return '💎';
-  if (categoryName === '餘額校正') return '🔧';
-  
-  // Custom mappings for common names that might be subcategories or manual strings
-  if (categoryName.includes('電影') || categoryName === '影城' || categoryName === '娛樂') return '🎬';
-  if (categoryName === '交通' || categoryName === '公車' || categoryName === '捷運' || categoryName === '火車') return '🚌';
-  if (categoryName === '食物' || categoryName.includes('飲食') || categoryName === '晚餐' || categoryName === '午餐' || categoryName === '早餐') return '🍱';
-  if (categoryName === '薪資' || categoryName === '月薪' || categoryName === '獎金') return '💼';
+const getTransferSourceAndDest = (tx: Transaction) => {
+  const isPos = tx.amount > 0;
+  const src = isPos ? (tx.toAccountId || '') : tx.accountId;
+  const dst = isPos ? tx.accountId : (tx.toAccountId || '');
+  return { src, dst };
+};
 
-  const category = categories.find(c => c.name === categoryName || (c.sub && c.sub.includes(categoryName)));
-  if (category) return category.icon;
+const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
+  const result: Transaction[] = [];
+  const matchedIds = new Set<string>();
+
+  for (let i = 0; i < txs.length; i++) {
+    const A = txs[i];
+    if (matchedIds.has(A.id)) {
+      continue;
+    }
+
+    if (A.type === 'transfer' && A.amount !== 0) {
+      // Look for a matching transfer with opposite sign and same details
+      const A_isPos = A.amount > 0;
+      const A_src = A_isPos ? (A.toAccountId || '') : A.accountId;
+      const A_dst = A_isPos ? A.accountId : (A.toAccountId || '');
+
+      let foundMatch = false;
+      for (let j = i + 1; j < txs.length; j++) {
+        const B = txs[j];
+        if (matchedIds.has(B.id)) {
+          continue;
+        }
+
+        if (
+          B.type === 'transfer' &&
+          B.date === A.date &&
+          Math.abs(B.amount) === Math.abs(A.amount) &&
+          B.amount * A.amount < 0
+        ) {
+          const B_isPos = B.amount > 0;
+          const B_src = B_isPos ? (B.toAccountId || '') : B.accountId;
+          const B_dst = B_isPos ? B.accountId : (B.toAccountId || '');
+
+          const resolvedSender = A_src || B_src;
+          const resolvedDest = A_dst || B_dst;
+
+          // Conflict resolution:
+          const hasSenderConflict = A_src && B_src && A_src !== B_src;
+          const hasDestConflict = A_dst && B_dst && A_dst !== B_dst;
+
+          if (!hasSenderConflict && !hasDestConflict && resolvedSender && resolvedDest && resolvedSender !== resolvedDest) {
+            matchedIds.add(B.id);
+            // primary uses the negative amount/transfer out
+            const primary = A.amount < 0 ? A : B;
+            const secondary = A.amount < 0 ? B : A;
+            
+            const srcName = accounts.find(a => a.id === resolvedSender)?.name || '未知帳戶';
+            const dstName = accounts.find(a => a.id === resolvedDest)?.name || '未知帳戶';
+
+            const mergedTx: Transaction = {
+              ...primary,
+              accountId: resolvedSender,
+              toAccountId: resolvedDest,
+              _isMergedTransfer: true,
+              _mergedRecordIds: [primary.id, secondary.id],
+              _mergedDisplayName: `轉帳：${srcName} ➔ ${dstName}`,
+            };
+            result.push(mergedTx);
+            foundMatch = true;
+            break;
+          }
+        }
+      }
+
+      if (!foundMatch) {
+         result.push(A);
+      }
+    } else {
+      result.push(A);
+    }
+  }
+
+  // Deduplicate transfer records that represent the same physical transfer
+  const finalResult: Transaction[] = [];
+  const processedKeys = new Set<string>(); // key format: date_amount_src_dst
+
+  result.forEach(tx => {
+    if (tx.type === 'transfer' || tx._isMergedTransfer) {
+      const { src, dst } = getTransferSourceAndDest(tx);
+      const absAmt = Math.abs(tx.amount);
+      const date = tx.date;
+      
+      let isDuplicate = false;
+      for (const processedKey of processedKeys) {
+        const [pDate, pAmtStr, pSrc, pDst] = processedKey.split('|');
+        const pAmt = parseFloat(pAmtStr);
+        if (pDate === date && pAmt === absAmt) {
+          // Check for matches or overlaps
+          if (
+            (src && dst && pSrc === src && pDst === dst) ||
+            (!src && dst && pDst === dst) ||
+            (src && !dst && pSrc === src)
+          ) {
+            isDuplicate = true;
+            break;
+          }
+        }
+      }
+      
+      if (isDuplicate) {
+        return; // Skip adding duplicate transfers to the active collection
+      }
+      
+      processedKeys.add(`${date}|${absAmt}|${src}|${dst}`);
+    }
+    finalResult.push(tx);
+  });
+
+  return finalResult;
+};
+
+const getTransactionTitle = (record: Transaction): string => {
+  const cleanRemark = (record.remark || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
+  const cleanNote = (record.note || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   
-  return type === 'income' ? '💰' : (type === 'expense' ? '🍱' : '🔄');
+  if (record.type === 'transfer' || record._isMergedTransfer) {
+    if (cleanRemark) return cleanRemark;
+    if (cleanNote && cleanNote !== '轉帳' && cleanNote !== '未命名明細') return cleanNote;
+    if (record._isMergedTransfer && record._mergedDisplayName) {
+      return record._mergedDisplayName;
+    }
+    return '轉帳';
+  }
+  return (record.note || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
+};
+
+// Firestore sync functions
+const cleanData = (obj: any) => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  const newObj = Array.isArray(obj) ? [...obj] : { ...obj };
+  Object.keys(newObj).forEach(key => {
+    if (newObj[key] === undefined) {
+      delete newObj[key];
+    } else if (newObj[key] !== null && typeof newObj[key] === 'object') {
+      newObj[key] = cleanData(newObj[key]);
+    }
+  });
+  return newObj;
 };
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar' | 'accountDetail' | 'history' | 'fixedRecords' | 'projects' | 'budget' | 'categories' | 'installments'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar' | 'accountDetail' | 'history' | 'fixedRecords' | 'projects' | 'budget' | 'categories' | 'installments' | 'search'>('home');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isCategoryActionMenuOpen, setIsCategoryActionMenuOpen] = useState(false);
+  const [isProjectActionMenuOpen, setIsProjectActionMenuOpen] = useState(false);
   const [isAccountEditModalOpen, setIsAccountEditModalOpen] = useState(false);
   const [isAccountSortModalOpen, setIsAccountSortModalOpen] = useState(false);
   const [isProjectEditModalOpen, setIsProjectEditModalOpen] = useState(false);
@@ -338,6 +461,7 @@ export default function App() {
   const [installments, setInstallments] = useState<Installment[]>([]);
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [currencyMode, setCurrencyMode] = useState<'TWD' | 'FOREIGN' | null>('TWD');
 
   // --- Auth & Firebase Logic ---
 
@@ -345,9 +469,18 @@ export default function App() {
     const testConnection = async () => {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
+      } catch (error: any) {
+        // unreachable, unavailable, or similar network-level errors
+        if(error.message?.includes('the client is offline') || error.code === 'unavailable' || error.code === 'unreachable') {
+          console.error("Firebase 連線失敗：無法接觸到資料庫伺服器。", error);
+          if (navigator.onLine) {
+            alert('【Firebase 資料庫連線失敗】\n\n這通常是因為以下原因之一：\n1. 您尚未在 Firebase 控制台「建立」Firestore 資料庫。\n2. 資料庫建立時「ID」不是 (default)。\n3. 您的網路環境阻擋了 WebSockets (已嘗試切換長輪詢模式)。\n\n請前往 Firebase 控制台確認資料庫狀態。');
+          }
+        } else if (error.code === 'permission-denied') {
+          // This is actually GOOD - it means we reached the server and it rejected us (because we are not logged in yet)
+          console.log("Firebase 連線成功 (權限已驗證)");
+        } else {
+          console.error("Firebase 初始化測試異常:", error);
         }
       }
     };
@@ -357,15 +490,15 @@ export default function App() {
       setUser(u);
       setAuthLoading(false);
       if (!u) {
-        // Reset state to initial local data on logout
-        setRecords(INITIAL_RECORDS);
-        setAccounts(INITIAL_ACCOUNTS);
+        // Reset state to truly empty data on logout
+        setRecords([]);
+        setAccounts([]);
         setCategories(INITIAL_CATEGORIES);
-        setProjects(INITIAL_PROJECTS);
-        setTemplates(INITIAL_TEMPLATES);
+        setProjects([]);
+        setTemplates([]);
         setFixedRecords([]);
         setInstallments([]);
-        setMonthlyBudget(30000);
+        setMonthlyBudget(0);
       }
     });
   }, []);
@@ -373,14 +506,28 @@ export default function App() {
   const handleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login failed', error);
+      if (error.code === 'auth/configuration-not-found') {
+        alert('【關鍵設定缺失】\n您的 Firebase 專案尚未啟用 Google 登入。\n\n請執行以下步驟：\n1. 前往 Firebase 控制台\n2. 點擊左側「Authentication」\n3. 進入「Sign-in method」頁籤\n4. 點擊「Add new provider」並選擇「Google」並儲存。');
+      } else if (error.code === 'auth/unauthorized-domain') {
+        const currentDomain = window.location.hostname;
+        alert(`【網域未授權】\n目前網域 (${currentDomain}) 尚未加入授權清單。\n\n請執行以下步驟：\n1. 前往 Firebase 控制台 > Authentication > Settings\n2. 找到「Authorized domains」\n3. 將 ${currentDomain} 加入清單中。`);
+      } else {
+        alert(`登入失敗：${error.message || '請檢查網路連線或稍後再試'}`);
+      }
     }
   };
 
   const handleLogout = async () => {
     try {
+      localStorage.clear();
       await signOut(auth);
+      // Reset all finance states manually as requested
+      setRecords([]);
+      setAccounts([]);
+      setProjects([]);
+      setMonthlyBudget(0);
     } catch (error) {
       console.error('Logout failed', error);
     }
@@ -390,25 +537,27 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    const unsubRecords = onSnapshot(collection(db, 'users', user.uid, 'records'), (snapshot) => {
+    const unsubRecords = onSnapshot(collection(db, 'users', user.uid, 'transactions'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Transaction);
       // Removed Length check to allow clearing records locally when DB is empty
       setRecords(data);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/records`));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/transactions`));
 
     const unsubAccounts = onSnapshot(collection(db, 'users', user.uid, 'accounts'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Account);
-      if (snapshot.docs.length > 0) setAccounts(data);
+      // 強制依 order 排序
+      const sortedData = data.sort((a, b) => (a.order || 0) - (b.order || 0));
+      setAccounts(sortedData);
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/accounts`));
 
     const unsubCategories = onSnapshot(collection(db, 'users', user.uid, 'categories'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Category);
-      if (snapshot.docs.length > 0) setCategories(data);
+      setCategories(snapshot.docs.length > 0 ? data : INITIAL_CATEGORIES);
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/categories`));
 
     const unsubProjects = onSnapshot(collection(db, 'users', user.uid, 'projects'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Project);
-      if (snapshot.docs.length > 0) setProjects(data);
+      setProjects(snapshot.docs.length > 0 ? data : INITIAL_PROJECTS);
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/projects`));
 
     const unsubFixed = onSnapshot(collection(db, 'users', user.uid, 'fixedRecords'), (snapshot) => {
@@ -423,7 +572,7 @@ export default function App() {
 
     const unsubTemplates = onSnapshot(collection(db, 'users', user.uid, 'templates'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Template);
-      if (snapshot.docs.length > 0) setTemplates(data);
+      setTemplates(data);
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/templates`));
 
     const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
@@ -443,19 +592,22 @@ export default function App() {
     };
   }, [user]);
 
-  // Firestore sync functions
-  const cleanData = (obj: any) => {
-    if (obj === null || typeof obj !== 'object') return obj;
-    const newObj = Array.isArray(obj) ? [...obj] : { ...obj };
-    Object.keys(newObj).forEach(key => {
-      if (newObj[key] === undefined) {
-        delete newObj[key];
-      } else if (newObj[key] !== null && typeof newObj[key] === 'object') {
-        newObj[key] = cleanData(newObj[key]);
-      }
-    });
-    return newObj;
-  };
+  // Ensure at least one default account and project exists for logged-in users who have none
+  useEffect(() => {
+    // Only proceed if loading is finished, user is present, and NO accounts exist.
+    // We add a tiny delay or check a flag if necessary, but checking accounts.length usually suffices
+    // as long as the snapshot listener has had a chance to run.
+    if (user && !authLoading && accounts.length === 0) {
+      // Check if we are currently importing to avoid race conditions
+      // (Though length won't be 0 if import started, but safety first)
+      const defaultAcc: Account = { id: 'cash', name: '現金', type: 'cash', icon: '💰', currency: 'TWD', order: 1 };
+      setDoc(doc(db, 'users', user.uid, 'accounts', 'cash'), cleanData(defaultAcc)).catch(console.error);
+    }
+    if (user && !authLoading && projects.length === 0) {
+      const defaultProject: Project = { id: 'p1', name: '預設專案', icon: '📂', color: 'bg-stone-100', description: '系統預設專案' };
+      setDoc(doc(db, 'users', user.uid, 'projects', 'p1'), cleanData(defaultProject)).catch(console.error);
+    }
+  }, [user, authLoading, accounts.length, projects.length]);
 
   const syncToCloud = async (path: string, data: any, id: string) => {
     if (!user) return;
@@ -501,7 +653,7 @@ export default function App() {
         batch.set(doc(db, 'users', user.uid, 'accounts', item.id), cleanData(item));
       });
       records.forEach(item => {
-        batch.set(doc(db, 'users', user.uid, 'records', item.id), cleanData(item));
+        batch.set(doc(db, 'users', user.uid, 'transactions', item.id), cleanData(item));
       });
       projects.forEach(item => {
         batch.set(doc(db, 'users', user.uid, 'projects', item.id), cleanData(item));
@@ -555,12 +707,25 @@ export default function App() {
 
   const handleUpdateCategories = async (newCats: Category[]) => {
     if (user) {
-      // Find what changed
-      const batch = writeBatch(db);
-      newCats.forEach(cat => {
-        batch.set(doc(db, 'users', user.uid, 'categories', cat.id), cleanData(cat));
-      });
-      await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/categories'));
+      try {
+        const batch = writeBatch(db);
+        
+        // Identify deleted categories (exist in current state but not in new list)
+        const deletedCats = categories.filter(oldCat => !newCats.some(newCat => newCat.id === oldCat.id));
+        deletedCats.forEach(cat => {
+          batch.delete(doc(db, 'users', user.uid, 'categories', cat.id));
+        });
+
+        // Update/Set remaining or new categories
+        newCats.forEach(cat => {
+          batch.set(doc(db, 'users', user.uid, 'categories', cat.id), cleanData(cat));
+        });
+        
+        await batch.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'batch/categories');
+        alert("分類更新或刪除失敗，請再試一次。");
+      }
     } else {
       setCategories(newCats);
     }
@@ -568,11 +733,20 @@ export default function App() {
 
   const handleUpdateTemplates = async (newTemplates: Template[]) => {
     if (user) {
-      const batch = writeBatch(db);
-      newTemplates.forEach(t => {
-        batch.set(doc(db, 'users', user.uid, 'templates', t.id), cleanData(t));
-      });
-      await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/templates'));
+      try {
+        const batch = writeBatch(db);
+        const deletedTemplates = templates.filter(oldT => !newTemplates.some(newT => newT.id === oldT.id));
+        deletedTemplates.forEach(t => {
+          batch.delete(doc(db, 'users', user.uid, 'templates', t.id));
+        });
+        newTemplates.forEach(t => {
+          batch.set(doc(db, 'users', user.uid, 'templates', t.id), cleanData(t));
+        });
+        await batch.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'batch/templates');
+        alert("模板更新失敗。");
+      }
     } else {
       setTemplates(newTemplates);
     }
@@ -580,11 +754,20 @@ export default function App() {
 
   const handleUpdateProjects = async (newProjects: Project[]) => {
     if (user) {
-      const batch = writeBatch(db);
-      newProjects.forEach(p => {
-        batch.set(doc(db, 'users', user.uid, 'projects', p.id), cleanData(p));
-      });
-      await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/projects'));
+      try {
+        const batch = writeBatch(db);
+        const deletedProjects = projects.filter(oldP => !newProjects.some(newP => newP.id === oldP.id));
+        deletedProjects.forEach(p => {
+          batch.delete(doc(db, 'users', user.uid, 'projects', p.id));
+        });
+        newProjects.forEach(p => {
+          batch.set(doc(db, 'users', user.uid, 'projects', p.id), cleanData(p));
+        });
+        await batch.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'batch/projects');
+        alert("專案更新失敗。");
+      }
     } else {
       setProjects(newProjects);
     }
@@ -631,7 +814,7 @@ export default function App() {
           id,
           amount: fr.amount,
           category: fr.category,
-          note: `[固定收支] ${fr.name}`,
+          note: fr.name,
           date: todayStr,
           type: fr.type,
           accountId: fr.accountId
@@ -646,7 +829,7 @@ export default function App() {
     if (changed) {
       if (user) {
         const batch = writeBatch(db);
-        recordsToSync.forEach(r => batch.set(doc(db, 'users', user.uid, 'records', r.id), cleanData(r)));
+        recordsToSync.forEach(r => batch.set(doc(db, 'users', user.uid, 'transactions', r.id), cleanData(r)));
         updatedFixed.forEach(f => batch.set(doc(db, 'users', user.uid, 'fixedRecords', f.id), cleanData(f)));
         await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/fixed_sync'));
       } else {
@@ -684,7 +867,9 @@ export default function App() {
     }
     if (currentView === 'budget') return '預算管理';
     if (currentView === 'categories') return '分類管理';
+    if (currentView === 'categoryManage') return '管理與排序';
     if (currentView === 'installments') return '分期付款管理';
+    if (currentView === 'search') return '搜尋明細';
     
     // For home view, show the year/month of selectedDate
     // Strictly parse the string to avoid any date object shifting
@@ -700,16 +885,27 @@ export default function App() {
   }, [currentView, selectedAccountForDetail, selectedDate]);
 
   const accountBalances = useMemo(() => {
-    // Recursive Balance Calculation
+    // Recursive Balance Calculation (Dynamic Real-time Formula)
     const getBaseBalance = (id: string) => {
-      let bal = 0;
+      const acc = accounts.find(a => a.id === id);
+      if (!acc) return 0;
+      let bal = acc.initialBalance || 0;
+      if (acc.type === 'credit' && !acc.initialBalance) {
+        bal = 0;
+      }
       records.forEach(r => {
-        if (!r.postingDate) return;
-        if (r.type === 'income' && r.accountId === id) bal += r.amount;
-        if (r.type === 'expense' && r.accountId === id) bal -= r.amount;
-        if (r.type === 'transfer') {
-          if (r.accountId === id) bal -= r.amount;
-          if (r.toAccountId === id) bal += (r.toAmount ?? (r.amount * (r.exchangeRate || 1)));
+        // Skip '初始資金' records if we are using account.initialBalance for the total
+        if (r.category === '初始資金') return;
+
+        // Dynamic Update Logic: directly add the signed transaction amount to the account balance
+        if (r.accountId === id) {
+          bal += r.amount;
+          if (r.fee) bal -= r.fee;
+        }
+        
+        // Symmetrical Transfer Logic: Balance updates based on exact transfer receiver amounts
+        if (r.type === 'transfer' && r.toAccountId === id) {
+          bal += (r.toAmount ?? Math.abs(r.amount * (r.exchangeRate || 1)));
         }
       });
       return bal;
@@ -736,14 +932,18 @@ export default function App() {
   const ownBalances = useMemo(() => {
     const balances: Record<string, number> = {};
     accounts.forEach(acc => {
-      let bal = 0;
+      let bal = acc.initialBalance || 0;
+      if (acc.type === 'credit' && !acc.initialBalance) {
+        bal = 0;
+      }
       records.forEach(r => {
-        if (!r.postingDate) return;
-        if (r.type === 'income' && r.accountId === acc.id) bal += r.amount;
-        if (r.type === 'expense' && r.accountId === acc.id) bal -= r.amount;
-        if (r.type === 'transfer') {
-          if (r.accountId === acc.id) bal -= r.amount;
-          if (r.toAccountId === acc.id) bal += (r.toAmount ?? (r.amount * (r.exchangeRate || 1)));
+        if (r.category === '初始資金') return;
+        if (r.accountId === acc.id) {
+          bal += r.amount;
+          if (r.fee) bal -= r.fee;
+        }
+        if (r.type === 'transfer' && r.toAccountId === acc.id) {
+          bal += (r.toAmount ?? Math.abs(r.amount * (r.exchangeRate || 1)));
         }
       });
       balances[acc.id] = bal;
@@ -755,11 +955,22 @@ export default function App() {
     let assets = 0;
     let liabilities = 0;
     
-    // Only count top-level accounts for net worth to avoid double counting
-    accounts.filter(a => !a.parentId).forEach(acc => {
-      const bal = accountBalances[acc.id] || 0;
-      if (bal > 0) assets += bal;
-      else liabilities += bal;
+    const filteredAccounts = accounts.filter(a => {
+      const cur = a.currency || 'TWD';
+      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
+      return cur === 'TWD';
+    });
+
+    // Count accounts for net worth: 
+    // Include account if it's in filtered list AND its parent is NOT in the filtered list
+    // This avoids double counting while ensuring orphans (due to filtering) are counted.
+    filteredAccounts.forEach(acc => {
+      const parentInFiltered = acc.parentId && filteredAccounts.some(p => p.id === acc.parentId);
+      if (!parentInFiltered) {
+        const bal = accountBalances[acc.id] || 0;
+        if (bal >= 0) assets += bal;
+        else liabilities += bal;
+      }
     });
 
     return {
@@ -767,7 +978,7 @@ export default function App() {
       totalAssets: assets,
       totalLiabilities: Math.abs(liabilities)
     };
-  }, [accounts, accountBalances]);
+  }, [accounts, accountBalances, currencyMode]);
 
   const stats = useMemo(() => {
     const monthStr = selectedDate.substring(0, 7);
@@ -780,43 +991,50 @@ export default function App() {
     const diff = base.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
     const startOfWeek = new Date(base);
     startOfWeek.setDate(diff);
+    startOfWeek.setHours(0, 0, 0, 0);
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
     
     const startOfWeekStr = formatLocalDate(startOfWeek);
     const endOfWeekStr = formatLocalDate(endOfWeek);
 
-    // Filter out initial balance records from statistics
-    const filteredRecords = records;
-    
+    // Filter records based on currency mode
+    const filteredByCurrency = records.filter(r => {
+      const cur = r.currency || 'TWD';
+      // If currencyMode is null or TWD, show TWD. If FOREIGN, show non-TWD
+      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
+      return cur === 'TWD';
+    });
+
     // Monthly/Weekly/Daily stats now use postingDate
-    const daily = filteredRecords.filter(r => (r.postingDate || r.date) === selectedDate);
-    const weekly = filteredRecords.filter(r => {
+    const daily = filteredByCurrency.filter(r => (r.postingDate || r.date) === selectedDate);
+    const weekly = filteredByCurrency.filter(r => {
       const pDate = r.postingDate || r.date;
       return pDate >= startOfWeekStr && pDate <= endOfWeekStr;
     });
-    const monthly = filteredRecords.filter(r => (r.postingDate || r.date).startsWith(monthStr));
-    const yearly = filteredRecords.filter(r => (r.postingDate || r.date).startsWith(yearStr));
+    const monthly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(monthStr));
+    const yearly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(yearStr));
     
     return {
       daily: {
-        expense: daily.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
-        income: daily.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+        expense: daily.reduce((s, r) => s + (r.type === 'expense' ? (Math.abs(r.amount) + (r.fee || 0)) : r.type === 'transfer' ? (r.fee || 0) : 0), 0),
+        income: daily.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
       },
       weekly: {
-        expense: weekly.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
-        income: weekly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+        expense: weekly.reduce((s, r) => s + (r.type === 'expense' ? (Math.abs(r.amount) + (r.fee || 0)) : r.type === 'transfer' ? (r.fee || 0) : 0), 0),
+        income: weekly.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
       },
       monthly: {
-        expense: monthly.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
-        income: monthly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+        expense: monthly.reduce((s, r) => s + (r.type === 'expense' ? (Math.abs(r.amount) + (r.fee || 0)) : r.type === 'transfer' ? (r.fee || 0) : 0), 0),
+        income: monthly.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
       },
       yearly: {
-        expense: yearly.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
-        income: yearly.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
+        expense: yearly.reduce((s, r) => s + (r.type === 'expense' ? (Math.abs(r.amount) + (r.fee || 0)) : r.type === 'transfer' ? (r.fee || 0) : 0), 0),
+        income: yearly.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
       }
     };
-  }, [records, selectedDate]);
+  }, [records, selectedDate, currencyMode]);
 
   const handleSaveRecord = async (record: Omit<Transaction, 'id'>) => {
     if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
@@ -835,25 +1053,25 @@ export default function App() {
           ...record,
           id,
           amount: perAmount,
-          note: `${record.note || ''} (分期 ${i}/${record.totalInstallments})`.trim(),
+          note: record.note?.trim(),
           date: record.date,
           postingDate: dateStr,
           currentInstallment: i,
           installmentGroupId
-        };
+        } as any;
 
         if (batch && user) {
-          batch.set(doc(db, 'users', user.uid, 'records', id), cleanData(newPart));
+          batch.set(doc(db, 'users', user.uid, 'transactions', id), cleanData(newPart));
         } else {
           setRecords(prev => [...prev, newPart]);
         }
       }
-      if (batch) await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/records'));
+      if (batch) await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/transactions'));
     } else {
       const id = Date.now().toString();
       const newRecord = { ...record, id };
       if (user) {
-        await syncToCloud('records', newRecord, id);
+        await syncToCloud('transactions', newRecord, id);
       } else {
         setRecords(prev => [...prev, newRecord]);
       }
@@ -862,10 +1080,58 @@ export default function App() {
   };
 
   const handleUpdateRecord = async (oldRecord: Transaction, newRecord: Transaction) => {
-    if (user) {
-      await syncToCloud('records', newRecord, newRecord.id);
+    if (oldRecord._isMergedTransfer && oldRecord._mergedRecordIds && oldRecord._mergedRecordIds.length >= 2) {
+      const primaryId = oldRecord._mergedRecordIds[0];
+      const secondaryId = oldRecord._mergedRecordIds[1];
+      
+      const cleanedRecord = { ...newRecord };
+      delete (cleanedRecord as any)._isMergedTransfer;
+      delete (cleanedRecord as any)._mergedRecordIds;
+      delete (cleanedRecord as any)._mergedDisplayName;
+
+      if (user) {
+        try {
+          await syncToCloud('transactions', cleanedRecord, primaryId);
+          await deleteFromCloud('transactions', secondaryId);
+        } catch (error) {
+          console.error('Merged update sync failed:', error);
+        }
+      } else {
+        setRecords(prev => prev
+          .map(r => r.id === primaryId ? cleanedRecord : r)
+          .filter(r => r.id !== secondaryId)
+        );
+      }
     } else {
-      setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+      if (user) {
+        await syncToCloud('transactions', newRecord, newRecord.id);
+      } else {
+        setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+      }
+    }
+  };
+
+  const handleReorderRecords = async (updatedRecords: Transaction[]) => {
+    if (user) {
+      try {
+        const batch = writeBatch(db);
+        updatedRecords.forEach(r => {
+          const ref = doc(db, 'users', user.uid, 'transactions', r.id);
+          batch.update(ref, { order: r.order });
+        });
+        await batch.commit();
+      } catch (error) {
+        console.error('Reorder sync failed:', error);
+      }
+    } else {
+      setRecords(prev => {
+        const next = [...prev];
+        updatedRecords.forEach(ur => {
+          const idx = next.findIndex(r => r.id === ur.id);
+          if (idx !== -1) next[idx] = { ...next[idx], order: ur.order };
+        });
+        return next;
+      });
     }
   };
 
@@ -877,19 +1143,23 @@ export default function App() {
 
   const confirmDeleteRecord = async () => {
     if (!recordToDelete) return;
-    const targetId = recordToDelete.id;
+    
+    const targetIds = recordToDelete._isMergedTransfer && recordToDelete._mergedRecordIds 
+      ? recordToDelete._mergedRecordIds 
+      : [recordToDelete.id];
     
     // 1. 樂觀 UI (Optimistic UI): 立即從本地介面移除
-    setRecords(prev => prev.filter(r => r.id !== targetId));
+    setRecords(prev => prev.filter(r => !targetIds.includes(r.id)));
     
     // 2. 執行背景異步刪除
     if (user) {
       try {
-        await deleteFromCloud('records', targetId);
+        for (const tid of targetIds) {
+          await deleteFromCloud('transactions', tid);
+        }
       } catch (error) {
         console.error('Delete failed:', error);
         alert('同步刪除失敗，請檢查網路連線或稍後再試。');
-        // 註：由於有 onSnapshot 即時同步，若雲端未成功刪除，該筆資料隨後會被 Snapshot 帶回
       }
     }
     
@@ -902,7 +1172,7 @@ export default function App() {
       name: '',
       type: 'cash',
       icon: '💰',
-      currency: 'TWD'
+      currency: currencyMode === 'FOREIGN' ? 'USD' : 'TWD'
     });
     setIsAccountEditModalOpen(true);
   };
@@ -917,33 +1187,47 @@ export default function App() {
   };
 
   const handleSaveAccount = async (updatedAcc: Account, initialAmount?: number) => {
+    let finalAccount = { ...updatedAcc };
+    if (initialAmount !== undefined) {
+      finalAccount.initialBalance = initialAmount;
+    }
+    
+    // 如果是新帳戶（不在目前的 accounts 列表中），則計算新順序：最大 order + 1
+    if (!accounts.find(a => a.id === updatedAcc.id)) {
+      const maxOrder = accounts.reduce((max, a) => Math.max(max, a.order || 0), 0);
+      finalAccount.order = maxOrder + 1;
+    }
+
     if (user) {
-      await syncToCloud('accounts', updatedAcc, updatedAcc.id);
+      await syncToCloud('accounts', finalAccount, finalAccount.id);
     } else {
       setAccounts(prev => {
-        const exists = prev.find(a => a.id === updatedAcc.id);
+        const exists = prev.find(a => a.id === finalAccount.id);
+        let newList;
         if (exists) {
-          return prev.map(a => a.id === updatedAcc.id ? updatedAcc : a);
+          newList = prev.map(a => a.id === finalAccount.id ? finalAccount : a);
         } else {
-          return [...prev, updatedAcc];
+          newList = [...prev, finalAccount];
         }
+        return newList.sort((a, b) => (a.order || 0) - (b.order || 0));
       });
     }
     
     if (initialAmount !== undefined) {
-      const existingInit = records.find(r => r.accountId === updatedAcc.id && r.category === '初始資金');
-      const id = existingInit ? existingInit.id : `init_${updatedAcc.id}_${Date.now()}`;
+      const existingInit = records.find(r => r.accountId === finalAccount.id && r.category === '初始資金');
+      const id = existingInit ? existingInit.id : `init_${finalAccount.id}_${Date.now()}`;
       const initRecord: Transaction = {
         id,
         amount: Math.abs(initialAmount),
         category: '初始資金',
         date: formatLocalDate(new Date()),
         type: initialAmount >= 0 ? 'income' : 'expense',
-        accountId: updatedAcc.id
+        accountId: finalAccount.id,
+        currency: finalAccount.currency
       };
 
       if (user) {
-        await syncToCloud('records', initRecord, id);
+        await syncToCloud('transactions', initRecord, id);
       } else {
         setRecords(prev => {
           if (existingInit) {
@@ -955,8 +1239,8 @@ export default function App() {
       }
     }
 
-    if (selectedAccountForDetail?.id === updatedAcc.id) {
-      setSelectedAccountForDetail(updatedAcc);
+    if (selectedAccountForDetail?.id === finalAccount.id) {
+      setSelectedAccountForDetail(finalAccount);
     }
     setIsAccountEditModalOpen(false);
     setEditingAccount(null);
@@ -1004,7 +1288,7 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen w-full bg-[#FFF9E3] font-sans text-[#5D4037] flex justify-center overflow-hidden select-none">
+    <div className="h-screen w-full bg-[#FFF9E3] font-sans text-[#5D4037] flex justify-center overflow-hidden select-none" style={getFontFamily()}>
       {/* Responsive Container for Desktop */}
       <div className="w-full max-w-md h-full flex flex-col bg-[#FFF9E3] relative shadow-2xl md:border-x border-stone-100">
         {/* Header */}
@@ -1016,6 +1300,7 @@ export default function App() {
               onClick={() => {
                 if (currentView === 'accountDetail') setCurrentView('accounts');
                 else if (currentView === 'projects' && selectedProjectId) setSelectedProjectId(null);
+                else if (currentView === 'categoryManage') setCurrentView('categories');
                 else setCurrentView('home');
               }}
               className="p-1 -ml-1 hover:bg-white/50 rounded-full transition-colors"
@@ -1023,7 +1308,7 @@ export default function App() {
               <ChevronLeft className="w-7 h-7 text-[#5D4037]" />
             </button>
           )}
-          <div className="text-[24px] font-bold text-[#5D4037]" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>{headerTitle}</div>
+          <div className="text-[24px] font-bold text-[#5D4037]" style={getFontFamily()}>{headerTitle}</div>
           
           <div className="flex items-center gap-2">
             {currentView === 'projects' && (
@@ -1046,20 +1331,71 @@ export default function App() {
               </div>
             )}
             {['fixedRecords', 'categories', 'history', 'installments'].includes(currentView) ? (
-              <button 
-                onClick={() => {
-                  if (currentView === 'fixedRecords') {
-                    window.dispatchEvent(new CustomEvent('trigger-add-fixed-record'));
-                  } else if (currentView === 'categories') {
-                    window.dispatchEvent(new CustomEvent('trigger-add-category'));
-                  } else if (currentView === 'history' || currentView === 'installments') {
-                    setIsRecordModalOpen(true);
-                  }
-                }}
-                className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-md active:scale-95 transition-all"
-              >
-                <Plus size={24} className="text-[#5D4037]" />
-              </button>
+              currentView === 'categories' ? (
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsCategoryActionMenuOpen(!isCategoryActionMenuOpen)}
+                    className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-md active:scale-95 transition-all text-[#5D4037]"
+                  >
+                    <MoreVertical size={24} />
+                  </button>
+
+                  <AnimatePresence>
+                    {isCategoryActionMenuOpen && (
+                      <>
+                        <motion.div 
+                          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                          className="fixed inset-0 z-40"
+                          onClick={() => setIsCategoryActionMenuOpen(false)}
+                        />
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                          className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-stone-100 py-2 z-50 overflow-hidden"
+                          style={getFontFamily()}
+                        >
+                          <button 
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                            onClick={() => { 
+                              window.dispatchEvent(new CustomEvent('trigger-add-category'));
+                              setIsCategoryActionMenuOpen(false); 
+                            }}
+                          >
+                            <Plus size={18} className="text-stone-400" />
+                            <span className="font-bold text-sm">新增分類</span>
+                          </button>
+                          <button 
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                            onClick={() => { 
+                              setCurrentView('categoryManage'); 
+                              setIsCategoryActionMenuOpen(false); 
+                            }}
+                          >
+                            <Settings2 size={18} className="text-stone-400" />
+                            <span className="font-bold text-sm">管理與排序</span>
+                          </button>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => {
+                    if (currentView === 'fixedRecords') {
+                      window.dispatchEvent(new CustomEvent('trigger-add-fixed-record'));
+                    } else if (currentView === 'categories') {
+                      window.dispatchEvent(new CustomEvent('trigger-add-category'));
+                    } else if (currentView === 'history' || currentView === 'installments') {
+                      setIsRecordModalOpen(true);
+                    }
+                  }}
+                  className="w-10 h-10 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-md active:scale-95 transition-all"
+                >
+                  <Plus size={24} className="text-[#5D4037]" />
+                </button>
+              )
             ) : (
               !['projects'].includes(currentView) && (
                 <div className="relative">
@@ -1089,14 +1425,21 @@ export default function App() {
                             onClick={() => { setCurrentView('calendar'); setIsMoreMenuOpen(false); }}
                           >
                             <CalendarIcon size={18} className="text-stone-400" />
-                            <span className="font-bold text-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>日曆模式</span>
+                            <span className="font-bold text-sm" style={getFontFamily()}>日曆模式</span>
+                          </button>
+                          <button 
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
+                            onClick={() => { setCurrentView('search'); setIsMoreMenuOpen(false); }}
+                          >
+                            <Search size={18} className="text-stone-400" />
+                            <span className="font-bold text-sm" style={getFontFamily()}>搜尋明細</span>
                           </button>
                           <button 
                             className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
                             onClick={() => { setIsAccountSortModalOpen(true); setIsMoreMenuOpen(false); }}
                           >
                             <span className="text-lg font-bold text-stone-400 w-[18px] flex justify-center">☰↑</span>
-                            <span className="font-bold text-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>帳戶排序</span>
+                            <span className="font-bold text-sm" style={getFontFamily()}>帳戶排序</span>
                           </button>
                           <button 
                             className="w-full px-4 py-3 flex items-center gap-3 hover:bg-stone-50 transition-colors text-[#5D4037]"
@@ -1106,7 +1449,7 @@ export default function App() {
                             }}
                           >
                             <Plus size={18} className="text-stone-400" />
-                            <span className="font-bold text-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>新增帳戶</span>
+                            <span className="font-bold text-sm" style={getFontFamily()}>新增帳戶</span>
                           </button>
                         </motion.div>
                       </>
@@ -1141,7 +1484,7 @@ export default function App() {
                       ) : '🦊'}
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-xl font-black text-[#5D4037] leading-tight" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
+                      <span className="text-xl font-black text-[#5D4037] leading-tight" style={getFontFamily()}>
                         {user ? user.displayName : '訪客模式'}
                       </span>
                       <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">
@@ -1161,7 +1504,7 @@ export default function App() {
                     <button 
                       onClick={handleLogin}
                       className="w-full py-3 bg-[#5D4037] text-white rounded-2xl text-sm font-black flex items-center justify-center gap-2 shadow-lg shadow-stone-200 active:scale-95 transition-all"
-                      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                      style={getFontFamily()}
                     >
                       <Cloud size={16} /> 同步登入
                     </button>
@@ -1214,7 +1557,7 @@ export default function App() {
         </AnimatePresence>
 
         {/* Main Content Area (Scrollable) */}
-        <main className="flex-1 overflow-y-auto no-scrollbar min-h-0">
+        <main className="flex-1 overflow-y-auto min-h-0">
           <AnimatePresence mode="wait">
             {currentView === 'home' && (
               <HomeView 
@@ -1232,7 +1575,13 @@ export default function App() {
             )}
             {currentView === 'accounts' && (
               <AccountsView 
-                accounts={accounts} 
+                accounts={accounts.filter(a => {
+                  const cur = a.currency || 'TWD';
+                  if (!currencyMode) return true;
+                  // If mode is FOREIGN, show ANY non-TWD account
+                  // If mode is TWD, show only TWD accounts
+                  return currencyMode === 'FOREIGN' ? cur !== 'TWD' : cur === 'TWD';
+                })} 
                 netAssets={netAssets}
                 totalAssets={totalAssets}
                 totalLiabilities={totalLiabilities}
@@ -1242,11 +1591,14 @@ export default function App() {
                 }}
                 onAddAccount={handleAddAccount}
                 balances={accountBalances}
+                currencyMode={currencyMode}
+                onCurrencyModeChange={setCurrencyMode}
+                records={records}
               />
             )}
             {currentView === 'accountDetail' && selectedAccountForDetail && (
               <AccountDetailView 
-                account={selectedAccountForDetail}
+                account={accounts.find(a => a.id === selectedAccountForDetail.id) || selectedAccountForDetail}
                 records={records}
                 selectedDate={selectedDate}
                 onBack={() => {
@@ -1254,7 +1606,7 @@ export default function App() {
                   setCurrentView('accounts');
                 }}
                 onEdit={() => {
-                  setEditingAccount(selectedAccountForDetail);
+                  setEditingAccount(accounts.find(a => a.id === selectedAccountForDetail.id) || selectedAccountForDetail);
                   setIsAccountEditModalOpen(true);
                 }}
                 onUpdateRecord={handleUpdateRecord}
@@ -1267,14 +1619,16 @@ export default function App() {
             )}
             {currentView === 'history' && (
               <HistoryView 
-                records={records} 
+                records={records}
                 accounts={accounts} 
                 categories={categories}
                 projects={projects}
                 filter={historyFilter}
+                currencyMode={currencyMode}
                 onBack={() => setCurrentView('home')}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
+                onReorder={handleReorderRecords}
               />
             )}
             {currentView === 'fixedRecords' && (
@@ -1353,6 +1707,7 @@ export default function App() {
               />
             )}
             {currentView === 'categories' && <CategoryManagementPage categories={categories} onSave={handleUpdateCategories} onBack={() => setCurrentView('home')} />}
+            {currentView === 'categoryManage' && <CategoryManagePage categories={categories} onSave={handleUpdateCategories} onBack={() => setCurrentView('categories')} />}
             {currentView === 'installments' && (
               <InstallmentManagementPage 
                 records={records} 
@@ -1400,10 +1755,23 @@ export default function App() {
                 }}
               />
             )}
+            {currentView === 'search' && (
+              <SearchView 
+                records={records}
+                accounts={accounts}
+                categories={categories}
+                projects={projects}
+                onBack={() => setCurrentView('home')}
+                onUpdateRecord={handleUpdateRecord}
+                onDeleteRecord={handleDeleteRecord}
+                onReorder={handleReorderRecords}
+              />
+            )}
             {currentView === 'calendar' && (
               <CalendarView 
                 records={records} 
                 accounts={accounts}
+                categories={categories}
                 onBack={() => setCurrentView('home')}
               />
             )}
@@ -1426,8 +1794,11 @@ export default function App() {
                 user={user}
                 onForceSync={handleForceSync}
                 setRecords={setRecords}
+                setAccounts={setAccounts}
                 setInstallments={setInstallments}
                 setProjects={setProjects}
+                setTemplates={setTemplates}
+                setFixedRecords={setFixedRecords}
                 onUpdateTemplates={handleUpdateTemplates}
                 onUpdateCategories={handleUpdateCategories}
               />
@@ -1520,7 +1891,7 @@ export default function App() {
               <motion.div 
                 initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
                 className="bg-[#FFF9E3] w-full max-w-xs rounded-[44px] p-8 flex flex-col items-center gap-6 shadow-2xl border-4 border-white overflow-hidden text-center"
-                style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                style={getFontFamily()}
                 onClick={e => e.stopPropagation()}
               >
                 <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-4xl shadow-inner mb-2">
@@ -1631,7 +2002,8 @@ function HomeView({ stats, selectedDate, onDateChange, onRecordClick, onAccountC
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="flex flex-col gap-6 px-4"
+      className="flex flex-col gap-6 px-4 py-4"
+      style={getFontFamily()}
     >
       <div className="relative py-2">
         <HorizontalScrollArea 
@@ -1675,7 +2047,10 @@ function HomeView({ stats, selectedDate, onDateChange, onRecordClick, onAccountC
         </button>
       </div>
 
-      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white grid grid-cols-3 text-center items-center">
+      <div 
+        className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white grid grid-cols-3 text-center items-center"
+        style={getFontFamily()}
+      >
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold text-[#5D4037]">本月收入</span>
           <span className="text-lg font-black text-[#03A9F4]">$ {stats.monthly.income.toLocaleString()}</span>
@@ -1711,6 +2086,7 @@ function StatCard({ title, date, expense, income, onClick }: { title: string, da
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className="bg-white rounded-[20px] p-4 shadow-sm border-2 border-white flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors"
+      style={getFontFamily()}
     >
       <div className="flex flex-col">
         <span className="text-[20px] font-bold text-[#5D4037]">{title}</span>
@@ -1724,14 +2100,97 @@ function StatCard({ title, date, expense, income, onClick }: { title: string, da
   );
 }
 
-function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAccountClick, onAddAccount, balances }: { 
+export function calculateAccountBalance(account: Account, accounts: Account[], records: Transaction[]): number {
+  const getBaseBalance = (acc: Account) => {
+    let bal = acc.type === 'credit' ? 0 : (acc.initialBalance || 0);
+    records.forEach(r => {
+      if (r.category === '初始資金') return;
+      if (r.accountId === acc.id) {
+        bal += r.amount;
+        if (r.fee) bal -= r.fee;
+      }
+      if (r.type === 'transfer' && r.toAccountId === acc.id) {
+        bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+      }
+    });
+    return bal;
+  };
+
+  const getRecursiveBalance = (id: string): number => {
+    const acc = accounts.find(a => a.id === id);
+    if (!acc) return 0;
+    let total = getBaseBalance(acc);
+    const children = accounts.filter(a => a.parentId === id);
+    children.forEach(child => {
+      total += getRecursiveBalance(child.id);
+    });
+    return total;
+  };
+
+  return getRecursiveBalance(account.id);
+}
+
+function DynamicAccountBalance({ 
+  account, 
+  accounts,
+  transactions, 
+  showAmounts,
+  className = "text-xl sm:text-[26px] font-black mt-1"
+}: { 
+  account: Account | any, 
+  accounts: Account[],
+  transactions: Transaction[], 
+  showAmounts: boolean,
+  className?: string
+}) {
+  const calculatedBalance = useMemo(() => {
+    if (account.isBrandGroup && account.childAccounts) {
+      return account.childAccounts.reduce((sum: number, c: Account) => {
+        const isCredit = c.type === 'credit';
+        if (isCredit) {
+          return sum + calculateAccountBalance(c, accounts, transactions);
+        } else {
+          return sum + calculateAccountBalance(c, accounts, transactions);
+        }
+      }, 0);
+    }
+    const isCredit = account.type === 'credit';
+    if (isCredit) {
+      // 信用卡帳戶 (負債類) 雙軌制動態計算
+      return calculateAccountBalance(account, accounts, transactions);
+    } else {
+      // 銀行/現金/電子支付帳戶 (資產類)
+      return calculateAccountBalance(account, accounts, transactions);
+    }
+  }, [account, accounts, transactions]);
+
+  const formatAmount = (val: number) => {
+    if (!showAmounts) return '****';
+    return val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  };
+
+  const isNegative = calculatedBalance < 0;
+  const colorClass = isNegative ? 'text-rose-400' : 'text-[#5D4037]';
+
+  return (
+    <span className={`${className} ${colorClass}`} style={getFontFamily()}>
+      <span className="mr-1" style={getFontFamily()}>$</span>
+      {formatAmount(calculatedBalance)}
+    </span>
+  );
+}
+
+function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAccountClick, onAddAccount, balances, currencyMode, onCurrencyModeChange, records }: { 
   accounts: Account[], 
   netAssets: number,
   totalAssets: number,
   totalLiabilities: number,
   onAccountClick: (acc: Account) => void,
   onAddAccount: () => void,
-  balances: Record<string, number>
+  balances: Record<string, number>,
+  currencyMode: 'TWD' | 'FOREIGN',
+  onCurrencyModeChange: (mode: 'TWD' | 'FOREIGN') => void,
+  records: Transaction[]
 }) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [showAmounts, setShowAmounts] = useState(true);
@@ -1746,13 +2205,22 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
     bank: '銀行',
     investment: '投資',
     credit: '信用卡',
-    'e-ticket': '電子票證'
+    'e-ticket': '電子票證',
+    'e-payment': '電子支付',
+    points: '點數',
+    other: '其他'
   };
 
   const groupedAccounts = useMemo(() => {
     // Sort all accounts by order first
     const sortedRawAccounts = [...accounts].sort((a, b) => (a.order || 0) - (b.order || 0));
-    const topLevelAccounts = sortedRawAccounts.filter(a => !a.parentId);
+    
+    // An account is "Top Level" in this view if it has no parent OR its parent is not in the current list
+    const topLevelAccounts = sortedRawAccounts.filter(a => {
+      if (!a.parentId) return true;
+      return !accounts.some(p => p.id === a.parentId);
+    });
+
     const groups: Partial<Record<Account['type'], any[]>> = {};
     
     topLevelAccounts.forEach(acc => {
@@ -1826,11 +2294,29 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col bg-[#FFF9E3] min-h-screen"
-      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+      style={getFontFamily()}
     >
+      {/* Currency Switching Toggle */}
+      <div className="px-6 pt-6">
+        <div className="bg-white/50 p-1 rounded-2xl border-2 border-white shadow-sm flex" style={getFontFamily()}>
+          <button 
+            onClick={() => onCurrencyModeChange('TWD')}
+            className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${currencyMode === 'TWD' ? 'bg-[#5D4037] text-[#FFD54F] shadow-md' : 'text-stone-400'}`}
+          >
+            台幣 (TWD)
+          </button>
+          <button 
+            onClick={() => onCurrencyModeChange('FOREIGN')}
+            className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${currencyMode === 'FOREIGN' ? 'bg-[#5D4037] text-[#FFD54F] shadow-md' : 'text-stone-400'}`}
+          >
+            外幣
+          </button>
+        </div>
+      </div>
+
       {/* Top Dashboard (CW Money Style) */}
       <div className="px-6 py-8 bg-[#FFF9E3]">
-        <div className="flex justify-between items-start mb-2" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
+        <div className="flex justify-between items-start mb-2" style={getFontFamily()}>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
               <span className="text-2xl font-black text-[#5D4037]">淨資產</span>
@@ -1838,7 +2324,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                 {showAmounts ? <Eye size={20} /> : <EyeOff size={20} />}
               </button>
             </div>
-            <div className="text-4xl font-black text-[#5D4037] tracking-tight mt-2">
+            <div className="text-4xl font-black text-[#5D4037] tracking-tight mt-2" style={getFontFamily()}>
               <span className="text-2xl mr-2">$</span>{formatAmount(netAssets)}
             </div>
           </div>
@@ -1848,14 +2334,14 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                 <span>資產</span>
                 <HelpCircle size={12} />
               </div>
-              <span className="text-blue-400 font-black text-lg">$ {formatAmount(totalAssets)}</span>
+              <span className="text-blue-400 font-black text-lg" style={getFontFamily()}>$ {formatAmount(totalAssets)}</span>
             </div>
             <div className="flex flex-col">
               <div className="flex items-center justify-end gap-1 text-stone-400 text-xs font-bold">
                 <span>負債</span>
                 <HelpCircle size={12} />
               </div>
-              <span className="text-rose-400 font-black text-lg">$ -{formatAmount(totalLiabilities)}</span>
+              <span className="text-rose-400 font-black text-lg" style={getFontFamily()}>$ -{formatAmount(totalLiabilities)}</span>
             </div>
           </div>
         </div>
@@ -1865,10 +2351,12 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
       <div className="flex flex-col gap-8 px-4 pb-24">
         {(Object.entries(groupedAccounts) as [Account['type'], any[]][]).map(([type, typeAccounts]) => {
           const typeTotal = typeAccounts.reduce((sum, acc) => {
-            if (acc.isBrandGroup) {
-              return sum + acc.childAccounts.reduce((cSum: number, c: Account) => cSum + (balances[c.id] || 0), 0);
+            if (acc.isBrandGroup && acc.childAccounts) {
+              return sum + acc.childAccounts.reduce((cSum: number, c: Account) => {
+                return cSum + calculateAccountBalance(c, accounts, records);
+              }, 0);
             }
-            return sum + (balances[acc.id] || 0);
+            return sum + calculateAccountBalance(acc as Account, accounts, records);
           }, 0);
 
           return (
@@ -1876,7 +2364,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
               {/* Group Header */}
               <div className="px-2 flex justify-between items-end border-b border-[#5D4037]/10 pb-2">
                 <span className="text-lg font-black text-[#5D4037]">{accountTypeLabels[type]}</span>
-                <span className={`text-sm font-bold text-stone-400`}>
+                <span className={`text-sm font-bold text-stone-400`} style={getFontFamily()}>
                   合計 $ {formatAmount(typeTotal)}
                 </span>
               </div>
@@ -1890,43 +2378,56 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                     : accounts.filter(c => c.parentId === acc.id).sort((a, b) => (a.order || 0) - (b.order || 0));
                   const isExpanded = expandedGroups.includes(acc.id);
                   const hasLevel2 = level2Accounts.length > 0;
-                  const displayAmount = isBrandGroup 
-                    ? acc.childAccounts.reduce((sum: number, c: Account) => sum + (balances[c.id] || 0), 0)
-                    : (balances[acc.id] || 0);
 
                   return (
                     <div key={acc.id} className="flex flex-col gap-3">
                       {/* Level 1 Card: Group Total */}
                       <div 
                         onClick={() => !isBrandGroup && onAccountClick(acc as Account)}
-                        className={`bg-white p-4 sm:p-5 rounded-[32px] shadow-sm border-2 border-stone-50 flex flex-row items-center gap-3 sm:gap-4 group transition-all relative overflow-hidden ${!isBrandGroup ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+                        className={`bg-white p-4 sm:p-5 rounded-[32px] shadow-sm border-2 border-stone-50 flex flex-col gap-1 group transition-all relative overflow-hidden ${!isBrandGroup ? 'cursor-pointer active:scale-[0.98]' : ''}`}
                       >
-                        <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl sm:text-3xl shadow-sm border border-white">
-                          {acc.icon}
+                        <div className="flex flex-row items-center gap-3 sm:gap-4 w-full">
+                          <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl sm:text-3xl shadow-sm border border-white">
+                            {acc.icon}
+                          </div>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="text-[10px] sm:text-xs font-bold text-stone-300 uppercase tracking-widest mb-1 leading-none truncate" style={getFontFamily()}>
+                              {isBrandGroup ? `${acc.name}總額` : (acc.type === 'bank' ? `${acc.name}總額` : (acc.type === 'credit' ? '目前未繳金額' : accountTypeLabels[acc.type as Account['type']]))}
+                            </span>
+                            <span className="text-lg sm:text-xl font-black text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{acc.name}</span>
+                            <DynamicAccountBalance
+                              account={acc}
+                              accounts={accounts}
+                              transactions={records}
+                              showAmounts={showAmounts}
+                              className="text-xl sm:text-[26px] font-black mt-1"
+                            />
+                          </div>
+                          
+                          {hasLevel2 && (
+                            <div className="pr-1">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleGroup(acc.id, e);
+                                }}
+                                className="w-10 h-10 rounded-full border-2 border-stone-100 flex items-center justify-center text-stone-400 hover:bg-stone-50 transition-colors shadow-sm"
+                              >
+                                <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
+                                  <ChevronDown size={20} />
+                                </motion.div>
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <div className="flex flex-col flex-1 min-w-0">
-                          <span className="text-[10px] sm:text-xs font-bold text-stone-300 uppercase tracking-widest mb-1 leading-none truncate">
-                            {isBrandGroup ? `${acc.name}總額` : (acc.type === 'bank' ? `${acc.name}總額` : accountTypeLabels[acc.type as Account['type']])}
-                          </span>
-                          <span className="text-lg sm:text-xl font-black text-[#5D4037] leading-tight truncate">{acc.name}</span>
-                          <span className={`text-xl sm:text-[26px] font-black mt-1 ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                            <span className="text-base sm:text-lg mr-1">$</span>{formatAmount(displayAmount)}
-                          </span>
-                        </div>
-                        
-                        {hasLevel2 && (
-                          <div className="pr-1">
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleGroup(acc.id, e);
-                              }}
-                              className="w-10 h-10 rounded-full border-2 border-stone-100 flex items-center justify-center text-stone-400 hover:bg-stone-50 transition-colors shadow-sm"
-                            >
-                              <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
-                                <ChevronDown size={20} />
-                              </motion.div>
-                            </button>
+
+                        {/* Credit card progress bar */}
+                        {!isBrandGroup && acc.type === 'credit' && acc.creditLimit && (
+                          <div className="w-full">
+                            {(() => {
+                              const calculatedBalance = calculateAccountBalance(acc as Account, accounts, records);
+                              return <CreditLimitBar account={acc as Account} balance={calculatedBalance} />;
+                            })()}
                           </div>
                         )}
                       </div>
@@ -1957,34 +2458,56 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                     
                                     <div 
                                       onClick={() => onAccountClick(l2acc)}
-                                      className="flex-1 bg-white/80 p-3 sm:p-4 rounded-[24px] border border-white flex flex-row items-center gap-2 sm:gap-3 cursor-pointer active:scale-95 transition-all shadow-sm overflow-hidden"
+                                      className="flex-1 bg-white/80 p-3 sm:p-4 rounded-[24px] border border-white flex flex-col gap-1 cursor-pointer active:scale-95 transition-all shadow-sm overflow-hidden"
                                     >
-                                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-lg sm:text-xl shadow-inner">
-                                        {l2acc.icon}
-                                      </div>
-                                      <div className="flex flex-col flex-1 min-w-0 justify-center">
-                                        {l2acc.type !== 'credit' && l2acc.type !== 'e-ticket' && (
-                                          <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">
-                                            主帳號
-                                          </span>
-                                        )}
-                                        <span className="text-sm sm:text-base font-black text-[#5D4037] leading-tight truncate">{l2acc.name}</span>
-                                        <div className={`text-base sm:text-lg font-black mt-0.5 ${balances[l2acc.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                                          <span className="text-xs mr-1">$</span>{formatAmount(balances[l2acc.id] || 0)}
+                                      <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
+                                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-lg sm:text-xl shadow-inner">
+                                          {l2acc.icon}
                                         </div>
+                                        <div className="flex flex-col flex-1 min-w-0 justify-center">
+                                          {l2acc.type === 'credit' ? (
+                                            <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate" style={getFontFamily()}>
+                                              目前未繳金額
+                                            </span>
+                                          ) : (
+                                            l2acc.type !== 'e-ticket' && (
+                                              <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">
+                                                主帳號
+                                              </span>
+                                            )
+                                          )}
+                                          <span className="text-sm sm:text-base font-black text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{l2acc.name}</span>
+                                          <DynamicAccountBalance
+                                            account={l2acc}
+                                            accounts={accounts}
+                                            transactions={records}
+                                            showAmounts={showAmounts}
+                                            className="text-base sm:text-lg font-black mt-0.5"
+                                          />
+                                        </div>
+                                        {hasLevel3 && (
+                                          <button 
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleGroup(l2acc.id, e);
+                                            }}
+                                            className={`w-6 h-6 rounded-full flex items-center justify-center text-stone-400 transition-colors ${isL2Expanded ? 'bg-stone-100' : ''}`}
+                                          >
+                                            <motion.div animate={{ rotate: isL2Expanded ? 180 : 0 }}>
+                                              <ChevronDown size={14} />
+                                            </motion.div>
+                                          </button>
+                                        )}
                                       </div>
-                                      {hasLevel3 && (
-                                        <button 
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            toggleGroup(l2acc.id, e);
-                                          }}
-                                          className={`w-6 h-6 rounded-full flex items-center justify-center text-stone-400 transition-colors ${isL2Expanded ? 'bg-stone-100' : ''}`}
-                                        >
-                                          <motion.div animate={{ rotate: isL2Expanded ? 180 : 0 }}>
-                                            <ChevronDown size={14} />
-                                          </motion.div>
-                                        </button>
+
+                                      {/* Credit card progress bar */}
+                                      {l2acc.type === 'credit' && l2acc.creditLimit && (
+                                        <div className="w-full">
+                                          {(() => {
+                                            const calculatedBalance = calculateAccountBalance(l2acc, accounts, records);
+                                            return <CreditLimitBar account={l2acc} balance={calculatedBalance} />;
+                                          })()}
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -2006,20 +2529,40 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                             <div className="w-3 h-0.5 bg-[#5D4037]/5 flex-shrink-0" />
                                             <div 
                                               onClick={() => onAccountClick(l3acc)}
-                                              className="flex-1 bg-white/40 p-2 sm:p-3 rounded-[20px] border border-white/50 flex flex-row items-center gap-2 sm:gap-3 cursor-pointer active:scale-95 transition-all overflow-hidden"
+                                              className="flex-1 bg-white/40 p-2 sm:p-3 rounded-[20px] border border-white/50 flex flex-col gap-1 cursor-pointer active:scale-95 transition-all overflow-hidden"
                                             >
-                                              <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white/80 rounded-lg flex-shrink-0 flex items-center justify-center text-base sm:text-lg shadow-sm">
-                                                {l3acc.icon}
-                                              </div>
-                                              <div className="flex flex-col flex-1 min-w-0 justify-center">
-                                                {l3acc.type !== 'credit' && l3acc.type !== 'e-ticket' && (
-                                                  <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">子帳戶</span>
-                                                )}
-                                                <span className="text-xs sm:text-sm font-bold text-[#5D4037] leading-tight truncate">{l3acc.name}</span>
-                                                <div className={`text-sm sm:text-base font-black ${balances[l3acc.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                                                  <span className="text-xs mr-1">$</span>{formatAmount(balances[l3acc.id] || 0)}
+                                              <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
+                                                <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white/80 rounded-lg flex-shrink-0 flex items-center justify-center text-base sm:text-lg shadow-sm">
+                                                  {l3acc.icon}
+                                                </div>
+                                                <div className="flex flex-col flex-1 min-w-0 justify-center">
+                                                  {l3acc.type === 'credit' ? (
+                                                    <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate" style={getFontFamily()}>目前未繳金額</span>
+                                                  ) : (
+                                                    l3acc.type !== 'e-ticket' && (
+                                                      <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">子帳戶</span>
+                                                    )
+                                                  )}
+                                                  <span className="text-xs sm:text-sm font-bold text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{l3acc.name}</span>
+                                                  <DynamicAccountBalance
+                                                    account={l3acc}
+                                                    accounts={accounts}
+                                                    transactions={records}
+                                                    showAmounts={showAmounts}
+                                                    className="text-sm sm:text-base font-black"
+                                                  />
                                                 </div>
                                               </div>
+
+                                              {/* Credit card progress bar */}
+                                              {l3acc.type === 'credit' && l3acc.creditLimit && (
+                                                <div className="w-full">
+                                                  {(() => {
+                                                    const calculatedBalance = calculateAccountBalance(l3acc, accounts, records);
+                                                    return <CreditLimitBar account={l3acc} balance={calculatedBalance} />;
+                                                  })()}
+                                                </div>
+                                              )}
                                             </div>
                                           </div>
                                         ))}
@@ -2091,22 +2634,32 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const targetIds = [account.id, ...childrenIds];
     const targetYearMonth = dateRangeStrings.filter;
     
-    return records.filter(r => 
+    const raw = records.filter(r => 
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
       r.category !== '初始資金' &&
-      (
-        (r.postingDate && r.postingDate.startsWith(targetYearMonth)) ||
-        (!r.postingDate && r.isPending && r.date.startsWith(targetYearMonth))
-      )
-    )
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      (r.postingDate || r.date).startsWith(targetYearMonth)
+    );
+    
+    const merged = getMergedRecords(raw, accounts);
+    
+    return merged.sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      return b.amount - a.amount;
+    });
   }, [records, account.id, accounts, dateRangeStrings.filter]);
+
+  const calculatedBalance = useMemo(() => { 
+    return calculateAccountBalance(account, accounts, records); 
+  }, [account, accounts, records]);
+
+  const listBalance = calculatedBalance;
 
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
-      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+      style={getFontFamily()}
     >
       {/* Balance Section */}
       <div className="px-4 py-6">
@@ -2116,12 +2669,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               <div className="w-6 h-6 bg-stone-50 rounded-lg flex items-center justify-center text-xs border border-white">
                 {account.icon}
               </div>
-              <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]">目前餘額</span>
+              <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]" style={getFontFamily()}>
+                {account.type === 'credit' ? '目前未繳金額' : '目前餘額'}
+              </span>
             </div>
-            <div className="flex items-baseline gap-1">
+            <div className="flex items-baseline gap-1" style={getFontFamily()}>
               <span className="text-sm font-black text-stone-300">$</span>
-              <span className="text-4xl font-black text-[#5D4037] tracking-tight">
-                {balance.toLocaleString()}
+              <span className={`text-4xl font-black tracking-tight ${calculatedBalance < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`} style={getFontFamily()}>
+                {calculatedBalance.toLocaleString()}
               </span>
             </div>
           </div>
@@ -2148,11 +2703,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               </div>
               <span className="font-black text-base text-[#5D4037]">往來明細</span>
             </div>
-            <span className="text-[13px] font-black text-stone-400 bg-white px-5 py-2 rounded-full border border-stone-100 flex items-center gap-2 shadow-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
+            <span className="text-[13px] font-black text-stone-400 bg-white px-5 py-2 rounded-full border border-stone-100 flex items-center gap-2 shadow-sm" style={getFontFamily()}>
               <span>{accountRecords.length} 筆紀錄</span>
               <span className="text-stone-200 font-normal">|</span>
-              <span>結餘：<span className={`font-black ${accountRecords.reduce((sum, r) => r.type === 'income' ? sum + r.amount : r.type === 'expense' ? sum - r.amount : sum, 0) >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                ${Math.abs(accountRecords.reduce((sum, r) => r.type === 'income' ? sum + r.amount : r.type === 'expense' ? sum - r.amount : sum, 0)).toLocaleString()}
+              <span>結餘：<span className={`font-black ${listBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                {listBalance < 0 ? '-' : ''}${Math.abs(listBalance).toLocaleString()}
               </span></span>
             </span>
           </div>
@@ -2179,7 +2734,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
         <div className="flex-1 bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white overflow-hidden flex flex-col">
           {accountRecords.length > 0 ? (
-            <div className="overflow-y-auto p-6 space-y-4 no-scrollbar">
+            <div className="overflow-y-auto p-6 space-y-4">
               {accountRecords.map(record => (
                 <div 
                   key={record.id} 
@@ -2192,15 +2747,46 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   
                   <div className="flex-1 flex flex-col gap-1 min-w-0">
                     {/* Line 1: Title */}
-                    <span className="font-black text-lg text-[#5D4037] truncate leading-tight">
-                      {record.note || record.category}
+                    <span className="font-black text-lg text-[#5D4037] whitespace-pre-wrap break-all leading-tight" style={getFontFamily()}>
+                      {getTransactionTitle(record)}
                     </span>
-                    
-                    {/* Line 2: Date & Account Info */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-stone-300">
-                        {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
+
+                    {/* Hierarchical Category Sub-label if note is present */}
+                    {record.type !== 'transfer' && record.note && record.category && (
+                      <span className="text-[10px] font-bold text-stone-400 mt-0.5 opacity-60">
+                         {record.category}
                       </span>
+                    )}
+                    
+                    {/* Line 2 & 3: Date & Account Info / Transfer Path */}
+                    {record.type === 'transfer' ? (
+                      (() => {
+                        const isPos = record.amount > 0;
+                        const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                        const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                        const firstAccName = isPos ? counterpartAccName : currentAccName;
+                        const secondAccName = isPos ? currentAccName : counterpartAccName;
+                        const displayDate = record.postingDate || record.date;
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            {/* Line 2: Account A ➔ Account B */}
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037]" style={getFontFamily()}>
+                              <span className="opacity-80" style={getFontFamily()}>{firstAccName}</span>
+                              <span className="text-amber-600 font-bold" style={getFontFamily()}>➔</span>
+                              <span className="opacity-80 font-black text-amber-800" style={getFontFamily()}>{secondAccName}</span>
+                            </div>
+                            {/* Line 3: Date as subtext YYYY-MM-DD */}
+                            <span className="text-[11px] font-medium text-stone-400" style={getFontFamily()}>
+                              入帳日期: {displayDate}
+                            </span>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-stone-300">
+                          {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
+                        </span>
                       {account.type === 'credit' && (!record.postingDate || record.isPending) && (
                         <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-500 rounded-full font-bold">
                           未入帳
@@ -2212,16 +2798,70 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         </span>
                       )}
                     </div>
+                    )}
                     
                     {/* Line 3: Amount */}
                     <div className="flex items-center justify-between mt-1">
-                      <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
-                         $ {record.amount.toLocaleString()}
-                      </span>
-                      {record.type === 'transfer' && (
-                        <span className="text-[10px] font-black text-stone-300 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100">
-                          {record.accountId === account.id ? '轉出' : '轉入'}
-                        </span>
+                      {(() => {
+                        const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
+                        const targetIds = [account.id, ...childrenIds];
+                        const isFrom = targetIds.includes(record.accountId);
+                        const isTo = record.toAccountId && targetIds.includes(record.toAccountId);
+                        
+                        let colorClass = 'text-stone-400';
+                        let sign = '';
+                        
+                        if (record.type === 'transfer' || record._isMergedTransfer) {
+                          if (isFrom && !isTo) {
+                            colorClass = 'text-[#E91E63]';
+                            sign = '-';
+                            const displayAmt = record.amount + (record.fee || 0);
+                            return (
+                              <div className="flex flex-col">
+                                <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
+                                   {sign} $ {Math.abs(displayAmt).toLocaleString()}
+                                </span>
+                                {record.fee ? <span className="text-[10px] text-stone-300" style={getFontFamily()}>含手續費 $ {record.fee}</span> : null}
+                              </div>
+                            );
+                          } else if (isTo && !isFrom) {
+                            colorClass = 'text-[#03A9F4]';
+                            sign = '+';
+                            return (
+                              <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
+                                 {sign} $ {Math.abs(record.amount).toLocaleString()}
+                              </span>
+                            );
+                          } else {
+                            const isOut = record.amount < 0;
+                            colorClass = isOut ? 'text-[#E91E63]' : 'text-[#03A9F4]';
+                            sign = isOut ? '-' : '+';
+                          }
+                        } else if (record.type === 'income') {
+                          colorClass = 'text-[#03A9F4]';
+                          sign = '+';
+                        } else if (record.type === 'expense') {
+                          colorClass = 'text-[#E91E63]';
+                          sign = '-';
+                        }
+                        
+                        return (
+                          <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
+                             {sign} $ {Math.abs(record.amount).toLocaleString()}
+                          </span>
+                        );
+                      })()}
+                      {(record.type === 'transfer' || record._isMergedTransfer) && (
+                        (() => {
+                          const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
+                          const targetIds = [account.id, ...childrenIds];
+                          const isFrom = targetIds.includes(record.accountId);
+                          return (
+                            <span className="text-[10px] font-black text-stone-300 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100" style={getFontFamily()}>
+                              {isFrom ? '轉出' : '轉入'}
+                            </span>
+                          );
+                        })()
                       )}
                     </div>
                   </div>
@@ -2278,7 +2918,20 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
   onSave: (updated: Transaction) => void,
   onDelete: () => void
 }) {
-  const [edited, setEdited] = useState<Transaction>({ ...record });
+  const [edited, setEdited] = useState<Transaction>(() => {
+    const initial = { ...record };
+    if (initial.type === 'transfer' && initial.amount > 0) {
+      const temp = initial.accountId;
+      initial.accountId = initial.toAccountId || '';
+      initial.toAccountId = temp;
+      initial.amount = -initial.amount;
+    }
+    if (initial.type === 'transfer' && !initial.toAccountId) {
+      const otherAcc = accounts.find(a => a.id !== initial.accountId);
+      initial.toAccountId = otherAcc?.id || '';
+    }
+    return initial;
+  });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
@@ -2293,7 +2946,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
         className="bg-[#FFFDF5] w-full max-w-sm rounded-[30px] flex flex-col shadow-2xl relative overflow-hidden max-h-[90vh]"
         onClick={e => e.stopPropagation()}
-        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+        style={getFontFamily()}
       >
         <AnimatePresence>
           {isProjectPickerOpen && (
@@ -2306,7 +2959,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
               <motion.div 
                 initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
                 className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh]"
-                style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                style={getFontFamily()}
               >
                 <div className="p-6 pb-2 border-b border-stone-50 flex items-center justify-between">
                   <h3 className="text-xl font-black text-[#5D4037]">選取專案</h3>
@@ -2316,13 +2969,17 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                 </div>
                 
                 <div className="p-4 border-b border-stone-50">
-                  <div className="relative">
+                  <div className="relative" onClick={e => e.stopPropagation()} onFocus={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
                     <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300" />
                     <input 
                       value={projectSearch}
                       onChange={e => setProjectSearch(e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      onFocus={e => e.stopPropagation()}
+                      onTouchStart={e => e.stopPropagation()}
                       placeholder="搜尋專案..."
                       className="w-full pl-10 pr-4 py-3 bg-white border-2 border-stone-50 rounded-2xl text-sm font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                      style={getFontFamily()}
                     />
                   </div>
                 </div>
@@ -2413,7 +3070,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4 space-y-6">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">金額</label>
@@ -2439,11 +3096,12 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
 
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註 (買了什麼？)</label>
-              <input 
+              <textarea 
                 value={edited.note || ''}
                 onChange={e => setEdited({ ...edited, note: e.target.value })}
-                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[100px] resize-none whitespace-pre-wrap break-all"
                 placeholder="買了什麼？"
+                style={getFontFamily()}
               />
             </div>
 
@@ -2477,6 +3135,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                     value={edited.date}
                     onChange={e => setEdited({ ...edited, date: e.target.value })}
                     className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    style={getFontFamily()}
                   />
                 </div>
                 <div className={`flex flex-col gap-1 transition-opacity ${edited.isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
@@ -2488,6 +3147,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                     value={edited.postingDate || edited.date}
                     onChange={e => setEdited({ ...edited, postingDate: e.target.value, isPending: false })}
                     className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    style={getFontFamily()}
                   />
                 </div>
               </div>
@@ -2503,14 +3163,38 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶</label>
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別</label>
+              <select 
+                value={edited.currency || 'TWD'}
+                onChange={e => setEdited({ ...edited, currency: e.target.value })}
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
+                style={getFontFamily()}
+              >
+                <option value="TWD">台幣 (TWD)</option>
+                <option value="USD">美金 (USD)</option>
+                <option value="JPY">日圓 (JPY)</option>
+                <option value="KRW">韓元 (KRW)</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1" style={getFontFamily()}>帳戶</label>
               <select 
                 value={edited.accountId}
-                onChange={e => setEdited({ ...edited, accountId: e.target.value })}
+                onChange={e => {
+                  const newAccountId = e.target.value;
+                  let newToAccountId = edited.toAccountId;
+                  if (edited.type === 'transfer' && newAccountId === newToAccountId) {
+                    const other = accounts.find(a => a.id !== newAccountId);
+                    newToAccountId = other?.id || '';
+                  }
+                  setEdited({ ...edited, accountId: newAccountId, toAccountId: newToAccountId });
+                }}
                 className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
+                style={getFontFamily()}
               >
                 {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
+                  <option key={a.id} value={a.id} style={getFontFamily()}>{a.name}</option>
                 ))}
               </select>
             </div>
@@ -2518,14 +3202,23 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
             {edited.type === 'transfer' && (
               <>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">轉入帳戶</label>
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1" style={getFontFamily()}>轉入帳戶</label>
                   <select 
                     value={edited.toAccountId || ''}
-                    onChange={e => setEdited({ ...edited, toAccountId: e.target.value })}
+                    onChange={e => {
+                      const newToAccountId = e.target.value;
+                      let newAccountId = edited.accountId;
+                      if (newToAccountId === newAccountId) {
+                        const other = accounts.find(a => a.id !== newToAccountId);
+                        newAccountId = other?.id || '';
+                      }
+                      setEdited({ ...edited, toAccountId: newToAccountId, accountId: newAccountId });
+                    }}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
+                    style={getFontFamily()}
                   >
                     {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
+                      <option key={a.id} value={a.id} style={getFontFamily()}>{a.name}</option>
                     ))}
                   </select>
                 </div>
@@ -2555,7 +3248,31 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
 
           <div className="flex flex-col gap-3 pt-2">
             <button 
-              onClick={() => onSave(edited)}
+              onClick={() => {
+                const rawAmt = edited.amount;
+                let resolvedType = edited.type;
+                if (rawAmt < 0) {
+                  resolvedType = edited.type === 'transfer' ? 'transfer' : 'expense';
+                } else {
+                  if (edited.type === 'expense') resolvedType = 'expense';
+                  else if (edited.type === 'income') resolvedType = 'income';
+                  else if (edited.type === 'transfer') resolvedType = 'transfer';
+                }
+                const finalAmt = (resolvedType === 'expense' || resolvedType === 'transfer') ? -Math.abs(rawAmt) : Math.abs(rawAmt);
+                
+                let finalToAccountId = edited.toAccountId;
+                if (resolvedType === 'transfer' && !finalToAccountId) {
+                  const other = accounts.find(a => a.id !== edited.accountId);
+                  finalToAccountId = other?.id || '';
+                }
+
+                onSave({
+                  ...edited,
+                  type: resolvedType,
+                  amount: finalAmt,
+                  toAccountId: resolvedType === 'transfer' ? finalToAccountId : undefined
+                });
+              }}
               className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
             >
               <Check size={24} /> 儲存變更
@@ -2570,6 +3287,47 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
   );
 }
 
+function CreditLimitBar({ account, balance }: { account: Account; balance: number }) {
+  if (account.type !== 'credit' || !account.creditLimit) return null;
+
+  const b = balance || 0;
+  const creditLimit = account.creditLimit;
+  const utilized = Math.abs(b);
+  const available = Math.max(0, creditLimit - utilized);
+  const percent = Math.min(100, Math.max(0, (utilized / creditLimit) * 100));
+  
+  const isHighUsage = percent >= 70;
+  const barColorClass = isHighUsage 
+    ? 'bg-gradient-to-r from-[#FF7043] to-[#E64A19]' // Warning orange-red
+    : 'bg-gradient-to-r from-[#4CAF50] to-[#2196F3]';  // Elegant blue-green
+
+  return (
+    <div 
+      className="mt-3 p-3 bg-[#FFFDF5] rounded-2xl border border-[#FFD54F]/20 flex flex-col gap-1.5 w-full shadow-inner"
+      style={getFontFamily()}
+    >
+      <div className="flex flex-row justify-between items-center text-[11px] font-bold text-[#5D4037]/80 flex-wrap gap-1">
+        <span style={getFontFamily()}>
+          可用額度：<span className={isHighUsage ? "text-rose-500 font-extrabold" : "text-emerald-700 font-extrabold"} style={getFontFamily()}>${available.toLocaleString()}</span>
+        </span>
+        <span style={getFontFamily()}>
+          總額度：<span className="font-extrabold" style={getFontFamily()}>${creditLimit.toLocaleString()}</span> ({percent.toFixed(1)}%)
+        </span>
+      </div>
+      
+      {/* Progress Bar Track */}
+      <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden border border-stone-200/50">
+        <motion.div 
+          initial={{ width: 0 }}
+          animate={{ width: `${percent}%` }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className={`h-full rounded-full ${barColorClass}`}
+        />
+      </div>
+    </div>
+  );
+}
+
 function AccountEditModal({ account, accounts, records, onClose, onSave, onDelete, onViewDetail }: { 
   account: Account, 
   accounts: Account[],
@@ -2579,12 +3337,14 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   onDelete: (id: string) => void,
   onViewDetail?: (acc: Account) => void
 }) {
+  const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket', 'e-payment', 'points', 'other'];
   const isNew = !accounts.find(a => a.id === account.id);
-  const [editedAcc, setEditedAcc] = useState<Account>({ ...account });
-  const [initialAmount, setInitialAmount] = useState(() => {
+  const [editedAcc, setEditedAcc] = useState<Account>(() => {
+    // Migrate initialBalance from records if not present on account
+    if (account.initialBalance !== undefined) return { ...account };
     const initRec = records.find(r => r.accountId === account.id && r.category === '初始資金');
-    if (!initRec) return 0;
-    return initRec.type === 'income' ? initRec.amount : -initRec.amount;
+    const legacyInit = initRec ? (initRec.type === 'income' ? initRec.amount : -initRec.amount) : 0;
+    return { ...account, initialBalance: legacyInit };
   });
 
   const otherRecordsSum = useMemo(() => {
@@ -2592,20 +3352,18 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
     records.forEach(r => {
       if (r.category === '初始資金') return;
       if (r.accountId === account.id) {
-        if (r.type === 'income') sum += r.amount;
-        if (r.type === 'expense') sum -= r.amount;
-        if (r.type === 'transfer') sum -= r.amount;
+        sum += r.amount;
+        if (r.fee) sum -= r.fee;
       }
       if (r.type === 'transfer' && r.toAccountId === account.id) {
-        sum += (r.toAmount ?? (r.amount * (r.exchangeRate || 1)));
+        sum += (r.toAmount ?? Math.abs(r.amount * (r.exchangeRate || 1)));
       }
     });
     return sum;
   }, [records, account.id]);
 
-  const currentTotal = initialAmount + otherRecordsSum;
+  const currentTotal = (editedAcc.initialBalance || 0) + otherRecordsSum;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket'];
 
   return (
     <motion.div 
@@ -2616,7 +3374,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
       <motion.div 
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
         className="bg-[#FFF9E3] w-full max-w-sm rounded-[44px] flex flex-col shadow-2xl border-4 border-white overflow-hidden max-h-[90vh]"
-        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+        style={getFontFamily()}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-8 pb-4 flex items-center justify-between flex-shrink-0">
@@ -2631,7 +3389,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar px-8 py-2 space-y-6">
+        <div className="flex-1 overflow-y-auto px-8 py-2 space-y-6">
           <div className="space-y-6">
             {/* Name */}
             <div className="space-y-2">
@@ -2641,6 +3399,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                 onChange={e => setEditedAcc({ ...editedAcc, name: e.target.value })}
                 className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                 placeholder="例如：台新銀行 - 活存"
+                style={getFontFamily()}
               />
             </div>
 
@@ -2651,47 +3410,59 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
                 <input 
                   type="number"
-                  value={initialAmount}
-                  onChange={e => setInitialAmount(parseFloat(e.target.value) || 0)}
+                  value={editedAcc.initialBalance || 0}
+                  onChange={e => setEditedAcc({ ...editedAcc, initialBalance: parseFloat(e.target.value) || 0 })}
                   className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                  style={getFontFamily()}
                 />
-              </div>
-              <div className="mt-2 flex items-center justify-between px-1 bg-stone-50/50 p-3 rounded-xl border border-stone-100">
-                <span className="text-[10px] font-bold text-stone-400">目前餘額 (連動計算)</span>
-                <span className={`text-base font-black ${currentTotal < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                  $ {currentTotal.toLocaleString()}
-                </span>
               </div>
             </div>
 
             {/* Type Selection */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶類型</label>
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1" style={getFontFamily()}>帳戶類型</label>
               <div className="flex flex-wrap gap-2">
-                {accountTypes.map(t => (
-                  <button 
-                    key={t}
-                    onClick={() => setEditedAcc({ ...editedAcc, type: t })}
-                    className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${editedAcc.type === t ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-stone-50 shadow-sm'}`}
-                  >
-                    {t === 'cash' ? '現金' : t === 'bank' ? '銀行' : t === 'investment' ? '投資' : t === 'credit' ? '信用卡' : '電子票證'}
-                  </button>
-                ))}
+                {accountTypes.map(t => {
+                  const labelMap: Record<Account['type'], string> = {
+                    cash: '現金',
+                    bank: '銀行',
+                    investment: '投資',
+                    credit: '信用卡',
+                    'e-ticket': '電子票證',
+                    'e-payment': '電子支付',
+                    points: '點數',
+                    other: '其他'
+                  };
+                  return (
+                    <button 
+                      key={t}
+                      onClick={() => setEditedAcc({ ...editedAcc, type: t })}
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${editedAcc.type === t ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-stone-50 shadow-sm'}`}
+                      style={getFontFamily()}
+                    >
+                      {labelMap[t]}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Currency Selection */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶幣別</label>
-              <div className="flex flex-wrap gap-2">
-                {['TWD', 'USD', 'JPY', 'EUR', 'CNY'].map(curr => (
-                  <button 
-                    key={curr}
-                    onClick={() => setEditedAcc({ ...editedAcc, currency: curr })}
-                    className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${editedAcc.currency === curr ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-stone-50 shadow-sm'}`}
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別 (Currency)</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'TWD', label: '台幣' },
+                  { id: 'USD', label: '美金' },
+                  { id: 'JPY', label: '日圓' },
+                  { id: 'KRW', label: '韓元' }
+                ].map(cur => (
+                  <button
+                    key={cur.id}
+                    onClick={() => setEditedAcc({ ...editedAcc, currency: cur.id })}
+                    className={`py-3 rounded-xl font-bold text-sm border-2 transition-all ${editedAcc.currency === cur.id ? 'bg-[#5D4037] text-[#FFD54F] border-[#5D4037]' : 'bg-white text-stone-400 border-stone-50'}`}
+                    style={getFontFamily()}
                   >
-                    {curr}
+                    {cur.label} ({cur.id})
                   </button>
                 ))}
               </div>
@@ -2752,31 +3523,54 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
               </div>
             </div>
 
-            {/* Credit Card Closing Day */}
+            {/* Credit Card Fields */}
             {editedAcc.type === 'credit' && (
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡結帳日</label>
-                <div className="relative">
-                  <input 
-                    type="number"
-                    min="1"
-                    max="31"
-                    value={editedAcc.closingDay || ''}
-                    onChange={e => {
-                      const val = parseInt(e.target.value);
-                      const clampedVal = isNaN(val) ? undefined : Math.min(31, Math.max(1, val));
-                      setEditedAcc({ ...editedAcc, closingDay: clampedVal });
-                    }}
-                    className="w-full p-6 bg-white border-2 border-stone-50 rounded-[32px] font-black text-[#5D4037] text-2xl outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300"
-                    placeholder="輸入日期 (1-31)"
-                    style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
-                  />
-                  <div className="absolute right-6 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg border-2 border-stone-100 flex items-center justify-center text-stone-300">
-                    <span className="text-sm font-black">日</span>
+              <>
+                {/* Credit Limit */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用總額度 (Credit Limit)</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg" style={getFontFamily()}>$</span>
+                    <input 
+                      type="number"
+                      value={editedAcc.creditLimit || ''}
+                      onChange={e => {
+                        const val = parseFloat(e.target.value);
+                        setEditedAcc({ ...editedAcc, creditLimit: isNaN(val) ? undefined : val });
+                      }}
+                      className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300"
+                      placeholder="例如：100,000"
+                      style={getFontFamily()}
+                    />
                   </div>
+                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定總額度以計算可用信用額度與進度條</p>
                 </div>
-                <p className="text-[10px] font-bold text-stone-300 px-1">設定結帳日以利後續計算帳單週期</p>
-              </div>
+
+                {/* Credit Card Closing Day */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡結帳日</label>
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={editedAcc.closingDay || ''}
+                      onChange={e => {
+                        const val = parseInt(e.target.value);
+                        const clampedVal = isNaN(val) ? undefined : Math.min(31, Math.max(1, val));
+                        setEditedAcc({ ...editedAcc, closingDay: clampedVal });
+                      }}
+                      className="w-full p-6 bg-white border-2 border-stone-50 rounded-[32px] font-black text-[#5D4037] text-2xl outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300"
+                      placeholder="輸入日期 (1-31)"
+                      style={getFontFamily()}
+                    />
+                    <div className="absolute right-6 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg border-2 border-stone-100 flex items-center justify-center text-stone-300">
+                      <span className="text-sm font-black" style={getFontFamily()}>日</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定結帳日以利後續計算帳單週期</p>
+                </div>
+              </>
             )}
           </div>
 
@@ -2789,7 +3583,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                 取消
               </button>
               <button 
-                onClick={() => onSave(editedAcc, initialAmount)}
+                onClick={() => onSave(editedAcc, editedAcc.initialBalance || 0)}
                 className="flex-[2] py-4 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
               >
                 <Check size={24} /> 儲存
@@ -2854,17 +3648,179 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   );
 }
 
-function CalendarView({ records, accounts, onBack }: { records: Transaction[], accounts: Account[], onBack: () => void }) {
+function SearchView({ 
+  records, 
+  accounts, 
+  categories, 
+  projects,
+  onBack,
+  onUpdateRecord,
+  onDeleteRecord,
+  onReorder
+}: { 
+  records: Transaction[], 
+  accounts: Account[], 
+  categories: Category[], 
+  projects: Project[],
+  onBack: () => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onDeleteRecord: (record: Transaction) => void,
+  onReorder: (records: Transaction[]) => void
+}) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
+
+  const filteredRecords = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const query = searchQuery.toLowerCase();
+    const raw = records.filter(r => 
+      (r.note || '').toLowerCase().includes(query) || 
+      r.category.toLowerCase().includes(query) ||
+      r.amount.toString().includes(query)
+    );
+    const merged = getMergedRecords(raw, accounts);
+    return merged.sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      return b.amount - a.amount;
+    });
+  }, [records, searchQuery, accounts]);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+      className="flex flex-col h-full bg-[#FFF9E3]"
+      style={getFontFamily()}
+    >
+      {/* Header */}
+      <div className="p-6 pt-2 pb-2">
+        <div className="relative">
+          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300" />
+          <input 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="搜尋關鍵字、金額或分類..."
+            className="w-full pl-12 pr-4 py-4 bg-white border-2 border-white rounded-[25px] shadow-sm text-lg font-bold text-[#5D4037] outline-none focus:border-[#FFD54F] transition-all"
+            style={getFontFamily()}
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {searchQuery.trim() === '' ? (
+          <div className="flex flex-col items-center justify-center h-40 text-stone-300 gap-2 opacity-50">
+            <Search size={40} />
+            <span className="font-bold">輸入關鍵字開始搜尋</span>
+          </div>
+        ) : filteredRecords.length > 0 ? (
+          <div className="space-y-4">
+            <div className="text-xs font-bold text-stone-300 px-1">找到 {filteredRecords.length} 筆符合的紀錄</div>
+            {filteredRecords.map((record, idx) => (
+              <div 
+                key={record.id} 
+                className="flex items-center gap-2 py-4 bg-white/60 backdrop-blur-sm rounded-[30px] px-4 shadow-sm border border-white hover:bg-white transition-colors group relative"
+              >
+                <div 
+                  onClick={() => setEditingRecord(record)}
+                  className="flex-1 flex items-center gap-4 cursor-pointer"
+                >
+                  <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white group-active:scale-95 transition-transform">
+                    {getCategoryIcon(record.category, record.type, categories)}
+                  </div>
+                  
+                  <div className="flex-1 flex flex-col gap-0.5 min-w-0">
+                  <span className="font-black text-lg text-[#5D4037] whitespace-pre-wrap break-all leading-tight" style={getFontFamily()}>
+                    {getTransactionTitle(record)}
+                  </span>
+                  {record.type === 'transfer' ? (
+                    (() => {
+                      const isPos = record.amount > 0;
+                      const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                      const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                      const firstAccName = isPos ? counterpartAccName : currentAccName;
+                      const secondAccName = isPos ? currentAccName : counterpartAccName;
+                      const displayDate = record.postingDate || record.date;
+                      return (
+                        <div className="flex flex-col gap-0.5">
+                          {/* Line 2: Account A ➔ Account B */}
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037]" style={getFontFamily()}>
+                            <span className="opacity-80" style={getFontFamily()}>{firstAccName}</span>
+                            <span className="text-amber-600 font-bold" style={getFontFamily()}>➔</span>
+                            <span className="opacity-80 font-black text-amber-800" style={getFontFamily()}>{secondAccName}</span>
+                          </div>
+                          {/* Line 3: Date as subtext YYYY-MM-DD */}
+                          <span className="text-[11px] font-medium text-stone-400" style={getFontFamily()}>
+                            入帳日期: {displayDate}
+                          </span>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-stone-300">
+                        {record.date}
+                      </span>
+                      <span className="text-[10px] font-bold text-stone-300 bg-stone-50 px-2 rounded-full">
+                        {accounts.find(a => a.id === record.accountId)?.name}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                <span className={`font-black text-lg ${
+                  (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
+                  record.type === 'income' ? 'text-[#03A9F4]' : 
+                  record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'
+                }`} style={getFontFamily()}>
+                  {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : record.type === 'expense' ? '-' : '')} $ {Math.abs(record.amount).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-40 text-stone-300 gap-2 opacity-50">
+            <span className="font-bold">找不到符合「{searchQuery}」的紀錄</span>
+          </div>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {editingRecord && (
+          <EditRecordModal 
+            record={editingRecord}
+            accounts={accounts}
+            projects={projects}
+            onClose={() => setEditingRecord(null)}
+            onSave={(updated) => {
+              onUpdateRecord(editingRecord, updated);
+              setEditingRecord(null);
+            }}
+            onDelete={() => {
+              onDeleteRecord(editingRecord);
+              setEditingRecord(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function CalendarView({ records, accounts, categories, onBack }: { records: Transaction[], accounts: Account[], categories: Category[], onBack: () => void }) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewDate, setViewDate] = useState(new Date()); // Current month being viewed
   
   const filteredRecords = useMemo(() => records, [records]);
-  const dayRecords = useMemo(() => filteredRecords.filter(r => r.date === selectedDate), [filteredRecords, selectedDate]);
+  const dayRecords = useMemo(() => {
+    const raw = records.filter(r => r.date === selectedDate);
+    return getMergedRecords(raw, accounts);
+  }, [records, selectedDate, accounts]);
   
   const dayStats = useMemo(() => {
     return {
-      income: dayRecords.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
-      expense: dayRecords.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0)
+      income: dayRecords.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
+      expense: dayRecords.filter(r => r.type === 'expense').reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0)
     };
   }, [dayRecords]);
 
@@ -2898,6 +3854,7 @@ function CalendarView({ records, accounts, onBack }: { records: Transaction[], a
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col bg-white min-h-full"
+      style={getFontFamily()}
     >
       <div className="p-4 bg-[#FFF9E3]">
         {/* Month Navigation */}
@@ -2949,7 +3906,7 @@ function CalendarView({ records, accounts, onBack }: { records: Transaction[], a
         <div className="flex flex-col items-center"><span className="text-stone-300">結餘</span><span className="text-[#5D4037]">{(dayStats.income - dayStats.expense).toLocaleString()}</span></div>
       </div>
 
-      <div className="p-4 space-y-4 flex-1 overflow-y-auto no-scrollbar">
+      <div className="p-4 space-y-4 flex-1 overflow-y-auto">
         <div className="flex justify-between items-center px-2">
           <span className="font-black text-[#5D4037]">{selectedDate.replace(/-/g, '/')} 明細</span>
           <span className="text-[10px] font-bold text-stone-300 bg-white px-3 py-1 rounded-full border border-stone-100">
@@ -2963,26 +3920,54 @@ function CalendarView({ records, accounts, onBack }: { records: Transaction[], a
             className="flex items-center gap-4 py-4 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
           >
             <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
-              {record.category === '初始資金' ? '💎' : record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
+              {getCategoryIcon(record.category, record.type, categories)}
             </div>
             
             <div className="flex-1 flex flex-col gap-1 min-w-0">
               {/* Line 1: Title */}
-              <span className="font-black text-lg text-[#5D4037] truncate leading-tight">
-                {record.note || record.category}
+              <span className="font-black text-lg text-[#5D4037] whitespace-pre-wrap break-all leading-tight" style={getFontFamily()}>
+                {getTransactionTitle(record)}
               </span>
               
-              {/* Line 2: Account Info */}
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
-                  {accounts.find(a => a.id === record.accountId)?.name}
-                </span>
-              </div>
+              {/* Line 2 & 3: Account Info / Transfer Path */}
+              {record.type === 'transfer' ? (
+                (() => {
+                  const isPos = record.amount > 0;
+                  const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                  const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                  const firstAccName = isPos ? counterpartAccName : currentAccName;
+                  const secondAccName = isPos ? currentAccName : counterpartAccName;
+                  const displayDate = record.postingDate || record.date;
+                  return (
+                    <div className="flex flex-col gap-0.5">
+                      {/* Line 2: Account A ➔ Account B */}
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037]" style={getFontFamily()}>
+                        <span className="opacity-80" style={getFontFamily()}>{firstAccName}</span>
+                        <span className="text-amber-600 font-bold" style={getFontFamily()}>➔</span>
+                        <span className="opacity-80 font-black text-amber-800" style={getFontFamily()}>{secondAccName}</span>
+                      </div>
+                      {/* Line 3: Date as subtext YYYY-MM-DD */}
+                      <span className="text-[11px] font-medium text-stone-400" style={getFontFamily()}>
+                        入帳日期: {displayDate}
+                      </span>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
+                    {accounts.find(a => a.id === record.accountId)?.name}
+                  </span>
+                </div>
+              )}
               
-              {/* Line 3: Amount */}
               <div className="flex items-center justify-between mt-1">
-                <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : record.type === 'expense' ? 'text-rose-400' : 'text-stone-400'}`}>
-                  {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
+                <span className={`font-black text-xl ${
+                  (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
+                  record.type === 'income' ? 'text-[#03A9F4]' : 
+                  record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'
+                }`} style={getFontFamily()}>
+                  {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : record.type === 'expense' ? '-' : '')} $ {Math.abs(record.amount).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -3010,6 +3995,7 @@ function DrawerItem({ icon, label, onClick }: { icon: React.ReactNode, label: st
     <button 
       onClick={onClick}
       className="w-full px-6 py-4 flex items-center gap-4 hover:bg-stone-50 transition-colors text-[#5D4037] group"
+      style={getFontFamily()}
     >
       <div className="text-stone-300 group-hover:text-[#FFD54F] transition-colors">{icon}</div>
       <span className="font-bold text-sm">{label}</span>
@@ -3036,7 +4022,7 @@ function FixedRecordsView({ fixedRecords, accounts, categories, onBack, onSave, 
         type: 'expense',
         period: 'monthly',
         day: 1,
-        accountId: accounts[0].id,
+        accountId: accounts[0]?.id || 'cash',
         category: '其他',
         autoEntry: true
       });
@@ -3049,8 +4035,9 @@ function FixedRecordsView({ fixedRecords, accounts, categories, onBack, onSave, 
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
+      style={getFontFamily()}
     >
-      <div className="flex-1 px-4 py-6 overflow-y-auto no-scrollbar pb-10">
+      <div className="flex-1 px-4 py-6 overflow-y-auto pb-10">
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-6 space-y-4">
           {fixedRecords.length > 0 ? fixedRecords.map(record => (
             <div 
@@ -3059,12 +4046,12 @@ function FixedRecordsView({ fixedRecords, accounts, categories, onBack, onSave, 
               className="flex items-center gap-4 py-4 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
             >
               <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
-                {record.type === 'income' ? '💰' : '🍱'}
+                {getCategoryIcon(record.category, record.type, categories)}
               </div>
               
               <div className="flex-1 flex flex-col gap-1 min-w-0">
-                <span className="font-black text-lg text-[#5D4037] truncate leading-tight">
-                  {record.name}
+                <span className="font-black text-lg text-[#5D4037] whitespace-pre-wrap break-all leading-tight">
+                  {record.name.replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim()}
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold uppercase">
@@ -3075,8 +4062,8 @@ function FixedRecordsView({ fixedRecords, accounts, categories, onBack, onSave, 
                   )}
                 </div>
                 <div className="flex items-center justify-between mt-1">
-                  <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : 'text-rose-400'}`}>
-                    {record.type === 'income' ? '+' : '-'} $ {record.amount.toLocaleString()}
+                  <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : 'text-rose-400'}`} style={getFontFamily()}>
+                    {record.type === 'income' ? '+' : '-'} $ {Math.abs(record.amount).toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -3133,6 +4120,7 @@ function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, o
       <motion.div 
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         className="bg-[#FFFDF5] w-full max-w-md rounded-t-[40px] p-6 flex flex-col gap-4 max-h-[90vh] overflow-hidden"
+        style={getFontFamily()}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
@@ -3145,7 +4133,7 @@ function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, o
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 px-1">
+        <div className="flex-1 overflow-y-auto space-y-6 px-1">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -3174,7 +4162,7 @@ function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, o
                 {['expense', 'income'].map(t => (
                   <button 
                     key={t}
-                    onClick={() => setEdited({ ...edited, type: t as any })}
+                    onClick={() => setEdited({ ...edited, type: t as any, category: '' })}
                     className={`flex-1 py-3 rounded-xl font-bold text-sm border-2 transition-all ${edited.type === t ? 'bg-[#5D4037] text-white border-[#5D4037]' : 'bg-white text-stone-400 border-white'}`}
                   >
                     {t === 'expense' ? '支出' : '收入'}
@@ -3246,7 +4234,7 @@ function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, o
             <div className="space-y-2">
               <label className="text-[18px] font-bold text-[#000000] uppercase">選擇分類</label>
               <HorizontalScrollArea className="px-8">
-                {categories.map(cat => (
+                {categories.filter(c => c.type === edited.type).map(cat => (
                   <button 
                     key={cat.id}
                     onClick={() => setEdited({ ...edited, category: cat.name })}
@@ -3261,10 +4249,10 @@ function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, o
               </HorizontalScrollArea>
               
               {/* Sub Category Selection */}
-              {categories.find(c => c.name === edited.category.split(' > ')[0]) && (
+              {categories.find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type) && (
                 <div className="mt-2">
                   <HorizontalScrollArea className="px-8">
-                    {categories.find(c => c.name === edited.category.split(' > ')[0])?.sub.map(sub => (
+                    {categories.find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type)?.sub.map(sub => (
                       <button 
                         key={sub}
                         onClick={() => setEdited({ ...edited, category: `${edited.category.split(' > ')[0]} > ${sub}` })}
@@ -3278,6 +4266,17 @@ function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, o
                   </HorizontalScrollArea>
                 </div>
               )}
+            </div>
+
+            <div className="space-y-4">
+              <label className="text-[10px] font-bold text-stone-300 uppercase">備註</label>
+              <textarea 
+                value={edited.note || ''}
+                onChange={e => setEdited({ ...edited, note: e.target.value })}
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] min-h-[100px] resize-none whitespace-pre-wrap break-all"
+                placeholder="輸入備註..."
+                style={getFontFamily()}
+              />
             </div>
 
             <div className="flex items-center justify-between p-4 bg-white rounded-2xl border-2 border-stone-50 shadow-sm">
@@ -3423,7 +4422,7 @@ function AccountSortModal({ accounts, onClose, onSave }: {
       <motion.div 
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
         className="bg-[#FFFDF5] w-full max-w-sm rounded-[44px] flex flex-col shadow-2xl border-4 border-white overflow-hidden max-h-[85vh]"
-        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+        style={getFontFamily()}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-8 pb-4 flex items-center justify-between flex-shrink-0">
@@ -3438,7 +4437,7 @@ function AccountSortModal({ accounts, onClose, onSave }: {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {sortedAccounts.map((acc, index) => {
             const isChild = !!acc.parentId;
             return (
@@ -3513,7 +4512,7 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
       <motion.div 
         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
         className="bg-[#FFFDF5] w-full max-w-sm rounded-[44px] flex flex-col shadow-2xl border-4 border-white overflow-hidden"
-        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+        style={getFontFamily()}
         onClick={e => e.stopPropagation()}
       >
         <AnimatePresence>
@@ -3619,33 +4618,106 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
   onBack: () => void 
 }) {
   const [tab, setTab] = useState<'expense' | 'income'>('expense');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [newCat, setNewCat] = useState<Partial<Category>>({ name: '', icon: '✨', type: 'expense', sub: [] });
   
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
   const [newSubName, setNewSubName] = useState('');
+  const [editingSubIndex, setEditingSubIndex] = useState<number | null>(null);
 
-  const filtered = categories.filter(c => c.type === tab);
+  const filtered = useMemo(() => {
+    return categories
+      .filter(c => c.type === tab)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  }, [categories, tab]);
+
+  const selectedCategory = useMemo(() => 
+    categories.find(c => c.id === selectedCategoryId)
+  , [categories, selectedCategoryId]);
+
+  const moveCategory = (id: string, direction: 'up' | 'down') => {
+    const idx = filtered.findIndex(c => c.id === id);
+    if (idx === -1) return;
+    if (direction === 'up' && idx === 0) return;
+    if (direction === 'down' && idx === filtered.length - 1) return;
+
+    const otherIdx = direction === 'up' ? idx - 1 : idx + 1;
+    const catA = filtered[idx];
+    const catB = filtered[otherIdx];
+
+    const updatedCategories = categories.map(c => {
+      if (c.id === catA.id) return { ...c, order: otherIdx + 1 };
+      if (c.id === catB.id) return { ...c, order: idx + 1 };
+      // Also ensure others have an order if they don't
+      if (c.type === tab && c.order === undefined) {
+          const cIdx = filtered.findIndex(fc => fc.id === c.id);
+          return { ...c, order: cIdx + 1 };
+      }
+      return c;
+    });
+
+    onSave(updatedCategories);
+  };
+
+  const moveSubByIndex = (catId: string, idx: number, direction: 'up' | 'down') => {
+    const cat = categories.find(c => c.id === catId);
+    if (!cat || !cat.sub) return;
+    if (direction === 'up' && idx === 0) return;
+    if (direction === 'down' && idx === cat.sub.length - 1) return;
+
+    const otherIdx = direction === 'up' ? idx - 1 : idx + 1;
+    const newSub = [...cat.sub];
+    [newSub[idx], newSub[otherIdx]] = [newSub[otherIdx], newSub[idx]];
+    
+    onSave(categories.map(c => c.id === catId ? { ...c, sub: newSub } : c));
+  };
+
+  const moveSubToCategory = (catId: string, subIdx: number, targetCatId: string) => {
+    const sourceCat = categories.find(c => c.id === catId);
+    if (!sourceCat) return;
+    const subName = sourceCat.sub[subIdx];
+    
+    const updatedCategories = categories.map(c => {
+      if (c.id === sourceCat.id) {
+        return { ...c, sub: c.sub.filter((_, i) => i !== subIdx) };
+      }
+      if (c.id === targetCatId) {
+        return { ...c, sub: [...c.sub, subName] };
+      }
+      return c;
+    });
+
+    onSave(updatedCategories);
+    alert(`已將「${subName}」搬移至目標分類`);
+  };
 
   useEffect(() => {
     const handleAdd = () => {
-      setNewCat({ name: '', icon: '✨', type: tab, sub: [] });
-      setEditingCat(null);
-      setIsAddModalOpen(true);
+      if (selectedCategoryId) {
+        setNewSubName('');
+        setEditingSubIndex(null);
+        setIsSubModalOpen(true);
+      } else {
+        setNewCat({ name: '', icon: '✨', type: tab, sub: [] });
+        setEditingCat(null);
+        setIsAddModalOpen(true);
+      }
     };
     window.addEventListener('trigger-add-category', handleAdd);
     return () => window.removeEventListener('trigger-add-category', handleAdd);
-  }, [tab]);
+  }, [tab, selectedCategoryId]);
 
-  const handleSave = () => {
+  const handleSaveMainCategory = () => {
     if (!newCat.name) return;
     const catToSave = {
       id: editingCat?.id || `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       name: newCat.name,
       icon: newCat.icon || '✨',
       type: tab,
-      sub: newCat.sub || []
+      sub: newCat.sub || [],
+      order: editingCat?.order || (filtered.length + 1)
     } as Category;
 
     if (editingCat) {
@@ -3658,87 +4730,130 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
     setNewCat({ name: '', icon: '✨', type: 'expense', sub: [] });
   };
 
-  const [editingSubIndex, setEditingSubIndex] = useState<number | null>(null);
+  const handleSaveSubCategory = () => {
+    if (!newSubName || !selectedCategoryId) return;
+    const cat = categories.find(c => c.id === selectedCategoryId);
+    if (!cat) return;
 
-  const handleAddSub = () => {
-    if (!newSubName) return;
-    const subStr = newSubName;
-    setNewCat(prev => {
-      const currentSub = prev.sub || [];
-      if (editingSubIndex !== null) {
-        const updatedSub = [...currentSub];
-        updatedSub[editingSubIndex] = subStr;
-        return { ...prev, sub: updatedSub };
-      }
-      return { ...prev, sub: [...currentSub, subStr] };
-    });
+    const currentSub = cat.sub || [];
+    let updatedSub = [...currentSub];
+    if (editingSubIndex !== null) {
+      updatedSub[editingSubIndex] = newSubName;
+    } else {
+      updatedSub.push(newSubName);
+    }
+    
+    onSave(categories.map(c => c.id === selectedCategoryId ? { ...c, sub: updatedSub } : c));
     setNewSubName('');
     setEditingSubIndex(null);
     setIsSubModalOpen(false);
   };
 
-  const removeSub = (index: number) => {
-    setNewCat(prev => ({
-      ...prev,
-      sub: (prev.sub || []).filter((_, i) => i !== index)
-    }));
+  const removeSubByIndex = (catId: string, index: number) => {
+    const cat = categories.find(c => c.id === catId);
+    if (!cat) return;
+    if (window.confirm(`確定要刪除子分類「${cat.sub[index]}」嗎？`)) {
+      onSave(categories.map(c => c.id === catId ? {
+        ...c,
+        sub: c.sub.filter((_, i) => i !== index)
+      } : c));
+    }
   };
 
   return (
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
+      style={getFontFamily()}
     >
-      <div className="p-6 flex flex-col gap-6">
-        <div className="flex bg-white/50 p-1.5 rounded-2xl border-2 border-white shadow-sm">
-          {(['expense', 'income'] as const).map(t => (
-            <button 
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${tab === t ? 'bg-[#5D4037] text-white shadow-md' : 'text-stone-400'}`}
-            >
-              {t === 'expense' ? '支出分類' : '收入分類'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto no-scrollbar px-6 space-y-3 pb-24">
-        {filtered.map(cat => (
-          <div 
-            key={cat.id}
-            className="bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex items-center justify-between group"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50">
-                {cat.icon}
-              </div>
-              <div className="flex flex-col">
-                <span className="font-black text-[#5D4037]">{cat.name}</span>
-                <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">
-                  {cat.sub.length} 個子分類
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Header */}
+      {!selectedCategoryId ? (
+        <div className="p-6 pb-0 flex flex-col gap-6">
+          <div className="flex bg-white/50 p-1.5 rounded-2xl border-2 border-white shadow-sm">
+            {(['expense', 'income'] as const).map(t => (
               <button 
-                onClick={() => { setEditingCat(cat); setNewCat(cat); setIsAddModalOpen(true); }}
-                className="p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] transition-all"
+                key={t}
+                onClick={() => setTab(t)}
+                className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${tab === t ? 'bg-[#5D4037] text-white shadow-md' : 'text-stone-400'}`}
               >
-                <Pencil size={18} />
+                {t === 'expense' ? '支出分類' : '收入分類'}
               </button>
-              <button 
-                onClick={() => onSave(categories.filter(c => c.id !== cat.id))}
-                className="p-2 hover:bg-rose-50 rounded-xl text-stone-200 hover:text-rose-400 transition-all"
-              >
-                <Trash2 size={18} />
-              </button>
-            </div>
+            ))}
           </div>
-        ))}
+        </div>
+      ) : (
+        <div className="p-6 py-4 flex items-center gap-4">
+          <button 
+            onClick={() => setSelectedCategoryId(null)}
+            className="w-10 h-10 flex items-center justify-center bg-white rounded-2xl shadow-sm border border-stone-100 text-[#5D4037]"
+          >
+            <ChevronLeft size={24} />
+          </button>
+          <div className="flex flex-col">
+            <h2 className="text-xl font-black text-[#5D4037] flex items-center gap-2">
+              <span className="text-2xl">{selectedCategory?.icon}</span>
+              {selectedCategory?.name}
+            </h2>
+            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest leading-none mt-0.5">管理子分類</span>
+          </div>
+        </div>
+      )}
+
+      {/* List Content */}
+      <div className="flex-1 overflow-y-auto px-6 space-y-3 pb-24 pt-4">
+        {!selectedCategoryId ? (
+          filtered.map(cat => (
+            <div 
+              key={cat.id}
+              onClick={() => setSelectedCategoryId(cat.id)}
+              className="bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex flex-col md:flex-row md:items-center md:justify-between group gap-4 md:gap-0 cursor-pointer hover:border-[#FFD54F] transition-all"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50 shrink-0">
+                  {cat.icon}
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="font-black text-[#5D4037] text-lg md:text-base truncate break-all leading-tight">{cat.name}</span>
+                  <span className="text-xs md:text-[10px] font-bold text-stone-400 md:text-stone-300 uppercase tracking-widest truncate mt-0.5">
+                    {cat.sub.length} 個子分類
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          selectedCategory?.sub.map((sub, idx) => (
+            <div 
+              key={`${selectedCategoryId}-${idx}`}
+              className="flex items-center justify-between bg-white p-4 md:p-3 rounded-[25px] border-2 border-white shadow-sm group"
+            >
+              <div className="flex flex-col min-w-0">
+                <span className="font-black text-[#5D4037] text-lg md:text-sm truncate break-all leading-tight">{sub}</span>
+                <span className="text-xs md:text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">歸類於 {selectedCategory.name}</span>
+              </div>
+            </div>
+          ))
+        )}
+        {(selectedCategoryId && (!selectedCategory?.sub || selectedCategory.sub.length === 0)) && (
+          <div className="text-center py-12 bg-white/30 rounded-[30px] border-2 border-dashed border-white">
+            <span className="text-stone-400 font-bold">目前無子分類</span>
+          </div>
+        )}
       </div>
 
-      {/* Add/Edit Modal */}
+      {/* Floating Add Button for Detail View */}
+      {selectedCategoryId && (
+        <div className="fixed bottom-24 right-6 left-6 flex justify-center z-40">
+          <button 
+            onClick={() => { setNewSubName(''); setEditingSubIndex(null); setIsSubModalOpen(true); }}
+            className="w-full max-w-sm py-4 bg-[#FFD54F] text-[#5D4037] rounded-[25px] font-black shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+          >
+            <Plus size={24} /> 新增子分類
+          </button>
+        </div>
+      )}
+
+      {/* Main Category Modal */}
       <AnimatePresence>
         {isAddModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
@@ -3752,27 +4867,27 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
               className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[85vh]"
             >
               <div className="p-8 pb-4 flex items-center justify-between">
-                <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯分類' : '新增分類'}</h3>
+                <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯主分類' : '新增主分類'}</h3>
                 <button onClick={() => setIsAddModalOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
                   <X size={20} className="text-stone-400" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto no-scrollbar p-8 pt-2 space-y-6">
+              <div className="flex-1 overflow-y-auto p-8 pt-2 space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類名稱</label>
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類名稱</label>
                   <input 
                     value={newCat.name}
                     onChange={e => setNewCat({ ...newCat, name: e.target.value })}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                    placeholder="輸入分類名稱"
+                    placeholder="輸入主分類名稱"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類圖示</label>
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類圖示</label>
                   <div className="grid grid-cols-6 gap-2">
-                    {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '👗', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
+                    {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '規則', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
                       <button 
                         key={icon}
                         onClick={() => setNewCat({ ...newCat, icon })}
@@ -3783,57 +4898,14 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
                     ))}
                   </div>
                 </div>
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-1">
-                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest">子分類列表</label>
-                    <button 
-                      onClick={() => setIsSubModalOpen(true)}
-                      className="text-[10px] font-black text-[#FFD54F] uppercase tracking-widest flex items-center gap-1 hover:opacity-80 transition-opacity"
-                    >
-                      <Plus size={12} /> 新增子分類
-                    </button>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    {newCat.sub?.map((sub, idx) => {
-                      return (
-                        <div 
-                          key={idx} 
-                          onClick={() => {
-                            setNewSubName(sub);
-                            setEditingSubIndex(idx);
-                            setIsSubModalOpen(true);
-                          }}
-                          className="flex items-center justify-between bg-white p-3 rounded-xl border-2 border-stone-50 shadow-sm group cursor-pointer hover:border-[#FFD54F] transition-all"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="font-bold text-[#5D4037] text-sm">{sub}</span>
-                          </div>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); removeSub(idx); }}
-                            className="p-1 text-stone-200 hover:text-rose-400 transition-colors"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                    {(!newCat.sub || newCat.sub.length === 0) && (
-                      <div className="text-center py-6 border-2 border-dashed border-stone-100 rounded-2xl">
-                        <span className="text-xs font-bold text-stone-300">尚未新增子分類</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
 
               <div className="p-8 pt-4">
                 <button 
-                  onClick={handleSave}
+                  onClick={handleSaveMainCategory}
                   className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
                 >
-                  <Check size={20} /> 儲存分類
+                  <Check size={20} /> 儲存設定
                 </button>
               </div>
             </motion.div>
@@ -3841,7 +4913,7 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
         )}
       </AnimatePresence>
 
-      {/* Sub-category Add Modal */}
+      {/* Sub-category Detail/Name Modal */}
       <AnimatePresence>
         {isSubModalOpen && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
@@ -3868,7 +4940,7 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
                   value={newSubName}
                   onChange={e => setNewSubName(e.target.value)}
                   className="w-full p-3 bg-stone-50 rounded-xl font-bold text-[#5D4037] outline-none border-2 border-transparent focus:border-[#FFD54F] text-sm"
-                  placeholder="例如：💎 SEVENTEEN 或 ⭐ NCT"
+                  placeholder="輸入名稱..."
                 />
               </div>
 
@@ -3880,11 +4952,292 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
                   取消
                 </button>
                 <button 
-                  onClick={handleAddSub}
+                  onClick={handleSaveSubCategory}
                   className="flex-1 py-3 bg-[#5D4037] text-white rounded-xl font-black text-sm shadow-lg active:scale-95"
                 >
                   確定
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+
+function CategoryManagePage({ categories, onSave, onBack }: { 
+  categories: Category[], 
+  onSave: (cats: Category[]) => void,
+  onBack: () => void 
+}) {
+  const [tab, setTab] = useState<'expense' | 'income'>('expense');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingCat, setEditingCat] = useState<Category | null>(null);
+  const [newCat, setNewCat] = useState<Partial<Category>>({ name: '', icon: '✨', type: 'expense', sub: [] });
+  
+  const [isSubModalOpen, setIsSubModalOpen] = useState(false);
+  const [newSubName, setNewSubName] = useState('');
+  const [editingSubIndex, setEditingSubIndex] = useState<number | null>(null);
+
+  const filtered = useMemo(() => {
+    return categories
+      .filter(c => c.type === tab)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  }, [categories, tab]);
+
+  const selectedCategory = useMemo(() => 
+    categories.find(c => c.id === selectedCategoryId)
+  , [categories, selectedCategoryId]);
+
+  const moveCategory = (id: string, direction: 'up' | 'down') => {
+    const idx = filtered.findIndex(c => c.id === id);
+    if (idx === -1) return;
+    if (direction === 'up' && idx === 0) return;
+    if (direction === 'down' && idx === filtered.length - 1) return;
+
+    const otherIdx = direction === 'up' ? idx - 1 : idx + 1;
+    const catA = filtered[idx];
+    const catB = filtered[otherIdx];
+
+    const updatedCategories = categories.map(c => {
+      if (c.id === catA.id) return { ...c, order: otherIdx + 1 };
+      if (c.id === catB.id) return { ...c, order: idx + 1 };
+      return c;
+    });
+
+    onSave(updatedCategories);
+  };
+
+  const moveSubByIndex = (catId: string, idx: number, direction: 'up' | 'down') => {
+    const cat = categories.find(c => c.id === catId);
+    if (!cat || !cat.sub) return;
+    if (direction === 'up' && idx === 0) return;
+    if (direction === 'down' && idx === cat.sub.length - 1) return;
+
+    const otherIdx = direction === 'up' ? idx - 1 : idx + 1;
+    const newSub = [...cat.sub];
+    [newSub[idx], newSub[otherIdx]] = [newSub[otherIdx], newSub[idx]];
+    
+    onSave(categories.map(c => c.id === catId ? { ...c, sub: newSub } : c));
+  };
+
+  const handleSaveMainCategory = () => {
+    if (!newCat.name) return;
+    const catToSave = {
+      id: editingCat?.id || `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      name: newCat.name,
+      icon: newCat.icon || '✨',
+      type: tab,
+      sub: newCat.sub || [],
+      order: editingCat?.order || (filtered.length + 1)
+    } as Category;
+
+    if (editingCat) {
+      onSave(categories.map(c => c.id === editingCat.id ? catToSave : c));
+    } else {
+      onSave([...categories, catToSave]);
+    }
+    setIsAddModalOpen(false);
+    setEditingCat(null);
+  };
+
+  const handleSaveSubCategory = () => {
+    if (!newSubName || !selectedCategoryId) return;
+    const currentSub = selectedCategory?.sub || [];
+    let updatedSub = [...currentSub];
+    if (editingSubIndex !== null) {
+      updatedSub[editingSubIndex] = newSubName;
+    } else {
+      updatedSub.push(newSubName);
+    }
+    
+    onSave(categories.map(c => c.id === selectedCategoryId ? { ...c, sub: updatedSub } : c));
+    setIsSubModalOpen(false);
+  };
+
+  const removeSubByIndex = (catId: string, index: number) => {
+    const cat = categories.find(c => c.id === catId);
+    if (!cat) return;
+    if (window.confirm(`確定要刪除子分類「${cat.sub[index]}」嗎？`)) {
+      onSave(categories.map(c => c.id === catId ? {
+        ...c,
+        sub: c.sub.filter((_, i) => i !== index)
+      } : c));
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+      className="flex flex-col h-full bg-[#FFF9E3]"
+      style={getFontFamily()}
+    >
+      <div className="p-6 pb-0 flex flex-col gap-6">
+        <div className="flex bg-white/50 p-1.5 rounded-2xl border-2 border-white shadow-sm">
+          {(['expense', 'income'] as const).map(t => (
+            <button 
+              key={t}
+              onClick={() => { setTab(t); setSelectedCategoryId(null); }}
+              className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${tab === t ? 'bg-[#5D4037] text-white shadow-md' : 'text-stone-400'}`}
+            >
+              {t === 'expense' ? '支出管理' : '收入管理'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 space-y-3 pb-24 pt-4">
+        {!selectedCategoryId ? (
+          filtered.map(cat => (
+            <div 
+              key={cat.id}
+              className="bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex flex-col md:flex-row md:items-center md:justify-between group gap-4 md:gap-0"
+            >
+              <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedCategoryId(cat.id)}>
+                <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50 shrink-0">
+                  {cat.icon}
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="font-black text-[#5D4037] text-lg md:text-base truncate break-all leading-tight">{cat.name}</span>
+                  <span className="text-xs md:text-[10px] font-bold text-stone-400 md:text-stone-300 uppercase tracking-widest truncate mt-0.5">
+                    {cat.sub.length} 個子分類 (點擊管理)
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 md:gap-2 pt-3 md:pt-0 border-t md:border-t-0 border-stone-50 justify-between md:justify-end">
+                <div className="flex items-center bg-stone-50 rounded-xl p-1">
+                  <button 
+                    onClick={() => moveCategory(cat.id, 'up')}
+                    disabled={filtered.indexOf(cat) === 0}
+                    className="p-2 md:p-1 hover:bg-white rounded-md text-stone-300 hover:text-[#5D4037] disabled:opacity-30"
+                  >
+                    <ChevronUp size={20} className="md:w-3.5 md:h-3.5" />
+                  </button>
+                  <button 
+                    onClick={() => moveCategory(cat.id, 'down')}
+                    disabled={filtered.indexOf(cat) === filtered.length - 1}
+                    className="p-2 md:p-1 hover:bg-white rounded-md text-stone-300 hover:text-[#5D4037] disabled:opacity-30"
+                  >
+                    <ChevronDown size={20} className="md:w-3.5 md:h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => { setEditingCat(cat); setNewCat(cat); setIsAddModalOpen(true); }}
+                    className="p-3 md:p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] transition-all"
+                  >
+                    <Pencil size={20} className="md:w-[18px] md:h-[18px]" />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (window.confirm(`刪除主分類「${cat.name}」將同時刪除其下的所有子分類，是否確認？`)) {
+                        onSave(categories.filter(c => c.id !== cat.id));
+                      }
+                    }}
+                    className="p-3 md:p-2 hover:bg-rose-50 rounded-xl text-stone-200 hover:text-rose-400 transition-all"
+                  >
+                    <Trash2 size={20} className="md:w-[18px] md:h-[18px]" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="space-y-3">
+             <button onClick={() => setSelectedCategoryId(null)} className="flex items-center gap-2 text-[#5D4037] font-bold text-sm mb-4">
+                <ChevronLeft size={16} /> 返回主分類列表
+             </button>
+             <h3 className="font-black text-xl text-[#5D4037] mb-4 flex items-center gap-2">
+                <span>{selectedCategory?.icon}</span>
+                {selectedCategory?.name} - 子分類管理
+             </h3>
+             {selectedCategory?.sub.map((sub, idx) => (
+               <div 
+                 key={`${selectedCategoryId}-${idx}`}
+                 className="flex items-center justify-between bg-white p-4 md:p-3 rounded-[25px] border-2 border-white shadow-sm"
+               >
+                 <div className="flex flex-col min-w-0">
+                   <span className="font-black text-[#5D4037] text-lg md:text-sm truncate break-all leading-tight">{sub}</span>
+                 </div>
+                 <div className="flex items-center gap-4 md:gap-1">
+                   <div className="flex items-center bg-stone-50 rounded-xl p-1">
+                     <button 
+                       onClick={() => moveSubByIndex(selectedCategoryId, idx, 'up')}
+                       disabled={idx === 0}
+                       className="p-2 md:p-1 hover:bg-white rounded text-stone-300 hover:text-[#5D4037] disabled:opacity-30"
+                     >
+                       <ChevronUp size={20} className="md:w-3.5 md:h-3.5" />
+                     </button>
+                     <button 
+                       onClick={() => moveSubByIndex(selectedCategoryId, idx, 'down')}
+                       disabled={idx === (selectedCategory.sub?.length || 0) - 1}
+                       className="p-2 md:p-1 hover:bg-white rounded text-stone-300 hover:text-[#5D4037] disabled:opacity-30"
+                     >
+                       <ChevronDown size={20} className="md:w-3.5 md:h-3.5" />
+                     </button>
+                   </div>
+                   <button 
+                     onClick={() => { setNewSubName(sub); setEditingSubIndex(idx); setIsSubModalOpen(true); }}
+                     className="p-3 md:p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037]"
+                   >
+                     <Pencil size={20} className="md:w-[18px] md:h-[18px]" />
+                   </button>
+                   <button 
+                     onClick={() => removeSubByIndex(selectedCategoryId, idx)}
+                     className="p-3 md:p-2 hover:bg-rose-50 rounded-xl text-stone-200 hover:text-rose-400"
+                   >
+                     <Trash2 size={20} className="md:w-[18px] md:h-[18px]" />
+                   </button>
+                 </div>
+               </div>
+             ))}
+             <button 
+               onClick={() => { setNewSubName(''); setEditingSubIndex(null); setIsSubModalOpen(true); }}
+               className="w-full py-4 border-2 border-dashed border-stone-200 rounded-[25px] text-stone-400 font-bold hover:bg-white transition-all flex items-center justify-center gap-2"
+             >
+               <Plus size={20} /> 新增子分類
+             </button>
+          </div>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {isAddModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md" onClick={() => setIsAddModalOpen(false)} />
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white p-8 space-y-6">
+              <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯主分類' : '新增主分類'}</h3>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">名稱</label>
+                <input value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">圖示</label>
+                <div className="grid grid-cols-6 gap-2">
+                  {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '規則', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
+                    <button key={icon} onClick={() => setNewCat({ ...newCat, icon })} className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl transition-all ${newCat.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F]' : 'bg-white border-stone-50'}`}>{icon}</button>
+                  ))}
+                </div>
+              </div>
+              <button onClick={handleSaveMainCategory} className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black shadow-xl">儲存設定</button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isSubModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-[#5D4037]/20 backdrop-blur-sm" onClick={() => setIsSubModalOpen(false)} />
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="relative bg-white w-full max-w-[280px] rounded-[30px] shadow-2xl p-6 space-y-6">
+              <h4 className="font-black text-[#5D4037]">{editingSubIndex !== null ? '編輯子分類' : '新增子分類'}</h4>
+              <input autoFocus value={newSubName} onChange={e => setNewSubName(e.target.value)} className="w-full p-3 bg-stone-50 rounded-xl font-bold text-[#5D4037] outline-none border-2 border-transparent focus:border-[#FFD54F] text-sm" placeholder="輸入名稱..." />
+              <div className="flex gap-3">
+                <button onClick={() => setIsSubModalOpen(false)} className="flex-1 py-3 bg-stone-100 text-stone-400 rounded-xl font-black text-sm">取消</button>
+                <button onClick={handleSaveSubCategory} className="flex-1 py-3 bg-[#5D4037] text-white rounded-xl font-black text-sm shadow-lg">確定</button>
               </div>
             </motion.div>
           </div>
@@ -3937,7 +5290,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
-      <div className="flex-1 overflow-y-auto no-scrollbar px-6 space-y-4 pb-24 pt-4">
+      <div className="flex-1 overflow-y-auto px-6 space-y-4 pb-24 pt-4">
         {installmentGroups.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
             <div className="w-20 h-20 bg-white rounded-[30px] flex items-center justify-center text-stone-200 shadow-sm">
@@ -4133,7 +5486,7 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
       return allIds.includes(r.projectId || '');
     });
 
-    const expense = targetRecords.filter(r => r.type === 'expense').reduce((sum, r) => sum + r.amount, 0);
+    const expense = targetRecords.filter(r => r.type === 'expense').reduce((sum, r) => sum + (r.amount + (r.fee || 0)), 0);
     const income = targetRecords.filter(r => r.type === 'income').reduce((sum, r) => sum + r.amount, 0);
     return { expense, income };
   };
@@ -4146,9 +5499,9 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-white shadow-inner"
-      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+      style={getFontFamily()}
     >
-      <div className="flex-1 overflow-y-auto no-scrollbar">
+      <div className="flex-1 overflow-y-auto">
         <div className="divide-y divide-stone-100">
           {rootProjects.map(project => {
             const children = getChildren(project.id);
@@ -4257,18 +5610,20 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
 
   const filteredRecords = useMemo(() => {
     const [y, m] = currentMonth.split('/').map(Number);
-    return records.filter(r => {
+    const raw = records.filter(r => {
       const isProject = project.id === 'p1' ? (!r.projectId || r.projectId === 'p1') : r.projectId === project.id;
       if (!isProject) return false;
       const pDate = r.postingDate || r.date;
       const d = new Date(pDate);
       return d.getFullYear() === y && (d.getMonth() + 1) === m;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [records, project, currentMonth]);
+    });
+    const merged = getMergedRecords(raw, accounts);
+    return merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [records, project, currentMonth, accounts]);
 
   const balance = useMemo(() => {
-    const expense = filteredRecords.filter(r => r.type === 'expense' && r.postingDate).reduce((sum, r) => sum + r.amount, 0);
-    const income = filteredRecords.filter(r => r.type === 'income' && r.postingDate).reduce((sum, r) => sum + r.amount, 0);
+    const expense = filteredRecords.filter(r => r.type === 'expense' && r.postingDate).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+    const income = filteredRecords.filter(r => r.type === 'income' && r.postingDate).reduce((sum, r) => sum + Math.abs(r.amount), 0);
     return income - expense;
   }, [filteredRecords]);
 
@@ -4305,7 +5660,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-white"
-      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+      style={getFontFamily()}
     >
       {/* Month Switcher */}
       <div className="flex items-center justify-between px-6 py-4 bg-[#FFF9E3]/30">
@@ -4320,7 +5675,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
         <span>結餘：<span className={balance >= 0 ? 'text-blue-600' : 'text-red-500'}>${balance < 0 ? '-' : ''}{Math.abs(balance).toLocaleString()}</span></span>
       </div>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar relative">
+      <div className="flex-1 overflow-y-auto relative">
         {groupedRecords.map(group => (
           <div key={group.date} className="mt-4">
             <div className="px-6 py-2 text-[15px] font-bold text-stone-400 border-b border-stone-50">
@@ -4334,22 +5689,54 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                   key={record.id} 
                   onClick={() => setEditingRecord(record)}
                   className="flex items-center gap-4 px-6 py-3 cursor-pointer active:bg-stone-50 transition-colors" 
-                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                  style={getFontFamily()}
                 >
                   <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center text-xl">
                     {getCategoryIcon(record.category, record.type, categories)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                       <div className="text-[17px] font-bold text-[#5D4037] truncate">{record.category}</div>
+                       <div className="text-[17px] font-bold text-[#5D4037] truncate" style={getFontFamily()}>
+                         {getTransactionTitle(record)}
+                       </div>
                        {recordAccount?.type === 'credit' && (!record.postingDate || record.isPending) && (
                          <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-500 rounded font-bold">未入帳</span>
                        )}
                     </div>
-                    <div className="text-[12px] font-medium text-stone-300 truncate">發票 - {record.note || '詳細資訊...'}</div>
+                    {record.type === 'transfer' ? (
+                      (() => {
+                        const isPos = record.amount > 0;
+                        const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                        const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                        const firstAccName = isPos ? counterpartAccName : currentAccName;
+                        const secondAccName = isPos ? currentAccName : counterpartAccName;
+                        const displayDate = record.postingDate || record.date;
+                        return (
+                          <div className="flex flex-col gap-0.5 mt-0.5">
+                            {/* Line 2: Account A ➔ Account B */}
+                            <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#5D4037]" style={getFontFamily()}>
+                              <span className="opacity-80" style={getFontFamily()}>{firstAccName}</span>
+                              <span className="text-amber-600 font-bold" style={getFontFamily()}>➔</span>
+                              <span className="opacity-80 font-black text-amber-800" style={getFontFamily()}>{secondAccName}</span>
+                            </div>
+                            {/* Line 3: Date as subtext YYYY-MM-DD */}
+                            <span className="text-[11px] font-medium text-stone-400" style={getFontFamily()}>
+                              入帳日期: {displayDate}
+                            </span>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="text-[12px] font-medium text-stone-300 truncate font-bold">
+                        {(record.note || '詳細資訊...').replace(/\[固定收支\]/g, '').trim()}
+                      </div>
+                    )}
                   </div>
-                  <div className={`text-[17px] font-bold ${record.type === 'income' ? 'text-[#03A9F4]' : 'text-[#E91E63]'}`}>
-                    {record.type === 'income' ? '+' : '-'}${record.amount.toLocaleString()}
+                  <div className={`text-[17px] font-bold ${
+                    (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
+                    record.type === 'income' ? 'text-[#03A9F4]' : 'text-[#E91E63]'
+                  }`} style={getFontFamily()}>
+                    {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : '-')}${Math.abs(record.amount).toLocaleString()}
                   </div>
                 </div>
               );})}
@@ -4393,8 +5780,9 @@ function PlaceholderView({ title, icon, onBack, content }: { title: string, icon
     <motion.div 
       initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
+      style={getFontFamily()}
     >
-      <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-10">
+      <div className="flex-1 overflow-y-auto px-4 py-10">
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-10 flex flex-col items-center justify-center gap-6 text-center">
           <div className="w-24 h-24 bg-[#FFFDF5] rounded-[30px] flex items-center justify-center text-[#FFD54F] shadow-sm border border-white">
             {icon}
@@ -4432,15 +5820,17 @@ function PlaceholderView({ title, icon, onBack, content }: { title: string, icon
   );
 }
 
-function HistoryView({ records, accounts, categories, projects, filter, onBack, onUpdateRecord, onDeleteRecord }: { 
+function HistoryView({ records, accounts, categories, projects, filter, currencyMode, onBack, onUpdateRecord, onDeleteRecord, onReorder }: { 
   records: Transaction[], 
   accounts: Account[], 
   categories: Category[],
   projects: Project[],
   filter: { type: 'day' | 'week' | 'month' | 'year', date: string },
+  currencyMode: CurrencyMode,
   onBack: () => void,
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
-  onDeleteRecord: (record: Transaction) => void
+  onDeleteRecord: (record: Transaction) => void,
+  onReorder: (records: Transaction[]) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
 
@@ -4452,7 +5842,10 @@ function HistoryView({ records, accounts, categories, projects, filter, onBack, 
     if (filter.type === 'day') {
       // Already set to base
     } else if (filter.type === 'week') {
-      start.setDate(base.getDate() - base.getDay());
+      // Standardize to Monday-start to match HomeView stats
+      const day = base.getDay();
+      const diff = base.getDate() - day + (day === 0 ? -6 : 1);
+      start.setDate(diff);
       end.setDate(start.getDate() + 6);
     } else if (filter.type === 'month') {
       start.setDate(1);
@@ -4464,11 +5857,27 @@ function HistoryView({ records, accounts, categories, projects, filter, onBack, 
 
     const startStr = formatLocalDate(start);
     const endStr = formatLocalDate(end);
-    const todayStr = new Date().toISOString().split('T')[0];
 
-    return records.filter(r => r.category !== '初始資金' && (r.postingDate || r.date) >= startStr && (r.postingDate || r.date) <= endStr)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [records, filter]);
+    const raw = records.filter(r => {
+      const pDate = r.postingDate || r.date;
+      const passDate = r.category !== '初始資金' && pDate >= startStr && pDate <= endStr;
+      if (!passDate) return false;
+
+      // Currency filtering
+      const cur = r.currency || 'TWD';
+      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
+      // If mode is TWD or null (Taiwan), show only TWD
+      return cur === 'TWD';
+    });
+
+    const merged = getMergedRecords(raw, accounts);
+
+    return merged.sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      return b.amount - a.amount;
+    });
+  }, [records, filter, currencyMode, accounts]);
 
   const filterLabel = useMemo(() => {
     if (filter.type === 'day') return filter.date.replace(/-/g, '/');
@@ -4480,8 +5889,7 @@ function HistoryView({ records, accounts, categories, projects, filter, onBack, 
 
   const historyBalance = useMemo(() => {
     return filteredRecords.reduce((acc, r) => {
-      if (r.type === 'income') return acc + r.amount;
-      if (r.type === 'expense') return acc - r.amount;
+      if (r.type === 'income' || r.type === 'expense') return acc + r.amount;
       return acc;
     }, 0);
   }, [filteredRecords]);
@@ -4491,9 +5899,9 @@ function HistoryView({ records, accounts, categories, projects, filter, onBack, 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
-      <div className="flex-1 px-4 overflow-y-auto no-scrollbar pb-10 pt-4">
+      <div className="flex-1 px-4 overflow-y-auto pb-10 pt-4">
         {/* Period Summary Header */}
-        <div className="mx-2 mb-4 p-4 bg-[#FFFDF5] rounded-3xl border border-[#FFD54F]/30 flex items-center justify-between text-[13px] font-black text-[#5D4037] shadow-sm" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>
+        <div className="mx-2 mb-4 p-4 bg-[#FFFDF5] rounded-3xl border border-[#FFD54F]/30 flex items-center justify-between text-[13px] font-black text-[#5D4037] shadow-sm" style={getFontFamily()}>
           <div className="flex items-center gap-2">
             <CalendarIcon size={14} className="text-[#FFD54F]" />
             <span>{filterLabel}</span>
@@ -4505,24 +5913,51 @@ function HistoryView({ records, accounts, categories, projects, filter, onBack, 
         </div>
 
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-6 space-y-4">
-          {filteredRecords.length > 0 ? filteredRecords.map(record => (
+          {filteredRecords.length > 0 ? filteredRecords.map((record, idx) => (
             <div 
               key={record.id} 
-              onClick={() => setEditingRecord(record)}
-              className="flex items-center gap-4 py-4 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
+              className="flex items-center gap-2 py-4 border-b border-stone-50 last:border-0 group rounded-xl px-2 -mx-2 transition-colors relative"
             >
-              <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
-                {getCategoryIcon(record.category, record.type, categories)}
-              </div>
-              
-              <div className="flex-1 flex flex-col gap-1 min-w-0">
-                <span className="font-black text-lg text-[#5D4037] truncate leading-tight">
-                  {record.note || record.category}
+              <div 
+                onClick={() => setEditingRecord(record)}
+                className="flex-1 flex items-center gap-4 cursor-pointer"
+              >
+                <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
+                  {getCategoryIcon(record.category, record.type, categories)}
+                </div>
+                
+                <div className="flex-1 flex flex-col gap-1 min-w-0">
+                <span className="font-black text-lg text-[#5D4037] whitespace-pre-wrap break-all leading-tight" style={getFontFamily()}>
+                  {getTransactionTitle(record)}
                 </span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-stone-300">
-                    {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
-                  </span>
+                {record.type === 'transfer' ? (
+                  (() => {
+                    const isPos = record.amount > 0;
+                    const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                    const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                    const firstAccName = isPos ? counterpartAccName : currentAccName;
+                    const secondAccName = isPos ? currentAccName : counterpartAccName;
+                    const displayDate = record.postingDate || record.date;
+                    return (
+                      <div className="flex flex-col gap-0.5">
+                        {/* Line 2: Account A ➔ Account B */}
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037]" style={getFontFamily()}>
+                          <span className="opacity-80" style={getFontFamily()}>{firstAccName}</span>
+                          <span className="text-amber-600 font-bold" style={getFontFamily()}>➔</span>
+                          <span className="opacity-80 font-black text-amber-800" style={getFontFamily()}>{secondAccName}</span>
+                        </div>
+                        {/* Line 3: Date as subtext YYYY-MM-DD */}
+                        <span className="text-[11px] font-medium text-stone-400" style={getFontFamily()}>
+                          入帳日期: {displayDate}
+                        </span>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-stone-300">
+                      {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
+                    </span>
                   {(() => {
                     const acc = accounts.find(a => a.id === record.accountId);
                     return acc?.type === 'credit' && (!record.postingDate || record.isPending);
@@ -4531,17 +5966,23 @@ function HistoryView({ records, accounts, categories, projects, filter, onBack, 
                       未入帳
                     </span>
                   )}
-                  <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
+                  <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold" style={getFontFamily()}>
                     {accounts.find(a => a.id === record.accountId)?.name}
                   </span>
                 </div>
+                )}
                 <div className="flex items-center justify-between mt-1">
-                  <span className={`font-black text-xl ${record.type === 'income' ? 'text-[#03A9F4]' : record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'}`}>
-                    {record.type === 'income' ? '+' : record.type === 'expense' ? '-' : ''} $ {record.amount.toLocaleString()}
+                  <span className={`font-black text-xl ${
+                    (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
+                    record.type === 'income' ? 'text-[#03A9F4]' : 
+                    record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'
+                  }`} style={getFontFamily()}>
+                    {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : record.type === 'expense' ? '-' : '')} $ {Math.abs(record.amount).toLocaleString()}
                   </span>
                 </div>
               </div>
             </div>
+          </div>
           )) : (
             <div className="flex flex-col items-center justify-center py-20 text-stone-300 gap-4">
               <AlertCircle size={48} />
@@ -4607,14 +6048,14 @@ function ReportsView({ records, projects, categories }: {
       return d >= dateInterval.start && d <= dateInterval.end;
     });
 
-    const income = periodRecords.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0);
-    const expense = periodRecords.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0);
+    const income = periodRecords.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0);
+    const expense = periodRecords.filter(r => r.type === 'expense').reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
     
     // Category Pie Data
     const catMap: Record<string, number> = {};
     periodRecords.filter(r => r.type === 'expense').forEach(r => {
       const cat = r.category.split(' > ')[0];
-      catMap[cat] = (catMap[cat] || 0) + r.amount;
+      catMap[cat] = (catMap[cat] || 0) + (Math.abs(r.amount) + (r.fee || 0));
     });
     
     const pieData = Object.entries(catMap)
@@ -4629,8 +6070,8 @@ function ReportsView({ records, projects, categories }: {
       return {
         name: format(m, 'MMM'),
         fullName: format(m, 'yyyy/MM'),
-        income: mRecords.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0),
-        expense: mRecords.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0),
+        income: mRecords.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
+        expense: mRecords.filter(r => r.type === 'expense').reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0),
       };
     });
 
@@ -4641,11 +6082,11 @@ function ReportsView({ records, projects, categories }: {
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="flex-1 flex flex-col gap-6 px-4 py-8 bg-[#FFF9E3]/30 min-h-full pb-24 overflow-y-auto"
-      style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+      style={getFontFamily()}
     >
       {/* Filters */}
       <div className="flex flex-col gap-4">
-        <div className="flex bg-white/60 p-1 rounded-2xl border border-stone-100 shadow-sm overflow-x-auto no-scrollbar">
+        <div className="flex bg-white/60 p-1 rounded-2xl border border-stone-100 shadow-sm overflow-x-auto">
           {(['thisMonth', 'last3Months', 'last6Months', 'lastYear'] as const).map(range => (
             <button
               key={range}
@@ -4657,7 +6098,7 @@ function ReportsView({ records, projects, categories }: {
           ))}
         </div>
         
-        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1">
+        <div className="flex items-center gap-3 overflow-x-auto py-1">
           <button
             onClick={() => setSelectedProjectId('all')}
             className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border ${selectedProjectId === 'all' ? 'bg-[#5D4037] text-[#FFFDF5] border-[#5D4037]' : 'bg-white text-stone-500 border-stone-100'}`}
@@ -4697,81 +6138,50 @@ function ReportsView({ records, projects, categories }: {
           </div>
           <span className="text-xl font-black text-rose-600">${stats.expense.toLocaleString()}</span>
         </div>
-        <div className="col-span-2 bg-[#FFD54F] rounded-3xl p-5 shadow-md flex items-center justify-between">
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-black text-[#5D4037]/50 uppercase tracking-widest">目前結餘</span>
-            <span className="text-2xl font-black text-[#5D4037]">${stats.balance.toLocaleString()}</span>
-          </div>
-          <div className="w-12 h-12 bg-white/30 rounded-2xl flex items-center justify-center">
-            <Wallet className="text-[#5D4037]" />
-          </div>
-        </div>
       </div>
 
-      {/* Trend Chart */}
-      <div className="bg-white rounded-[40px] p-6 shadow-sm border-2 border-white flex flex-col gap-6">
-        <div className="flex items-center gap-2">
-          <BarChart3 size={18} className="text-[#FFD54F]" />
-          <span className="font-black text-[#5D4037]">收支趨勢圖</span>
-        </div>
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats.trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <XAxis dataKey="name" fontSize={10} fontWeight="bold" axisLine={false} tickLine={false} tick={{ fill: '#A8A29E' }} />
-              <YAxis fontSize={10} fontWeight="bold" axisLine={false} tickLine={false} tick={{ fill: '#A8A29E' }} />
-              <Tooltip 
-                contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontFamily: '"王漢宗中隸書", sans-serif' }}
-                cursor={{ fill: '#FFFDF5', opacity: 0.5 }}
-              />
-              <Bar dataKey="income" name="收入" fill="#93C5FD" radius={[6, 6, 0, 0]} barSize={12} />
-              <Bar dataKey="expense" name="支出" fill="#FCA5A5" radius={[6, 6, 0, 0]} barSize={12} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Category Pie Chart */}
-      <div className="bg-white rounded-[40px] p-6 shadow-sm border-2 border-white flex flex-col gap-6">
-        <div className="flex items-center gap-2">
-          <PieChart size={18} className="text-[#FFD54F]" />
-          <span className="font-black text-[#5D4037]">支出分類佔比</span>
-        </div>
-        <div className="h-64 w-full relative">
-          {stats.pieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <RePieChart>
-                <Pie
-                  data={stats.pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {stats.pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  formatter={(value: number) => `$${value.toLocaleString()}`}
-                  contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontFamily: '"王漢宗中隸書", sans-serif' }}
-                />
-              </RePieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-full flex items-center justify-center text-stone-300 font-bold italic">該區間尚無支出紀錄</div>
-          )}
-          {stats.pieData.length > 0 && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[10px] font-black text-stone-400">總計支出</span>
-              <span className="text-lg font-black text-[#5D4037]">${stats.expense.toLocaleString()}</span>
-            </div>
-          )}
+      {/* Chart */}
+      <div className="bg-white rounded-[40px] p-8 shadow-sm border border-stone-50">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h3 className="text-base font-black text-[#5D4037]">支出分析</h3>
+            <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Expense Breakdown</p>
+          </div>
         </div>
         
-        {/* Legend Custom */}
-        <div className="grid grid-cols-2 gap-3 mt-2">
+        <div className="h-[300px] w-full relative">
+          <ResponsiveContainer width="100%" height="100%">
+            <RePieChart>
+              <Pie
+                data={stats.pieData}
+                innerRadius={80}
+                outerRadius={110}
+                paddingAngle={8}
+                dataKey="value"
+                stroke="none"
+              >
+                {stats.pieData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip 
+                contentStyle={{ 
+                  borderRadius: '24px', 
+                  border: 'none', 
+                  boxShadow: '0 10px 25px -10px rgba(0,0,0,0.1)',
+                  padding: '12px 16px',
+                  ...getFontFamily()
+                }}
+              />
+            </RePieChart>
+          </ResponsiveContainer>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">總支出</span>
+            <span className="text-2xl font-black text-[#5D4037]">${stats.expense.toLocaleString()}</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mt-8">
           {stats.pieData.map((entry, index) => (
             <div key={entry.name} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl">
               <div className="flex items-center gap-2 min-w-0">
@@ -4800,8 +6210,11 @@ function MoreView({
   user,
   onForceSync,
   setRecords, 
+  setAccounts,
   setInstallments,
   setProjects,
+  setTemplates,
+  setFixedRecords,
   onUpdateTemplates,
   onUpdateCategories
 }: { 
@@ -4815,12 +6228,16 @@ function MoreView({
   user: User | null,
   onForceSync: () => Promise<boolean | undefined>,
   setRecords: (r: Transaction[]) => void,
+  setAccounts: React.Dispatch<React.SetStateAction<Account[]>>,
   setInstallments: (i: Installment[]) => void,
   setProjects: (p: Project[]) => void,
+  setTemplates: (t: Template[]) => void,
+  setFixedRecords: (fr: FixedRecord[]) => void,
   onUpdateTemplates: (t: Template[]) => void,
   onUpdateCategories: (c: Category[]) => void
 }) {
   const [showSyncModal, setShowSyncModal] = useState(false);
+  const [importPreview, setImportPreview] = useState<{ transactions: Transaction[], total: number } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -4841,6 +6258,404 @@ function MoreView({
     }
   };
 
+  const handleConfirmImport = async () => {
+    if (!importPreview) return;
+    
+    setIsSyncing(true);
+    try {
+      // 1. Identify all unique account names from the import
+      const allAccountNames = new Set<string>();
+      importPreview.transactions.forEach(t => {
+        if ((t as any)._importMainAccountName) allAccountNames.add((t as any)._importMainAccountName);
+        if (t._importSourceAccountName) allAccountNames.add(t._importSourceAccountName);
+        if (t._importDestAccountName && t._importDestAccountName !== '-') allAccountNames.add(t._importDestAccountName);
+      });
+
+      // 2. Identify missing accounts and create them (Strict Exact String matching)
+      const cleanAccName = (s: string) => {
+        return String(s).replace(/\s+/g, '').replace(/[-_@()（）]/g, '').trim().toLowerCase();
+      };
+
+      const findExistingAccountId = (name: string) => {
+        if (!name) return undefined;
+        const trimmed = name.trim();
+        // 1. Precise 100% exact full string match with ===
+        let found = accounts.find(a => a.name.trim() === trimmed);
+        if (found) return found.id;
+        // 2. Case-insensitive full string match (no substring) with ===
+        found = accounts.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
+        if (found) return found.id;
+        return undefined;
+      };
+
+      const existingAccountNamesMap = new Map<string, string>();
+      // Seed the map with existing accounts (both exact and case-insensitive lowercased names for precise full-string fallback)
+      accounts.forEach(a => {
+        existingAccountNamesMap.set(a.name.trim(), a.id);
+        existingAccountNamesMap.set(a.name.trim().toLowerCase(), a.id);
+      });
+
+      const newAccountsToCreate: Account[] = [];
+      
+      Array.from(allAccountNames).forEach(name => {
+        const trimmedName = name.trim();
+        const lowercaseName = trimmedName.toLowerCase();
+        const cleanedName = cleanAccName(trimmedName);
+        
+        // Find if this account can match an existing one securely
+        const existingId = findExistingAccountId(trimmedName);
+        
+        if (existingId) {
+          // Point multiple spreadsheet spellings/casing of this account name to its true database ID
+          existingAccountNamesMap.set(lowercaseName, existingId);
+          existingAccountNamesMap.set(cleanedName, existingId);
+        } else {
+          // If NOT mapped, we create a new ID
+          const targetId = lowercaseName === '現金' ? 'cash' : `acc_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+          
+          const isETicket = lowercaseName.includes('悠遊卡') || lowercaseName.includes('一卡通') || lowercaseName.includes('icash');
+          
+          // Enhanced Credit Card Detection with Suffixes
+          const hasVisa = lowercaseName.includes('visa');
+          const hasJcb = lowercaseName.includes('jcb');
+          const hasMaster = lowercaseName.includes('master');
+          const isCredit = lowercaseName.includes('信用卡') || lowercaseName.includes('卡') || lowercaseName.includes('cube') || 
+                          lowercaseName.includes('ubear') || lowercaseName.includes('unicard') || 
+                          hasVisa || hasJcb || hasMaster;
+
+          const isBank = (lowercaseName.includes('銀行') || lowercaseName.includes('存摺') || lowercaseName.includes('數位') || lowercaseName.includes('帳戶') || 
+                         lowercaseName.includes('國泰') || lowercaseName.includes('台新') || lowercaseName.includes('中信') || lowercaseName.includes('玉山')) && !isCredit;
+          
+          const isEPayment = lowercaseName.includes('pay') || lowercaseName.includes('支付') || lowercaseName.includes('街口') || lowercaseName.includes('台灣pay') || lowercaseName.includes('悠遊付') || lowercaseName.includes('全支付');
+          const isPoints = lowercaseName.includes('point') || lowercaseName.includes('點數') || lowercaseName.includes('點') || lowercaseName.includes('openpoint');
+          const isOther = lowercaseName.includes('其他') || lowercaseName.includes('other');
+
+          let resolvedType: Account['type'] = 'cash';
+          let resolvedIcon = '💰';
+
+          if (isETicket) {
+            resolvedType = 'e-ticket';
+            resolvedIcon = '🚌';
+          } else if (isCredit) {
+            resolvedType = 'credit';
+            resolvedIcon = '💳';
+          } else if (isBank) {
+            resolvedType = 'bank';
+            resolvedIcon = '🏦';
+          } else if (isEPayment) {
+            resolvedType = 'e-payment';
+            resolvedIcon = '📱';
+          } else if (isPoints) {
+            resolvedType = 'points';
+            resolvedIcon = '⭐';
+          } else if (isOther) {
+            resolvedType = 'other';
+            resolvedIcon = '📦';
+          }
+
+          const newAccount: Account = {
+            id: targetId,
+            name: trimmedName,
+            type: resolvedType,
+            icon: resolvedIcon,
+            currency: 'TWD',
+            order: accounts.length + newAccountsToCreate.length + 1
+          };
+          newAccountsToCreate.push(newAccount);
+          existingAccountNamesMap.set(lowercaseName, targetId);
+          existingAccountNamesMap.set(cleanedName, targetId);
+        }
+      });
+
+      if (newAccountsToCreate.length > 0) {
+        if (user) {
+          const accBatch = writeBatch(db);
+          newAccountsToCreate.forEach(acc => {
+            const accRef = doc(db, 'users', user.uid, 'accounts', acc.id);
+            accBatch.set(accRef, cleanData(acc));
+          });
+          await accBatch.commit();
+        }
+        setAccounts(prev => [...prev, ...newAccountsToCreate]);
+      }
+
+      // 2.5 Identify missing projects and create them
+      const existingProjectNamesMap = new Map(projects.map(p => [p.name.trim().toLowerCase(), p.id]));
+      const newProjectsToCreate: Project[] = [];
+      const allProjectNames = new Set<string>();
+      
+      importPreview.transactions.forEach(t => {
+        if (t._importProjectName) {
+          const nameToFind = String(t._importProjectName).includes(' > ') ? String(t._importProjectName).split(' > ').pop() : String(t._importProjectName);
+          if (nameToFind) allProjectNames.add(nameToFind.trim());
+        }
+      });
+
+      Array.from(allProjectNames).forEach(name => {
+        const trimmedName = name.trim();
+        const lowercaseName = trimmedName.toLowerCase();
+        if (trimmedName && !existingProjectNamesMap.has(lowercaseName)) {
+          const newId = `p_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+          const newProject: Project = {
+            id: newId,
+            name: trimmedName,
+            icon: '📝',
+            color: 'bg-stone-100'
+          };
+          newProjectsToCreate.push(newProject);
+          existingProjectNamesMap.set(lowercaseName, newId);
+        }
+      });
+
+      if (newProjectsToCreate.length > 0) {
+        if (user) {
+          const projBatch = writeBatch(db);
+          newProjectsToCreate.forEach(p => {
+            const pRef = doc(db, 'users', user.uid, 'projects', p.id);
+            projBatch.set(pRef, cleanData(p));
+          });
+          await projBatch.commit();
+        }
+        setProjects([...projects, ...newProjectsToCreate]);
+      }
+
+      // 2.7 Identify missing categories and create/update them
+      const updatedCategories: Category[] = [...categories];
+      const categoriesToSync = new Set<string>();
+      let addedCategoriesCount = 0;
+
+      importPreview.transactions.forEach(t => {
+        if (t.type === 'transfer' || !t.category) return;
+        
+        const parts = t.category.split(' > ').map(s => s.trim());
+        const mainName = parts[0];
+        const subName = parts[1];
+        const type = t.type as 'income' | 'expense';
+
+        if (!mainName) return;
+
+        let mainCat = updatedCategories.find(c => c.name.toLowerCase() === mainName.toLowerCase() && c.type === type);
+        
+        if (!mainCat) {
+          const newId = `cat_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+          mainCat = {
+            id: newId,
+            name: mainName,
+            icon: type === 'income' ? '💹' : '📁',
+            type: type,
+            sub: subName ? [subName] : [],
+            order: updatedCategories.length + 1
+          };
+          updatedCategories.push(mainCat);
+          categoriesToSync.add(mainCat.id);
+          addedCategoriesCount++;
+        } else if (subName && !mainCat.sub.some(s => s.toLowerCase() === subName.toLowerCase())) {
+          mainCat.sub.push(subName);
+          categoriesToSync.add(mainCat.id);
+          addedCategoriesCount++;
+        }
+      });
+
+      if (categoriesToSync.size > 0) {
+        const syncList = updatedCategories.filter(c => categoriesToSync.has(c.id));
+        if (user) {
+          const catBatch = writeBatch(db);
+          syncList.forEach(cat => {
+            const catRef = doc(db, 'users', user.uid, 'categories', cat.id);
+            catBatch.set(catRef, cleanData(cat));
+          });
+          await catBatch.commit();
+        }
+        onUpdateCategories(updatedCategories);
+      }
+
+      // 3. Process Transactions with correctly resolved IDs
+      const nextRecords = [...records];
+      let addedCount = 0;
+      let skippedCount = 0;
+      const recordsToSync: Transaction[] = [];
+      
+      importPreview.transactions.forEach(imported => {
+        const mainRawName = (imported as any)._importMainAccountName?.trim();
+        const sourceName = imported._importSourceAccountName?.trim();
+        const destName = imported._importDestAccountName?.trim();
+        const importProjName = imported._importProjectName?.trim();
+
+        const getMappedAccountId = (nameText: string | undefined, defaultId: string) => {
+          if (!nameText || nameText === '-') return defaultId;
+          const trimmed = nameText.trim();
+          const target = existingAccountNamesMap.get(trimmed) || 
+                         existingAccountNamesMap.get(trimmed.toLowerCase()) || 
+                         findExistingAccountId(trimmed);
+          return target || defaultId;
+        };
+
+        let resolvedAccountId = imported.accountId;
+        let resolvedToAccountId = imported.toAccountId;
+
+        if (mainRawName && mainRawName !== '-') {
+          // Rule 1: Strict Primary Account Binding - strictly bind to the "Account / 主帳戶" name written on this row!
+          resolvedAccountId = getMappedAccountId(mainRawName, imported.accountId);
+          
+          if (imported.type === 'transfer') {
+            // Determine counterpart account name
+            let targetName = '';
+            if (sourceName && sourceName !== '-' && sourceName !== mainRawName) {
+              targetName = sourceName;
+            } else if (destName && destName !== '-' && destName !== mainRawName) {
+              targetName = destName;
+            }
+            if (targetName) {
+              resolvedToAccountId = getMappedAccountId(targetName, imported.toAccountId || '');
+            } else {
+              resolvedToAccountId = imported.toAccountId;
+            }
+          } else {
+            resolvedToAccountId = undefined;
+          }
+        } else {
+          // Fallback if mainRawName is empty/not present (preserving original fallback rules)
+          if (imported.type === 'income') {
+            resolvedAccountId = (destName && destName !== '-') ? getMappedAccountId(destName, imported.accountId) : 
+                               ((sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId);
+            resolvedToAccountId = undefined;
+          } else if (imported.type === 'expense') {
+            resolvedAccountId = (sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId;
+            resolvedToAccountId = undefined;
+          } else if (imported.type === 'transfer') {
+            const isPos = imported.amount > 0;
+            const mainName = isPos ? destName : sourceName;
+            const targetName = isPos ? sourceName : destName;
+
+            resolvedAccountId = (mainName && mainName !== '-') ? getMappedAccountId(mainName, imported.accountId) : imported.accountId;
+            resolvedToAccountId = (targetName && targetName !== '-') ? getMappedAccountId(targetName, imported.toAccountId || '') : imported.toAccountId;
+          }
+        }
+
+        // Defensive checks for transfers
+        if (imported.type === 'transfer') {
+          if (!resolvedAccountId) {
+            resolvedAccountId = accounts[0]?.id || 'cash';
+          }
+          if (!resolvedToAccountId) {
+            const sibling = accounts.find(a => a.id !== resolvedAccountId) || newAccountsToCreate.find(a => a.id !== resolvedAccountId);
+            resolvedToAccountId = sibling?.id || '';
+          }
+        }
+
+        let resolvedProjectId = imported.projectId;
+        if (importProjName) {
+           const projNameToFind = importProjName.includes(' > ') ? importProjName.split(' > ').pop() : importProjName;
+           if (projNameToFind) {
+             resolvedProjectId = existingProjectNamesMap.get(projNameToFind.trim().toLowerCase()) || imported.projectId;
+           }
+        }
+
+        const recordToProcess = {
+          ...imported,
+          accountId: resolvedAccountId || accounts[0]?.id || 'cash',
+          toAccountId: resolvedToAccountId,
+          projectId: resolvedProjectId
+        };
+        delete (recordToProcess as any)._importSourceAccountName;
+        delete (recordToProcess as any)._importDestAccountName;
+        delete (recordToProcess as any)._importProjectName;
+
+        const duplicateIndex = nextRecords.findIndex(existing => 
+          existing.date === recordToProcess.date &&
+          existing.type === recordToProcess.type &&
+          existing.amount === recordToProcess.amount &&
+          existing.category === recordToProcess.category &&
+          existing.accountId === recordToProcess.accountId &&
+          existing.toAccountId === recordToProcess.toAccountId &&
+          (existing.note || '') === (recordToProcess.note || '')
+        );
+
+        if (duplicateIndex !== -1) {
+          skippedCount++;
+        } else {
+          const newRecord = { ...recordToProcess };
+          if (!newRecord.id || String(newRecord.id).startsWith('import_') || String(newRecord.id).includes('[object')) {
+            newRecord.id = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${addedCount}`;
+          }
+          nextRecords.push(newRecord);
+          recordsToSync.push(newRecord);
+          addedCount++;
+        }
+      });
+      
+      const sorted = nextRecords.sort((a, b) => b.date.localeCompare(a.date));
+      
+      if (user && recordsToSync.length > 0) {
+        const batchSize = 400;
+        for (let i = 0; i < recordsToSync.length; i += batchSize) {
+          const currentBatch = recordsToSync.slice(i, i + batchSize);
+          const batch = writeBatch(db);
+          currentBatch.forEach(r => {
+            const sanitized = cleanData(r);
+            const recordRef = doc(db, 'users', user.uid, 'transactions', r.id);
+            batch.set(recordRef, sanitized);
+          });
+          await batch.commit();
+        }
+        setRecords(sorted);
+      } else if (!user) {
+        setRecords(sorted);
+      }
+
+      // 4. Automatic Baseline Alignment (Align initialBalance with Excel's Latest Balance)
+      if (importPreview.accountLatestBalances && Object.keys(importPreview.accountLatestBalances).length > 0) {
+        const updatedAccountsWithBalances = [...accounts, ...newAccountsToCreate];
+        const finalAccountList = updatedAccountsWithBalances.map(acc => {
+          if (acc.type === 'credit') {
+            return { ...acc, initialBalance: acc.initialBalance || 0 };
+          }
+          const latestBal = (importPreview as any).accountLatestBalances[acc.id];
+          if (latestBal === undefined) return acc;
+
+          // Calculate current theoretical sum of all records for this account
+          let recordSum = 0;
+          sorted.forEach(r => {
+            if (r.category === '初始資金') return;
+            if (r.accountId === acc.id) {
+              recordSum += r.amount;
+              if (r.fee) recordSum -= r.fee;
+            }
+            if (r.type === 'transfer' && r.toAccountId === acc.id) {
+              if (r.toAmount !== undefined) {
+                recordSum += r.toAmount;
+              } else {
+                recordSum -= r.amount * (r.exchangeRate || 1);
+              }
+            }
+          });
+
+          // Formula: initialBalance + recordSum = latestBal
+          // => initialBalance = latestBal - recordSum
+          return { ...acc, initialBalance: latestBal - recordSum };
+        });
+
+        if (user) {
+          const accSyncBatch = writeBatch(db);
+          finalAccountList.forEach(acc => {
+            accSyncBatch.set(doc(db, 'users', user.uid, 'accounts', acc.id), cleanData(acc));
+          });
+          await accSyncBatch.commit();
+        }
+        setAccounts(finalAccountList);
+      }
+      
+      setImportPreview(null);
+      alert(`匯入完成！\n已成功匯入 ${addedCount} 筆明細，並自動新增了 ${addedCategoriesCount} 個新分類。\n成功建立帳戶：${newAccountsToCreate.length} 個\n成功建立專案：${newProjectsToCreate.length} 個\n已跳過重複項：${skippedCount} 筆`);
+      setShowSyncModal(false);
+    } catch (err: any) {
+      console.error('Import failed:', err);
+      alert(`匯入失敗：\n${err.message || '請檢查網路連線或稍後再試。'}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [exportRange, setExportRange] = useState(() => {
     const now = new Date();
@@ -4853,7 +6668,7 @@ function MoreView({
   });
 
   const handleExportCSV = () => {
-    const headers = ['消費日期', '入帳日期', '類型', '類別', '金額', '帳戶', '備註'];
+    const headers = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '金額', '手續費', '來源帳戶', '目的帳戶', '備註', 'ID'];
     
     // Filter records by date range
     const filtered = records.filter(r => {
@@ -4862,32 +6677,60 @@ function MoreView({
     }).sort((a, b) => a.date.localeCompare(b.date));
 
     const rows = filtered.map(r => {
-      const account = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
-      const type = r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳');
+      const mainAccName = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
+      const toAccName = r.type === 'transfer' ? (accounts.find(a => a.id === r.toAccountId)?.name || '未知帳戶') : '';
+      
+      let sourceAccount = '';
+      let destAccount = '';
+      
+      if (r.type === 'income') {
+        sourceAccount = '';
+        destAccount = mainAccName;
+      } else if (r.type === 'expense') {
+        sourceAccount = mainAccName;
+        destAccount = '';
+      } else if (r.type === 'transfer') {
+        sourceAccount = mainAccName;
+        destAccount = toAccName;
+      }
+
+      const proj = projects.find(p => p.id === r.projectId);
+      let catMain = r.category;
+      let catSub = '';
+      const catObj = categories.find(c => c.name === r.category || c.sub.includes(r.category));
+      if (catObj && catObj.sub.includes(r.category)) {
+        catMain = catObj.name;
+        catSub = r.category;
+      }
+
       return [
         r.date,
         r.postingDate || (r.isPending ? '未入帳' : r.date),
-        type,
-        r.category,
+        r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳'),
+        catMain,
+        catSub,
+        proj?.name || '',
         r.amount,
-        account,
-        r.note || ''
+        r.fee || 0,
+        sourceAccount,
+        destAccount,
+        r.note || '',
+        r.id
       ];
     });
 
     const csvContent = [
       headers.join(','),
-      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      ...rows.map(row => row.map(cell => {
+        const str = String(cell).replace(/"/g, '""');
+        return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
+      }).join(','))
     ].join('\n');
 
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    const startStr = exportRange.start.replace(/-/g, '');
-    const endStr = exportRange.end.replace(/-/g, '');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `KK記帳_${startStr}-${endStr}.csv`);
-    link.style.visibility = 'hidden';
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `KK記帳_匯出_${exportRange.start}_${exportRange.end}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -4921,30 +6764,397 @@ function MoreView({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const content = event.target?.result as string;
-        const data = JSON.parse(content);
-        
-        if (!Array.isArray(data.records)) {
-          throw new Error('無效的備份檔案格式 (缺少 records)');
-        }
+    const extension = file.name.split('.').pop()?.toLowerCase();
 
-        if (window.confirm('確定要還原嗎？這將覆蓋目前的所有資料且無法復原。')) {
-          setRecords(data.records);
-          if (Array.isArray(data.installments)) setInstallments(data.installments);
-          if (Array.isArray(data.projects)) setProjects(data.projects);
-          
-          alert('資料還原成功！');
-          setShowSyncModal(false);
+    if (extension === 'json') {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const content = event.target?.result as string;
+          const data = JSON.parse(content);
+          if (!Array.isArray(data.records)) throw new Error('無效的備份檔案格式 (缺少 records)');
+          setImportPreview({ transactions: data.records, total: data.records.length });
+        } catch (err) {
+          alert('讀取失敗：' + (err instanceof Error ? err.message : '檔案格式不正確'));
         }
-      } catch (err) {
-        alert('還原失敗：' + (err instanceof Error ? err.message : '檔案格式不正確'));
-      }
-    };
-    reader.readAsText(file);
+      };
+      reader.readAsText(file);
+    } else if (extension === 'xlsx' || extension === 'xls' || extension === 'csv') {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json(firstSheet, { defval: "" }) as any[];
+          
+          if (jsonData.length === 0) throw new Error('檔案中沒有資料');
+
+          // Helper to get value from row using case-insensitive trimmed alias matching
+          const getVal = (row: any, aliases: string[]) => {
+            const keys = Object.keys(row);
+            const normalizedAliases = aliases.map(a => a.trim().toLowerCase());
+            const targetKey = keys.find(k => normalizedAliases.includes(k.trim().toLowerCase()));
+            return targetKey ? row[targetKey] : undefined;
+          };
+
+          const importedTransactions: Transaction[] = jsonData.map((row: any, idx) => {
+            // 1. Resolve Basic Fields with Aliases
+            const parseDate = (raw: any) => {
+              if (!raw) return undefined;
+              if (raw instanceof Date) return formatLocalDate(raw);
+              if (typeof raw === 'number') {
+                const dateObj = new Date(Math.round((raw - 25569) * 86400 * 1000));
+                return formatLocalDate(dateObj);
+              }
+              const dateStr = String(raw).trim().replace(/\//g, '-');
+              if (dateStr.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+                const parts = dateStr.split('-');
+                return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+              }
+              if (dateStr.match(/^\d{1,2}-\d{1,2}$/)) {
+                const parts = dateStr.split('-');
+                return `${new Date().getFullYear()}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+              }
+              const d = new Date(dateStr);
+              return !isNaN(d.getTime()) ? formatLocalDate(d) : undefined;
+            };
+
+            const consumeDateRaw = getVal(row, ['消費日期', '日期', '日期(yyyy/MM/dd)', 'date']);
+            const postingDateRaw = getVal(row, ['入帳日期', 'posting date']);
+            
+            const date = parseDate(consumeDateRaw) || formatLocalDate(new Date());
+            const postingDateVal = parseDate(postingDateRaw);
+            const isPendingValue = getVal(row, ['入帳日期', 'posting date status']) === '未入帳';
+            
+            // Ensure BOTH date and postingDate are stored (use date as fallback for postingDate if not pending)
+            const finalPostingDate = postingDateVal || (isPendingValue ? undefined : date);
+            
+            const mainCat = String(getVal(row, ['主分類', '類別', 'category']) || '').trim();
+            const subCat = String(getVal(row, ['子分類']) || '').trim();
+            const category = (mainCat && subCat) ? `${mainCat} > ${subCat}` : (mainCat || subCat || '其他');
+            
+            // 2. Resolve Accounts
+            let expAcc = String(getVal(row, ['支出帳戶', '來源帳戶', '轉出帳戶', '轉出', '從帳戶', 'Source Account']) || '').trim();
+            let incAcc = String(getVal(row, ['收入帳戶', '目的帳戶', '目標帳戶', '目標', '轉入帳戶', '轉帳帳戶', '轉入', '轉至', '到帳戶', 'Dest Account', 'Destination Account']) || '').trim();
+            let genAcc = String(getVal(row, ['帳戶', '帳戶名稱', 'Account']) || '').trim();
+
+            if (expAcc === '-') expAcc = '';
+            if (incAcc === '-') incAcc = '';
+            if (genAcc === '-') genAcc = '';
+            
+            const parseSignedVal = (val: any) => {
+              if (val === undefined || val === null) return 0;
+              if (typeof val === 'number') return val;
+              const s = String(val).replace(/[^\d.-]/g, '').trim();
+              const num = parseFloat(s);
+              return isNaN(num) ? 0 : num;
+            };
+
+            const rawAmount = parseSignedVal(getVal(row, ['金額', '小計', 'amount']));
+            const feeVal = Math.abs(parseSignedVal(getVal(row, ['手續費', 'fee'])));
+            const rawBalanceText = getVal(row, ['餘額', '交易後餘額', '結餘', 'Balance']);
+            const isBalanceEmpty = rawBalanceText === undefined || rawBalanceText === null || String(rawBalanceText).trim() === '';
+            const balanceVal = isBalanceEmpty ? 0 : parseSignedVal(rawBalanceText);
+
+            const rawTypeText = String(getVal(row, ['類型', '交易類型', 'Type']) || '').trim();
+            const rawCategoryText = String(getVal(row, ['主分類', '類別', 'category']) || '').trim();
+            const rawNoteText = String(getVal(row, ['明細', '項目', '品項', '名稱', '內容', '消費項目', '備註', '說明']) || '').trim();
+            
+            let type: Transaction['type'] = 'expense';
+            
+            const isDoubleAccount = (expAcc && incAcc && expAcc !== '-' && incAcc !== '-');
+            const isAutoReloadText = rawNoteText.includes('自動加值') || rawCategoryText.includes('自動加值') || rawTypeText.includes('自動加值') || rawCategoryText.includes('加值');
+
+            // 1. Double account signature forces "transfer" regardless of positive or negative amount
+            if (isDoubleAccount) {
+              type = 'transfer';
+            } else if (rawAmount < 0) {
+              const isTransfer = rawTypeText.includes('轉帳') || isAutoReloadText;
+              type = isTransfer ? 'transfer' : 'expense';
+            } else {
+              if (rawTypeText.includes('收入')) type = 'income';
+              else if (rawTypeText.includes('支出')) type = 'expense';
+              else if (rawTypeText.includes('轉帳') || isAutoReloadText) type = 'transfer';
+              else {
+                if (incAcc) type = 'income';
+                else type = 'expense';
+              }
+            }
+
+            let sourceAccName = expAcc;
+            let destAccName = incAcc;
+
+            if (!sourceAccName && !destAccName && genAcc) {
+              if (type === 'income') destAccName = genAcc;
+              else sourceAccName = genAcc;
+            }
+
+            const cleanAccName = (s: string) => {
+              return String(s).replace(/\s+/g, '').replace(/[-_@()（）]/g, '').trim().toLowerCase();
+            };
+
+            const findAccByName = (name: string) => {
+              if (!name) return undefined;
+              const trimmed = name.trim();
+              // 1. Precise 100% exact full string match with ===
+              let found = accounts.find(a => a.name.trim() === trimmed);
+              if (found) return found;
+              // 2. Case-insensitive full string match (no substring) with ===
+              found = accounts.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
+              return found;
+            };
+
+             const sourceAcc = findAccByName(sourceAccName);
+            const destAcc = findAccByName(destAccName);
+            const mainAcc = findAccByName(genAcc);
+            
+            let finalAccountId = mainAcc?.id || sourceAcc?.id || '';
+            let finalToAccountId = destAcc?.id || '';
+            let amountVal = rawAmount;
+
+            if (type === 'income') {
+              finalAccountId = mainAcc?.id || destAcc?.id || sourceAcc?.id || '';
+              finalToAccountId = '';
+              if (amountVal < 0) amountVal = -amountVal;
+            } else if (type === 'expense') {
+              finalAccountId = mainAcc?.id || sourceAcc?.id || '';
+              finalToAccountId = '';
+              if (amountVal > 0) amountVal = -amountVal;
+            } else if (type === 'transfer') {
+              if (mainAcc) {
+                // If "主帳戶（Account）" is written on this row, strictly bind finalAccountId to it!
+                finalAccountId = mainAcc.id;
+                // Determine counterpart (the other account name specified on the same row)
+                let otherAcc = undefined;
+                if (sourceAcc && sourceAcc.id !== mainAcc.id) {
+                  otherAcc = sourceAcc;
+                } else if (destAcc && destAcc.id !== mainAcc.id) {
+                  otherAcc = destAcc;
+                }
+                finalToAccountId = otherAcc?.id || '';
+                // Since this row is treated strictly under its own main account,
+                // we preserve the exact rawAmount sign (be it transfer in / out)
+                // because the sign on this row reflects whether it increased or decreased this main account.
+                amountVal = rawAmount;
+              } else {
+                // Fallback if genAcc is not found on the row
+                const srcId = sourceAcc?.id || '';
+                const dstId = destAcc?.id || '';
+                if (srcId && dstId) {
+                  finalAccountId = srcId;
+                  finalToAccountId = dstId;
+                  amountVal = rawAmount;
+                } else if (dstId) {
+                  finalAccountId = dstId;
+                  finalToAccountId = '';
+                  amountVal = Math.abs(rawAmount);
+                } else {
+                  finalAccountId = srcId;
+                  finalToAccountId = '';
+                  amountVal = -Math.abs(rawAmount);
+                }
+              }
+            }
+
+            // 3. Resolve Project
+            const projectName = String(getVal(row, ['專案', 'Project']) || '').trim();
+            let projectId = undefined;
+            if (projectName) {
+               const nameToFind = projectName.includes(' > ') 
+                                  ? projectName.split(' > ').map(s => s.trim()).pop() || ''
+                                  : projectName;
+               
+               const foundProject = projects.find(p => 
+                 p.name.toLowerCase() === projectName.toLowerCase() || 
+                 p.name.toLowerCase() === nameToFind.toLowerCase()
+               );
+               projectId = foundProject?.id;
+            }
+
+            // 5. Resolve ID and Note / Remark
+            const rawId = String(getVal(row, ['ID', 'id']) || '');
+            let cleanId = rawId;
+            if (rawId.startsWith("'")) cleanId = rawId.substring(1);
+            else if (rawId.startsWith("ID_")) cleanId = rawId.substring(3);
+
+            const remarkRaw = getVal(row, ['備註', '說明']);
+            const remarkVal = remarkRaw ? String(remarkRaw).trim() : '';
+            const itemNameRaw = getVal(row, ['明細', '項目', '品項', '名稱', '內容', '消費項目']);
+            const itemNameVal = itemNameRaw ? String(itemNameRaw).trim() : '';
+
+            const noteText = itemNameVal || remarkVal || '未命名明細';
+
+            return {
+              id: cleanId || `import_${Date.now()}_${idx}`,
+              date: String(date),
+              postingDate: finalPostingDate ? String(finalPostingDate) : undefined,
+              isPending: isPendingValue,
+              type: type as any,
+              category: String(category),
+              amount: amountVal,
+              fee: feeVal,
+              accountId: finalAccountId,
+              toAccountId: finalToAccountId,
+              note: noteText,
+              remark: remarkVal || undefined,
+              projectId: projectId as string | undefined,
+              _importBalance: isBalanceEmpty ? undefined : balanceVal, // Store for logic sync
+              _importMainAccountName: genAcc,
+              _importSourceAccountName: sourceAccName,
+              _importDestAccountName: destAccName,
+              _importProjectName: projectName ? String(projectName) : undefined
+            };
+          }).filter(r => r.amount !== 0 || r.category === '初始資金');
+
+          if (importedTransactions.length === 0) throw new Error('檔案中沒有可匯入的有效金額資料');
+          
+          // Identify latest balance per account from the imported data
+          const accountLatestBalances: Record<string, number> = {};
+          
+          // Group transactions that have an import balance by accountId
+          const txsByAccount: Record<string, Transaction[]> = {};
+          importedTransactions.forEach(t => {
+            if (t._importBalance !== undefined) {
+              if (!txsByAccount[t.accountId]) txsByAccount[t.accountId] = [];
+              txsByAccount[t.accountId].push(t);
+            }
+          });
+
+          // Determine if the Excel file is newest on top or oldest on top
+          let isNewestOnTop = false;
+          if (importedTransactions.length >= 2) {
+            const firstDate = importedTransactions[0].date;
+            const lastDate = importedTransactions[importedTransactions.length - 1].date;
+            if (firstDate > lastDate) {
+              isNewestOnTop = true;
+            }
+          }
+
+          Object.keys(txsByAccount).forEach(accId => {
+            const list = txsByAccount[accId];
+            
+            list.sort((a, b) => {
+              const dateComp = a.date.localeCompare(b.date);
+              if (dateComp !== 0) return dateComp;
+              const indexA = importedTransactions.indexOf(a);
+              const indexB = importedTransactions.indexOf(b);
+              return isNewestOnTop ? (indexB - indexA) : (indexA - indexB);
+            });
+
+            // The last item in sorted list is the chronologically latest one
+            const latestTx = list[list.length - 1];
+            accountLatestBalances[accId] = latestTx._importBalance!;
+          });
+
+          setImportPreview({ 
+            transactions: importedTransactions, 
+            total: importedTransactions.length,
+            accountLatestBalances // Store these for handleConfirmImport
+          });
+        } catch (err) {
+          alert('讀取 Excel 失敗：' + (err instanceof Error ? err.message : '檔案格式不正確'));
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      alert('不支援的檔案格式（僅支援 .json, .xlsx, .csv）');
+    }
     e.target.value = '';
+  };
+
+  const handleResetAllData = async () => {
+    // Triple confirmation for extreme safety
+    const confirm1 = window.confirm('⚠️ 警告：確定要刪除所有明細、帳戶與計畫資料嗎？');
+    if (!confirm1) return;
+    
+    const confirm2 = window.confirm('此操作將徹底清空您的所有帳務紀錄，且無法還原。您確定要繼續嗎？');
+    if (!confirm2) return;
+
+    setIsSyncing(true);
+    try {
+      if (user) {
+        const batch = writeBatch(db);
+        
+        // We'll reset everything related to this user
+        records.forEach(r => {
+          batch.delete(doc(db, 'users', user.uid, 'transactions', r.id));
+        });
+        
+        accounts.forEach(acc => {
+          batch.delete(doc(db, 'users', user.uid, 'accounts', acc.id));
+        });
+
+        fixedRecords.forEach(f => {
+          batch.delete(doc(db, 'users', user.uid, 'fixedRecords', f.id));
+        });
+
+        installments.forEach(i => {
+          batch.delete(doc(db, 'users', user.uid, 'installments', i.id));
+        });
+
+        templates.forEach(t => {
+          batch.delete(doc(db, 'users', user.uid, 'templates', t.id));
+        });
+
+        // Clear projects but keep a default one
+        projects.forEach(p => {
+          if (p.id !== 'p1') {
+            batch.delete(doc(db, 'users', user.uid, 'projects', p.id));
+          }
+        });
+
+        await batch.commit();
+      }
+      
+      // Update local states directly to ensure immediate feedback
+      setRecords([]);
+      setAccounts([]);
+      setFixedRecords([]);
+      setInstallments([]);
+      setTemplates([]);
+      setProjects([{ id: 'p1', name: '預設專案', icon: '📂', color: 'bg-stone-100', description: '系統預設專案' }]);
+      
+      // Clear import preview state / cache
+      setImportPreview(null);
+      // Clear localStorage and sessionStorage
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // Deep clear IndexedDB
+      if (window.indexedDB && window.indexedDB.databases) {
+        try {
+          const dbs = await window.indexedDB.databases();
+          dbs.forEach(dbInfo => {
+            if (dbInfo.name) {
+              window.indexedDB.deleteDatabase(dbInfo.name);
+            }
+          });
+        } catch (e) {
+          console.error("Failed to list indexedDB dbs:", e);
+        }
+      }
+      // Explicit fallback common database names
+      const commonDbs = [
+        'firestoreOfflineDatabase', 
+        'firebaseLocalStorageDb', 
+        '_pouch_localforage', 
+        'localforage',
+        'firestore'
+      ];
+      commonDbs.forEach(dbname => {
+        try {
+          window.indexedDB.deleteDatabase(dbname);
+        } catch (e) {}
+      });
+      
+      alert('所有資料及快取已成功重設！');
+    } catch (err: any) {
+      console.error('Reset failed:', err);
+      alert('重設失敗：' + (err.message || '請稍後再試。'));
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   return (
@@ -5006,7 +7216,7 @@ function MoreView({
                 <div className="w-9 h-9 bg-white rounded-2xl flex items-center justify-center shadow-sm flex-shrink-0">
                   <Database size={18} className="text-[#FBC02D]" />
                 </div>
-                <h3 className="text-[19px] font-black text-[#5D4037] whitespace-nowrap leading-none tracking-tight" style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}>備份與還原</h3>
+                <h3 className="text-[19px] font-black text-[#5D4037] whitespace-nowrap leading-none tracking-tight" style={getFontFamily()}>備份與還原</h3>
               </div>
 
               {/* Scrollable Content */}
@@ -5026,13 +7236,13 @@ function MoreView({
                     className="bg-white border-2 border-[#5D4037]/10 text-[#5D4037] py-3.5 rounded-2xl font-bold text-[15px] flex items-center justify-center gap-3 active:scale-95 transition-all"
                   >
                     <Upload size={18} />
-                    選取備份檔還原
+                    選取備份檔還原 (.json / .xlsx)
                   </button>
                   <input 
                     type="file" 
                     ref={fileInputRef} 
                     onChange={handleFileChange} 
-                    accept=".json" 
+                    accept=".json,.xlsx,.xls,.csv" 
                     className="hidden" 
                   />
 
@@ -5072,6 +7282,21 @@ function MoreView({
           </div>
         </div>
       </div>
+
+      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-4 mt-2">
+        <span className="font-black text-lg text-rose-500">危險區域</span>
+        <p className="text-[10px] font-bold text-stone-300 leading-relaxed">
+          以下操作將永久移除您的資料，請務必確認已備份重要資訊。
+        </p>
+        <button 
+          onClick={handleResetAllData}
+          disabled={isSyncing}
+          className="flex items-center justify-center gap-3 p-5 bg-rose-50 hover:bg-rose-100 rounded-[24px] border-2 border-white shadow-sm transition-all active:scale-[0.98] w-full"
+        >
+          <Trash2 size={24} className="text-rose-500" />
+          <span className="text-lg font-black text-rose-500">重設所有資料</span>
+        </button>
+      </div>
       
       <div className="h-[40px]" />
 
@@ -5086,7 +7311,7 @@ function MoreView({
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.9, y: 20, opacity: 0 }}
               className="bg-[#FFF9E3] rounded-[44px] w-full max-w-sm shadow-2xl relative flex flex-col p-8 border-4 border-white"
-              style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+              style={getFontFamily()}
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center gap-3 mb-6">
@@ -5136,6 +7361,124 @@ function MoreView({
           </div>
         )}
       </AnimatePresence>
+      {importPreview && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            className="bg-[#FFF9E3] rounded-[40px] w-[90%] max-w-2xl shadow-2xl relative flex flex-col max-h-[85vh] overflow-y-auto border-4 border-white"
+            style={getFontFamily()}
+          >
+            {/* Header */}
+            <div className="px-8 pt-8 pb-6 bg-white/30 backdrop-blur-md flex-shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-md">
+                  <Check size={24} className="text-[#FBC02D]" />
+                </div>
+                <div>
+                  <h3 className="text-[22px] font-black text-[#5D4037] leading-tight">匯入預覽視窗</h3>
+                  <p className="text-stone-400 text-sm font-bold mt-0.5">請核對匯入明細是否正確</p>
+                </div>
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="h-[400px] overflow-y-auto px-6 py-4 space-y-3 flex-shrink-0">
+              <div className="flex items-center justify-between px-2 text-[10px] font-black text-stone-300 uppercase tracking-widest sticky top-0 bg-[#FFF9E3] py-2 z-10">
+                <span>欲匯入項目 ({importPreview.total} 筆)</span>
+                <span>金額</span>
+              </div>
+              
+              <div className="space-y-2">
+                {importPreview.transactions.map((r, idx) => (
+                  <div key={idx} className="bg-white/60 rounded-2xl p-4 flex items-center gap-3 border border-white shadow-sm">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black text-[#FBC02D] bg-[#FBC02D]/10 px-2 py-0.5 rounded-full" style={getFontFamily()}>
+                          {(() => {
+                            const d = r.date || formatLocalDate(new Date());
+                            const pd = r.postingDate;
+                            if (d.includes('-')) {
+                              const parts = d.split('-');
+                              const mString = parts.length >= 3 ? `${parts[1]}/${parts[2]}` : d;
+                              return pd ? `${mString} (入:${pd.split('-').slice(1).join('/')})` : mString;
+                            }
+                            return d || '00/00';
+                          })()}
+                        </span>
+                        <span className="text-xs font-bold text-stone-400 truncate">{r.category}</span>
+                      </div>
+                      <div className="text-[15px] font-black text-[#5D4037] whitespace-pre-wrap break-all leading-relaxed">
+                        {r.note || r.category}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div 
+                        className={`text-[17px] font-black ${
+                          r.type === 'transfer' ? 'text-[#5D4037]' : 
+                          (r.type === 'income' ? 'text-blue-500' : 'text-rose-500')
+                        }`}
+                        style={getFontFamily()}
+                      >
+                        {r.type === 'transfer' ? '' : (r.type === 'income' ? '+' : '-')}
+                        ${Math.abs(r.amount).toLocaleString()}
+                      </div>
+                      <div className="text-base font-black text-[#5D4037]/60 mt-1" style={getFontFamily()}>
+                        {r.type === 'transfer' ? (
+                          (() => {
+                            const sName = r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name;
+                            const dName = r._importDestAccountName || accounts.find(a => a.id === r.toAccountId)?.name;
+                            return (sName && dName && dName !== '-') ? (
+                              <div className="flex items-center gap-1" style={getFontFamily()}>
+                                <span style={getFontFamily()}>{sName}</span>
+                                <span className="text-stone-300" style={getFontFamily()}>→</span>
+                                <span style={getFontFamily()}>{dName}</span>
+                              </div>
+                            ) : (sName || dName || '未知帳戶');
+                          })()
+                        ) : (
+                          r.type === 'income' 
+                            ? (r._importDestAccountName || r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name)
+                            : (r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name)
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="px-8 py-8 pt-4 space-y-3 bg-white/30 backdrop-blur-md flex-shrink-0">
+              <div className="bg-[#5D4037]/5 rounded-2xl p-4 mb-2">
+                <p className="text-[13px] text-[#5D4037]/80 leading-relaxed font-bold">
+                  💡 智慧比對：若資料內容 (日期、分類、金額、帳戶、備註) 完全相同，系統將視為同一筆資料更新；否則會視為新明細匯入。
+                </p>
+              </div>
+
+              <button 
+                onClick={handleConfirmImport}
+                disabled={isSyncing}
+                className="w-full bg-[#5D4037] text-white py-5 rounded-[25px] font-black text-[18px] active:scale-95 transition-all shadow-xl hover:bg-[#3E2723] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isSyncing ? (
+                  <>
+                    <Loader2 size={24} className="animate-spin text-[#FFD54F]" />
+                    <span>正努力同步明細中...</span>
+                  </>
+                ) : '確認匯入'}
+              </button>
+              <button 
+                onClick={() => setImportPreview(null)}
+                className="w-full text-stone-400 font-bold text-sm py-2 hover:text-[#5D4037] transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -5207,7 +7550,7 @@ function HorizontalScrollArea({
       
       <div 
         ref={scrollRef}
-        className="flex gap-3 overflow-x-auto no-scrollbar py-1 scroll-smooth"
+        className="flex gap-3 overflow-x-auto py-1 scroll-smooth"
       >
         {children}
       </div>
@@ -5243,11 +7586,12 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 }) {
   const [tab, setTab] = useState<'template' | 'expense' | 'income' | 'transfer'>('template');
   const [amount, setAmount] = useState('0');
-  const [selectedAccountId, setSelectedAccountId] = useState(accounts[1].id);
-  const [toAccountId, setToAccountId] = useState(accounts[4].id);
+  const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
+  const [toAccountId, setToAccountId] = useState(accounts.length > 1 ? accounts[1].id : accounts[0]?.id || '');
   const [mainCategory, setMainCategory] = useState<string | null>(null);
   const [subCategory, setSubCategory] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [fee, setFee] = useState('0');
   const [exchangeRate, setExchangeRate] = useState('1');
   const [toAmount, setToAmount] = useState('0');
   const [isInstallment, setIsInstallment] = useState(false);
@@ -5260,6 +7604,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const [isPending, setIsPending] = useState(false);
   const [isDateExpanded, setIsDateExpanded] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || 'p1');
+  // Ensure currency mode affects new records too
+  const [currency, setCurrency] = useState(accounts.find(a => a.id === (tab === 'transfer' ? 'acc1' : 'acc1'))?.currency || 'TWD');
 
   // For Project Picker Search
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
@@ -5329,24 +7675,41 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const handleKey = (key: string) => {
     if (key === 'AC') { setAmount('0'); return; }
     if (key === '=') {
-      const finalAmount = parseFloat(amount);
+      const rawAmt = parseFloat(amount) || 0;
+      const finalFee = parseFloat(fee) || 0;
       const rate = parseFloat(exchangeRate) || 1;
+      
+      // Smart Sign Parsing:
+      // - If amount has negative sign (rawAmt < 0), auto determine as expense or transfer
+      // - If amount has positive sign (rawAmt >= 0), determine based on active tab
+      let resolvedType: 'income' | 'expense' | 'transfer' = tab === 'template' ? 'expense' : tab;
+      if (rawAmt < 0) {
+        resolvedType = tab === 'transfer' ? 'transfer' : 'expense';
+      } else {
+        if (tab === 'expense') resolvedType = 'expense';
+        else if (tab === 'income') resolvedType = 'income';
+        else if (tab === 'transfer') resolvedType = 'transfer';
+      }
+
+      const finalAmount = (resolvedType === 'expense' || resolvedType === 'transfer') ? -Math.abs(rawAmt) : Math.abs(rawAmt);
       
       onSave({ 
         amount: finalAmount, 
-        category: subCategory || mainCategory || (tab === 'transfer' ? '轉帳' : '其他'), 
+        fee: finalFee,
+        category: subCategory || mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'), 
         note: note.trim() || undefined,
-        type: tab as any, 
+        type: resolvedType, 
         accountId: selectedAccountId, 
-        toAccountId: tab === 'transfer' ? toAccountId : undefined, 
-        toAmount: tab === 'transfer' ? (parseFloat(toAmount) || finalAmount * rate) : undefined,
-        exchangeRate: tab === 'transfer' ? rate : undefined,
+        toAccountId: resolvedType === 'transfer' ? toAccountId : undefined, 
+        toAmount: resolvedType === 'transfer' ? (parseFloat(toAmount) || Math.abs(finalAmount) * rate) : undefined,
+        exchangeRate: resolvedType === 'transfer' ? rate : undefined,
         date: consumptionDate,
         postingDate: isPending ? undefined : postingDate,
         isPending: isPending,
         isInstallment,
         totalInstallments: isInstallment ? totalInstallments : undefined,
-        projectId: selectedProjectId !== 'p1' ? selectedProjectId : undefined
+        projectId: selectedProjectId !== 'p1' ? selectedProjectId : undefined,
+        currency
       });
       return;
     }
@@ -5354,16 +7717,44 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   };
 
   const handleApplyTemplate = (t: Template) => {
-    onSave({ 
-      amount: t.amount, 
-      category: t.category, 
-      note: t.note,
-      type: t.type, 
-      accountId: t.fromAccountId, 
-      toAccountId: t.toAccountId,
-      date: selectedDate 
-    });
-    onClose();
+    // 1. 自動帶入類型與基本資料
+    setTab(t.type);
+    setAmount(t.amount.toString());
+    setNote(t.note || '');
+    
+    // 2. 處理分類邏輯
+    // 嘗試在現有分類列表中尋找匹配項
+    const catName = t.category;
+    const catObj = categories.find(c => c.name === catName || (c.sub && c.sub.includes(catName)));
+    
+    if (catObj) {
+      if (catObj.name === catName) {
+        setMainCategory(catName);
+        setSubCategory(null);
+      } else {
+        setMainCategory(catObj.name);
+        setSubCategory(catName);
+      }
+    } else {
+      // 若分類不存在，則設為 null，由使用者手動補齊
+      setMainCategory(null);
+      setSubCategory(null);
+    }
+
+    // 3. 處理帳戶綁定 (核心 Bug 修正)
+    // 優先使用範本記錄的帳戶，若不存在則使用第一個可用帳戶
+    if (accounts.some(a => a.id === t.fromAccountId)) {
+      setSelectedAccountId(t.fromAccountId);
+    } else if (accounts.length > 0) {
+      setSelectedAccountId(accounts[0].id);
+    }
+    
+    if (t.toAccountId && accounts.some(a => a.id === t.toAccountId)) {
+      setToAccountId(t.toAccountId);
+    }
+
+    // 4. 開啟計算機確認介面，不直接關閉 Modal
+    setShowCalculator(true);
   };
 
   const handleSaveTemplateEdit = (e: React.FormEvent) => {
@@ -5389,7 +7780,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         className="bg-[#FFFDF5] w-full max-w-md rounded-t-[40px] p-6 flex flex-col gap-4 max-h-[95vh] overflow-hidden"
         onClick={e => e.stopPropagation()}
-        style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+        style={getFontFamily()}
       >
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -5434,7 +7825,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                   animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                   className="mx-6 flex items-center justify-center gap-2 py-2.5 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
-                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                  style={getFontFamily()}
                 >
                   <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
                     <CalendarIcon size={14} className="text-[#FFD54F]" />
@@ -5457,7 +7848,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                   animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
                   exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
                   className="bg-[#FFFDF5] p-5 pb-8 rounded-[30px] border border-stone-100 shadow-sm flex flex-col gap-5 mx-2" 
-                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                  style={getFontFamily()}
                 >
                   <div className="grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1.5">
@@ -5509,7 +7900,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                   exit={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
                   onClick={() => setIsDateExpanded(true)}
                   className="mx-6 flex items-center justify-center gap-2 py-2.5 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 cursor-pointer hover:bg-stone-50 transition-colors shadow-sm"
-                  style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+                  style={getFontFamily()}
                 >
                   <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
                     <CalendarIcon size={14} className="text-[#FFD54F]" />
@@ -5525,7 +7916,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
             <div 
               onClick={() => setIsProjectPickerOpen(true)}
               className="mx-6 flex items-center justify-center gap-2 py-2.5 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm"
-              style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+              style={getFontFamily()}
             >
               <Layers size={14} className="text-[#FFD54F]" />
               <span className="text-[13px] font-bold text-[#5D4037]">所屬專案：</span>
@@ -5537,7 +7928,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         )}
 
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-6 px-1">
+        <div className="flex-1 overflow-y-auto flex flex-col gap-6 px-1">
           {tab === 'template' ? (
             <div className="space-y-4 py-2">
               <span className="text-[20px] font-bold text-[#000000] uppercase px-2">常用範本</span>
@@ -5574,7 +7965,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                       amount: 0,
                       category: '食物',
                       type: 'expense',
-                      fromAccountId: accounts[0].id,
+                      fromAccountId: accounts[0]?.id || '',
                       icon: '✨',
                       color: 'bg-stone-100',
                       note: ''
@@ -5604,16 +7995,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     </div>
                     <HorizontalScrollArea className="px-8">
                       {accounts.map(acc => (
-                        <button 
-                          key={`from-${acc.id}`}
-                          onClick={() => setSelectedAccountId(acc.id)}
-                          className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                            selectedAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
-                          }`}
-                        >
-                          <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
-                          <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
-                        </button>
+                          <button 
+                            key={`from-${acc.id}`}
+                            onClick={() => setSelectedAccountId(acc.id)}
+                            className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                              selectedAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
+                            }`}
+                          >
+                            <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
+                            <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{acc.name}</span>
+                          </button>
                       ))}
                     </HorizontalScrollArea>
                   </div>
@@ -5626,45 +8017,60 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     </div>
                     <HorizontalScrollArea className="px-8">
                       {accounts.map(acc => (
-                        <button 
-                          key={`to-${acc.id}`}
-                          onClick={() => setToAccountId(acc.id)}
-                          className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                            toAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
-                          }`}
-                        >
-                          <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
-                          <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
-                        </button>
+                          <button 
+                            key={`to-${acc.id}`}
+                            onClick={() => setToAccountId(acc.id)}
+                            className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                              toAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
+                            }`}
+                          >
+                            <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
+                            <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{acc.name}</span>
+                          </button>
                       ))}
                     </HorizontalScrollArea>
                   </div>
 
-                  {/* Exchange Rate Logic */}
-                  {currentAccount?.currency !== currentToAccount?.currency && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 px-2">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-stone-300 uppercase">匯率 (1 {currentAccount?.currency} = ?)</label>
-                          <input 
-                            type="number"
-                            value={exchangeRate}
-                            onChange={e => setExchangeRate(e.target.value)}
-                            className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm outline-none shadow-sm focus:border-[#FFD54F]"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-stone-300 uppercase">實收金額 ({currentToAccount?.currency})</label>
-                          <input 
-                            type="number"
-                            value={toAmount}
-                            onChange={e => setToAmount(e.target.value)}
-                            className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm outline-none shadow-sm focus:border-[#FFD54F]"
-                          />
-                        </div>
+                  {/* Exchange Rate & Fee Logic */}
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 px-2">
+                    <div className="grid grid-cols-2 gap-4">
+                      {currentAccount?.currency !== currentToAccount?.currency && (
+                        <>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-stone-300 uppercase">匯率 (1 {currentAccount?.currency} = ?)</label>
+                            <input 
+                              type="number"
+                              value={exchangeRate}
+                              onChange={e => setExchangeRate(e.target.value)}
+                              className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm outline-none shadow-sm focus:border-[#FFD54F]"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-stone-300 uppercase">實收金額 ({currentToAccount?.currency})</label>
+                            <input 
+                              type="number"
+                              value={toAmount}
+                              onChange={e => setToAmount(e.target.value)}
+                              className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm outline-none shadow-sm focus:border-[#FFD54F]"
+                            />
+                          </div>
+                        </>
+                      )}
+                      
+                      {/* Fee Input */}
+                      <div className="col-span-2 space-y-2">
+                        <label className="text-[12px] font-bold text-stone-300 uppercase px-1">手續費 ({currentAccount?.currency})</label>
+                        <input 
+                          type="number"
+                          value={fee}
+                          onChange={e => setFee(e.target.value)}
+                          className="w-full p-4 bg-[#FFF9E3] border-2 border-[#FBC02D]/10 rounded-2xl font-black text-[#5D4037] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                          placeholder="0"
+                          style={getFontFamily()}
+                        />
                       </div>
-                    </motion.div>
-                  )}
+                    </div>
+                  </motion.div>
                 </>
               ) : (
                 <div className="space-y-2">
@@ -5679,7 +8085,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                         }`}
                       >
                         <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
-                        <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
+                        <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{acc.name}</span>
                       </button>
                     ))}
                   </HorizontalScrollArea>
@@ -5823,7 +8229,21 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     onClick={() => setShowCalculator(true)}
                     className="bg-white border-2 border-[#FFD54F] rounded-[20px] p-4 flex items-center justify-between shadow-inner cursor-pointer"
                   >
-                    <span className="text-xs font-bold text-stone-300">TWD</span>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別</label>
+                      <select 
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-stone-50 border-none outline-none text-xs font-bold text-[#5D4037] px-2 py-1 rounded-lg cursor-pointer"
+                        style={getFontFamily()}
+                      >
+                        <option value="TWD">台幣 (TWD)</option>
+                        <option value="USD">美金 (USD)</option>
+                        <option value="JPY">日圓 (JPY)</option>
+                        <option value="KRW">韓元 (KRW)</option>
+                      </select>
+                    </div>
                     <div className="flex items-center gap-4">
                       <span className={`text-3xl font-black ${tab === 'income' ? 'text-[#03A9F4]' : tab === 'expense' ? 'text-[#E91E63]' : 'text-[#5D4037]'}`}>{amount}</span>
                       <button onClick={(e) => { e.stopPropagation(); handleKey('AC'); }} className="w-10 h-10 bg-rose-50 text-rose-400 rounded-full flex items-center justify-center font-bold text-xs">AC</button>
@@ -5899,7 +8319,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
             <motion.div 
               initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
               className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh]"
-              style={{ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' }}
+              style={getFontFamily()}
             >
               <div className="p-6 pb-2 border-b border-stone-50 flex items-center justify-between">
                 <h3 className="text-xl font-black text-[#5D4037]">選取專案</h3>
@@ -5909,13 +8329,17 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               </div>
               
               <div className="p-4 border-b border-stone-50">
-                <div className="relative">
+                <div className="relative" onClick={e => e.stopPropagation()} onFocus={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
                   <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300" />
                   <input 
                     value={projectSearch}
                     onChange={e => setProjectSearch(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    onFocus={e => e.stopPropagation()}
+                    onTouchStart={e => e.stopPropagation()}
                     placeholder="搜尋專案..."
                     className="w-full pl-10 pr-4 py-3 bg-white border-2 border-stone-50 rounded-2xl text-sm font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    style={getFontFamily()}
                   />
                 </div>
               </div>
@@ -5985,7 +8409,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto no-scrollbar space-y-5 pr-1">
+              <div className="flex-1 overflow-y-auto space-y-5 pr-1">
                 {/* Basic Info */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1">
@@ -6160,7 +8584,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 <div className="space-y-2">
                   <label className="text-[12px] font-bold text-[#5D4037]/60 uppercase ml-1">選擇圖示</label>
                   <div className="bg-white p-4 rounded-2xl border-2 border-[#5D4037]/10">
-                    <div className="grid grid-cols-5 gap-3 max-h-[200px] overflow-y-auto no-scrollbar">
+                    <div className="grid grid-cols-5 gap-3 max-h-[200px] overflow-y-auto">
                       {icons.map(icon => (
                         <button
                           key={icon}

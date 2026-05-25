@@ -14,11 +14,14 @@ export interface Transaction {
   category: string;
   note?: string;
   date: string;
+  postingDate?: string;
+  isPending?: boolean;
   type: 'income' | 'expense' | 'transfer';
   accountId: string;
   toAccountId?: string;
   toAmount?: number;
   exchangeRate?: number;
+  fee?: number;
 }
 
 export interface Account {
@@ -29,6 +32,7 @@ export interface Account {
   parentId?: string;
   currency: string;
   closingDay?: number;
+  order?: number;
 }
 
 export interface Template {

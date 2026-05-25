@@ -2,84 +2,9 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 0. Global Safety Net
+    // 開發期安全規則：允許所有已登入使用者讀取與寫入資料
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // Root user document (for settings like monthlyBudget)
-    match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && 
-                      incoming().keys().hasOnly(['monthlyBudget']) && 
-                      (incoming().get('monthlyBudget', 0) is number);
-      allow update: if isOwner(userId) && 
-                      incoming().diff(existing()).affectedKeys().hasOnly(['monthlyBudget']) &&
-                      (incoming().get('monthlyBudget', 0) is number);
-      
-      // Collections under user
-      match /accounts/{accountId} {
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(accountId);
-        allow delete: if isOwner(userId);
-      }
-
-      match /categories/{categoryId} {
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(categoryId);
-        allow delete: if isOwner(userId);
-      }
-
-      match /records/{recordId} {
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(recordId);
-        allow delete: if isOwner(userId);
-      }
-
-      match /projects/{projectId} {
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(projectId);
-        allow delete: if isOwner(userId);
-      }
-
-      match /templates/{templateId} {
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(templateId);
-        allow delete: if isOwner(userId);
-      }
-
-      match /fixedRecords/{fixedId} {
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(fixedId);
-        allow delete: if isOwner(userId);
-      }
-
-      match /installments/{instId} {
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(instId);
-        allow delete: if isOwner(userId);
-      }
+      allow read, write: if request.auth != null;
     }
   }
 }

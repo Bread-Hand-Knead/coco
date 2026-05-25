@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Category } from './types';
+import { getFontFamily } from './lib/financeUtils';
 
 export const INITIAL_CATEGORIES: Category[] = [
   { id: 'c1', name: '食物', icon: '🍱', type: 'expense', sub: ['早餐', '午餐', '晚餐', '飲料', '零食'] },
@@ -94,6 +95,7 @@ export function CategoryManagementPage({ categories, onSave, onBack }: {
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
+      style={getFontFamily()}
     >
       <div className="p-6 flex flex-col gap-6">
         <div className="flex bg-white/50 p-1.5 rounded-2xl border-2 border-white shadow-sm">

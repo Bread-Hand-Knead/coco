@@ -16,17 +16,18 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Account, Transaction } from './types';
+import { Account, Transaction, Category } from './types';
 import { HorizontalScrollArea } from './components/Common';
+import { getCategoryIcon, getFontFamily } from './lib/financeUtils';
 
 export const INITIAL_ACCOUNTS: Account[] = [
-  { id: 'cash', name: '現金', type: 'cash', icon: '💰', currency: 'TWD' },
-  { id: 'bank_ts_group', name: '台新銀行', type: 'bank', icon: '🏦', currency: 'TWD' },
-  { id: 'bank_ts_1', name: '台新 - 活存', type: 'bank', icon: '🏦', parentId: 'bank_ts_group', currency: 'TWD' },
-  { id: 'bank_ts_2', name: '台新 - 儲蓄', type: 'bank', icon: '🏦', parentId: 'bank_ts_group', currency: 'TWD' },
-  { id: 'inv_cathay', name: '國泰證券 (006208)', type: 'investment', icon: '📈', currency: 'TWD' },
-  { id: 'credit_ts', name: '台新信用卡', type: 'credit', icon: '💳', currency: 'TWD' },
-  { id: 'easycard', name: '悠遊卡', type: 'e-ticket', icon: '🚌', currency: 'TWD' },
+  { id: 'cash', name: '現金', type: 'cash', icon: '💰', currency: 'TWD', order: 1 },
+  { id: 'bank_ts_group', name: '台新銀行', type: 'bank', icon: '🏦', currency: 'TWD', order: 2 },
+  { id: 'bank_ts_1', name: '台新 - 活存', type: 'bank', icon: '🏦', parentId: 'bank_ts_group', currency: 'TWD', order: 3 },
+  { id: 'bank_ts_2', name: '台新 - 儲蓄', type: 'bank', icon: '🏦', parentId: 'bank_ts_group', currency: 'TWD', order: 4 },
+  { id: 'inv_cathay', name: '國泰證券 (006208)', type: 'investment', icon: '📈', currency: 'TWD', order: 5 },
+  { id: 'credit_ts', name: '台新信用卡', type: 'credit', icon: '💳', currency: 'TWD', order: 6 },
+  { id: 'easycard', name: '悠遊卡', type: 'e-ticket', icon: '🚌', currency: 'TWD', order: 7 },
 ];
 
 export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAccountClick, onAddAccount, balances }: { 
@@ -72,6 +73,7 @@ export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilitie
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col bg-[#FFF9E3]"
+      style={getFontFamily()}
     >
       {/* Top Dashboard */}
       <div className="px-6 py-8 bg-[#FFF9E3]">
@@ -107,22 +109,26 @@ export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilitie
       </div>
 
       {/* Account List Groups */}
-      <div className="flex flex-col gap-6 px-4">
+      <div className="flex flex-col gap-8 px-4 pb-12">
         {(Object.entries(groupedAccounts) as [Account['type'], Account[]][]).map(([type, typeAccounts]) => {
           const typeTotal = typeAccounts.reduce((sum, acc) => {
             return sum + (balances[acc.id] || 0);
           }, 0);
 
           return (
-            <div key={type} className="bg-white rounded-[30px] shadow-sm border-2 border-white overflow-hidden">
-              <div className="px-6 py-4 flex justify-between items-center border-b border-stone-50">
-                <span className="text-sm font-bold text-stone-400">{accountTypeLabels[type as Account['type']]}</span>
-                <span className={`text-sm font-black ${typeTotal < 0 ? 'text-rose-400' : 'text-stone-400'}`}>
-                  $ {formatAmount(typeTotal)}
-                </span>
+            <div key={type} className="flex flex-col gap-4">
+              {/* Dynamic Header */}
+              <div className="px-2 flex justify-between items-center border-b border-[#5D4037]/10 pb-2 mb-2">
+                <span className="text-lg font-black text-[#5D4037]">{accountTypeLabels[type as Account['type']]}</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] font-bold text-stone-300 uppercase tracking-wider">合計</span>
+                  <span className={`text-sm font-black ${typeTotal < 0 ? 'text-rose-400' : 'text-stone-400'}`}>
+                    $ {formatAmount(typeTotal)}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex flex-col">
+              <div className="flex flex-col gap-4">
                 {typeAccounts.map(acc => {
                   const children = accounts.filter(c => c.parentId === acc.id);
                   const isExpanded = expandedGroups.includes(acc.id);
@@ -130,30 +136,34 @@ export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilitie
                   const displayAmount = balances[acc.id] || 0;
 
                   return (
-                    <div key={acc.id} className="flex flex-col border-b border-stone-50 last:border-0">
+                    <div 
+                      key={acc.id} 
+                      className="bg-white rounded-[28px] shadow-sm border-2 border-white flex flex-col overflow-hidden active:scale-[0.98] transition-all"
+                    >
                       <div 
                         onClick={() => onAccountClick(acc)}
-                        className="p-6 flex items-center justify-between cursor-pointer active:bg-stone-50 transition-colors"
+                        className="p-5 flex items-center justify-between cursor-pointer"
                       >
                         <div className="flex items-center gap-4 flex-1">
-                          <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
+                          <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-3xl shadow-sm border border-white">
                             {acc.icon}
                           </div>
                           <div className="flex flex-col justify-center">
-                            <span className="font-bold text-[#5D4037] text-lg leading-tight">{acc.name}</span>
-                            <span className={`text-xl font-black mt-1 ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                            <span className="text-[10px] font-bold text-stone-300 uppercase">{accountTypeLabels[acc.type]}</span>
+                            <span className="font-black text-[#5D4037] text-xl leading-tight">{acc.name}</span>
+                            <span className={`text-2xl font-black mt-1 ${displayAmount < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
                               $ {formatAmount(displayAmount)}
                             </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="flex items-center gap-3">
                           {hasChildren && (
                             <button 
                               onClick={(e) => toggleGroup(acc.id, e)}
-                              className="p-1 hover:bg-black/5 rounded-full transition-colors"
+                              className="w-10 h-10 bg-stone-50 rounded-full flex items-center justify-center transition-colors"
                             >
                               <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
-                                <ChevronDown className="w-6 h-6 text-stone-300" />
+                                <ChevronDown className="w-5 h-5 text-stone-300" />
                               </motion.div>
                             </button>
                           )}
@@ -166,31 +176,25 @@ export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilitie
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="bg-stone-50/50 flex flex-col gap-2 px-6 pb-4"
+                            className="bg-stone-50/30 flex flex-col gap-3 px-5 pb-5 border-t border-stone-50"
                           >
                             {children.map(child => (
                               <div 
                                 key={child.id}
                                 onClick={() => onAccountClick(child)}
-                                className="p-4 bg-white rounded-2xl border border-white shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform"
+                                className="p-4 bg-white rounded-2xl border border-white shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.95] transition-transform"
                               >
                                 <div className="flex items-center gap-3 flex-1">
-                                  <div className="w-8 h-8 bg-white rounded-full flex-shrink-0 flex items-center justify-center text-base shadow-inner">{child.icon}</div>
+                                  <div className="w-10 h-10 bg-stone-50 rounded-full flex-shrink-0 flex items-center justify-center text-xl">{child.icon}</div>
                                   <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-[#5D4037] leading-tight">{child.name}</span>
-                                    <span className={`text-sm font-black mt-0.5 ${balances[child.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                                    <span className="text-[10px] font-bold text-stone-300">{child.name}</span>
+                                    <span className={`text-base font-black ${balances[child.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
                                       $ {formatAmount(balances[child.id] || 0)}
                                     </span>
                                   </div>
                                 </div>
                               </div>
                             ))}
-                            <button 
-                              onClick={() => onAccountClick(acc)}
-                              className="text-[10px] font-bold text-stone-300 text-center py-2 hover:text-[#5D4037] transition-colors"
-                            >
-                              查看/編輯主帳戶詳情
-                            </button>
                           </motion.div>
                         )}
                       </AnimatePresence>
@@ -208,7 +212,7 @@ export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilitie
   );
 }
 
-export function AccountDetailView({ account, records, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, balance }: { 
+export function AccountDetailView({ account, records, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, balance, categories }: { 
   account: Account, 
   records: Transaction[],
   onBack: () => void,
@@ -216,7 +220,8 @@ export function AccountDetailView({ account, records, onBack, onEdit, onUpdateRe
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
   onDeleteRecord: (record: Transaction) => void,
   accounts: Account[],
-  balance: number
+  balance: number,
+  categories: Category[]
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   
@@ -232,6 +237,7 @@ export function AccountDetailView({ account, records, onBack, onEdit, onUpdateRe
     <motion.div 
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-[#FFF9E3]"
+      style={getFontFamily()}
     >
       <div className="px-4 py-6">
         <div className="bg-white p-8 rounded-[40px] shadow-sm border-2 border-white flex justify-between items-center relative overflow-hidden">
@@ -283,12 +289,12 @@ export function AccountDetailView({ account, records, onBack, onEdit, onUpdateRe
                   className="flex items-center gap-4 py-4 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
                 >
                   <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white group-active:scale-95 transition-transform">
-                    {record.category === '初始資金' ? '💎' : record.category === '餘額校正' ? '🔧' : record.type === 'income' ? '💰' : record.type === 'expense' ? '🍱' : '🔄'}
+                    {getCategoryIcon(record.category, record.type, categories)}
                   </div>
                   
                   <div className="flex-1 flex flex-col gap-1 min-w-0">
                     <span className="font-black text-lg text-[#5D4037] truncate leading-tight">
-                      {record.note || record.category}
+                      {(record.note || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim()}
                     </span>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-stone-300">{record.date}</span>
