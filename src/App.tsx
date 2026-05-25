@@ -2753,7 +2753,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
                     {/* Hierarchical Category Sub-label if note is present */}
                     {record.type !== 'transfer' && record.note && record.category && (
-                      <span className="text-[10px] font-bold text-stone-400 mt-0.5 opacity-60">
+                      <span className="text-[10px] font-bold text-stone-400 mt-0.5 opacity-60" style={getFontFamily()}>
                          {record.category}
                       </span>
                     )}
@@ -2768,7 +2768,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         const secondAccName = isPos ? currentAccName : counterpartAccName;
                         const displayDate = record.postingDate || record.date;
                         return (
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-col gap-0.5" style={getFontFamily()}>
                             {/* Line 2: Account A ➔ Account B */}
                             <div className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037]" style={getFontFamily()}>
                               <span className="opacity-80" style={getFontFamily()}>{firstAccName}</span>
@@ -2783,17 +2783,17 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         );
                       })()
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-stone-300">
+                      <div className="flex items-center gap-2" style={getFontFamily()}>
+                        <span className="text-xs font-bold text-stone-300" style={getFontFamily()}>
                           {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
                         </span>
                       {account.type === 'credit' && (!record.postingDate || record.isPending) && (
-                        <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-500 rounded-full font-bold">
+                        <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-500 rounded-full font-bold" style={getFontFamily()}>
                           未入帳
                         </span>
                       )}
                       {account.parentId === undefined && record.accountId !== account.id && (
-                        <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
+                        <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold" style={getFontFamily()}>
                           {accounts.find(a => a.id === record.accountId)?.name}
                         </span>
                       )}
@@ -2805,8 +2805,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       {(() => {
                         const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
                         const targetIds = [account.id, ...childrenIds];
-                        const isFrom = targetIds.includes(record.accountId);
-                        const isTo = record.toAccountId && targetIds.includes(record.toAccountId);
+                        
+                        let isFrom = targetIds.includes(record.accountId);
+                        let isTo = record.toAccountId && targetIds.includes(record.toAccountId);
+                        
+                        if (record.type === 'transfer' || record._isMergedTransfer) {
+                          const { src, dst } = getTransferSourceAndDest(record);
+                          isFrom = targetIds.includes(src);
+                          isTo = dst && targetIds.includes(dst);
+                        }
                         
                         let colorClass = 'text-stone-400';
                         let sign = '';
@@ -2815,7 +2822,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                           if (isFrom && !isTo) {
                             colorClass = 'text-[#E91E63]';
                             sign = '-';
-                            const displayAmt = record.amount + (record.fee || 0);
+                            const displayAmt = Math.abs(record.amount) + (record.fee || 0);
                             return (
                               <div className="flex flex-col">
                                 <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
@@ -2855,7 +2862,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         (() => {
                           const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
                           const targetIds = [account.id, ...childrenIds];
-                          const isFrom = targetIds.includes(record.accountId);
+                          let isFrom = targetIds.includes(record.accountId);
+                          if (record.type === 'transfer' || record._isMergedTransfer) {
+                            const { src } = getTransferSourceAndDest(record);
+                            isFrom = targetIds.includes(src);
+                          }
                           return (
                             <span className="text-[10px] font-black text-stone-300 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100" style={getFontFamily()}>
                               {isFrom ? '轉出' : '轉入'}
@@ -6605,12 +6616,23 @@ function MoreView({
 
       // 4. Automatic Baseline Alignment (Align initialBalance with Excel's Latest Balance)
       if (importPreview.accountLatestBalances && Object.keys(importPreview.accountLatestBalances).length > 0) {
+        // Map raw names back to correctly resolved account IDs
+        const resolvedLatestBalances: Record<string, number> = {};
+        Object.keys(importPreview.accountLatestBalances).forEach(rawNameKey => {
+          const bal = importPreview.accountLatestBalances[rawNameKey];
+          const resolvedId = existingAccountNamesMap.get(rawNameKey) || 
+                             existingAccountNamesMap.get(cleanAccName(rawNameKey));
+          if (resolvedId) {
+            resolvedLatestBalances[resolvedId] = bal;
+          }
+        });
+
         const updatedAccountsWithBalances = [...accounts, ...newAccountsToCreate];
         const finalAccountList = updatedAccountsWithBalances.map(acc => {
           if (acc.type === 'credit') {
             return { ...acc, initialBalance: acc.initialBalance || 0 };
           }
-          const latestBal = (importPreview as any).accountLatestBalances[acc.id];
+          const latestBal = resolvedLatestBalances[acc.id];
           if (latestBal === undefined) return acc;
 
           // Calculate current theoretical sum of all records for this account
@@ -7012,12 +7034,28 @@ function MoreView({
           // Identify latest balance per account from the imported data
           const accountLatestBalances: Record<string, number> = {};
           
-          // Group transactions that have an import balance by accountId
-          const txsByAccount: Record<string, Transaction[]> = {};
+          // Group transactions that have an import balance by their normalized explicit main account name (or fallback if empty)
+          const txsByAccountName: Record<string, { rawName: string, transactions: Transaction[] }> = {};
           importedTransactions.forEach(t => {
             if (t._importBalance !== undefined) {
-              if (!txsByAccount[t.accountId]) txsByAccount[t.accountId] = [];
-              txsByAccount[t.accountId].push(t);
+              let rawName = '';
+              if (t.amount > 0) {
+                // Positive amount (transfer-in / income): bind balance strictly to the destination (income) account
+                rawName = t._importDestAccountName || (t as any)._importMainAccountName || '';
+              } else if (t.amount < 0) {
+                // Negative amount (transfer-out / expense): bind balance strictly to the source (expense) account
+                rawName = t._importSourceAccountName || (t as any)._importMainAccountName || '';
+              } else {
+                // Fallback for zero amounts
+                rawName = (t as any)._importMainAccountName || t._importSourceAccountName || t._importDestAccountName || '';
+              }
+              const cleanedName = rawName.trim().toLowerCase();
+              if (cleanedName) {
+                if (!txsByAccountName[cleanedName]) {
+                  txsByAccountName[cleanedName] = { rawName: rawName.trim(), transactions: [] };
+                }
+                txsByAccountName[cleanedName].transactions.push(t);
+              }
             }
           });
 
@@ -7031,8 +7069,8 @@ function MoreView({
             }
           }
 
-          Object.keys(txsByAccount).forEach(accId => {
-            const list = txsByAccount[accId];
+          Object.keys(txsByAccountName).forEach(cleanedNameKey => {
+            const { rawName, transactions: list } = txsByAccountName[cleanedNameKey];
             
             list.sort((a, b) => {
               const dateComp = a.date.localeCompare(b.date);
@@ -7044,7 +7082,7 @@ function MoreView({
 
             // The last item in sorted list is the chronologically latest one
             const latestTx = list[list.length - 1];
-            accountLatestBalances[accId] = latestTx._importBalance!;
+            accountLatestBalances[cleanedNameKey] = latestTx._importBalance!;
           });
 
           setImportPreview({ 
