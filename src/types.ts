@@ -27,12 +27,13 @@ export interface Transaction {
 export interface Account {
   id: string;
   name: string;
-  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket';
+  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket' | 'e-payment' | 'points' | 'insurance' | 'other';
   icon: string;
   parentId?: string;
   currency: string;
   closingDay?: number;
   order?: number;
+  typeOrder?: number;
 }
 
 export interface Template {
