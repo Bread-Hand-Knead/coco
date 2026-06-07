@@ -6362,12 +6362,12 @@ function BudgetManagementPage({
                         <div className="mt-3 pt-3 border-t border-stone-100 flex flex-col gap-2">
                           {catRecords.length > 0 ? (
                             catRecords.map(r => (
-                              <div key={r.id} className="flex justify-between items-center text-xs py-1.5 border-b border-stone-50/50 last:border-0 hover:bg-stone-50/30 px-2 rounded-xl transition-colors">
-                                <div className="flex flex-col gap-0.5">
-                                  <span className="font-bold text-[#5D4037]">{r.note || r.category}</span>
+                              <div key={r.id} className="flex justify-between items-center text-xs py-1.5 border-b border-stone-50/50 last:border-0 hover:bg-stone-50/30 px-2 rounded-xl transition-colors gap-3">
+                                <div className="flex flex-col gap-0.5 flex-1 min-w-0 pr-1">
+                                  <span className="font-bold text-[#5D4037] truncate block">{r.note || r.category}</span>
                                   <span className="text-[10px] text-stone-400">{r.date.replace(/-/g, '/')}</span>
                                 </div>
-                                <span className="font-black text-rose-400">
+                                <span className="font-black text-rose-400 flex-shrink-0 whitespace-nowrap">
                                   - $ {(Math.abs(r.amount) + (r.fee || 0)).toLocaleString()}
                                 </span>
                               </div>
