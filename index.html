@@ -9,6 +9,14 @@
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <script>
+      window.addEventListener('error', function(e) {
+        alert('JavaScript 錯誤:\n' + e.message + '\n在: ' + e.filename + ':' + e.lineno);
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        alert('未捕獲的 Promise 錯誤:\n' + e.reason);
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>
