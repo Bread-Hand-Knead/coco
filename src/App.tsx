@@ -1705,6 +1705,7 @@ export default function App() {
                 categories={categories}
                 onUpdateCategories={handleUpdateCategories}
                 records={records}
+                accounts={accounts}
                 selectedDate={selectedDate}
                 onDateChange={setSelectedDate}
                 currencyMode={currencyMode}
@@ -5970,7 +5971,7 @@ function SubCategoryDetailView({
         const pDate = r.postingDate || r.date;
         if (!pDate.startsWith(monthStr)) return false;
         if (r.type !== 'expense') return false;
-        const parts = r.category.split(' > ');
+        const parts = (r.category || '').split(' > ');
         return parts[0] === parentCat && parts[1] === subCat;
       })
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -6050,6 +6051,7 @@ function BudgetManagementPage({
   categories,
   onUpdateCategories,
   records,
+  accounts,
   selectedDate,
   onDateChange,
   currencyMode,
@@ -6061,6 +6063,7 @@ function BudgetManagementPage({
   categories: Category[];
   onUpdateCategories: (newCats: Category[]) => Promise<void>;
   records: Transaction[];
+  accounts: Account[];
   selectedDate: string;
   onDateChange: (d: string) => void;
   currencyMode: 'TWD' | 'FOREIGN' | null;
