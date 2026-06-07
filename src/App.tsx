@@ -1705,6 +1705,7 @@ export default function App() {
                 onUpdateCategories={handleUpdateCategories}
                 records={records}
                 selectedDate={selectedDate}
+                onDateChange={setSelectedDate}
                 currencyMode={currencyMode}
                 onBack={() => setCurrentView('home')}
               />
@@ -5947,6 +5948,7 @@ function BudgetManagementPage({
   onUpdateCategories,
   records,
   selectedDate,
+  onDateChange,
   currencyMode,
   onBack
 }: {
@@ -5957,6 +5959,7 @@ function BudgetManagementPage({
   onUpdateCategories: (newCats: Category[]) => Promise<void>;
   records: Transaction[];
   selectedDate: string;
+  onDateChange: (d: string) => void;
   currencyMode: 'TWD' | 'FOREIGN' | null;
   onBack: () => void;
 }) {
@@ -5966,6 +5969,52 @@ function BudgetManagementPage({
   const [tempCategoryBudget, setTempCategoryBudget] = useState('');
 
   const monthStr = selectedDate.substring(0, 7);
+
+  // Month navigation handlers
+  const handlePrevMonth = () => {
+    try {
+      const parts = selectedDate.split('-');
+      if (parts.length >= 2) {
+        const year = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        const prev = new Date(year, month - 2, 1);
+        onDateChange(formatLocalDate(prev));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleNextMonth = () => {
+    try {
+      const parts = selectedDate.split('-');
+      if (parts.length >= 2) {
+        const year = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        const next = new Date(year, month, 1);
+        onDateChange(formatLocalDate(next));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const monthRangeLabel = useMemo(() => {
+    try {
+      const parts = selectedDate.split('-');
+      if (parts.length >= 2) {
+        const year = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        const start = new Date(year, month - 1, 1);
+        const end = new Date(year, month, 0);
+        const format = (d: Date) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+        return `${format(start)} - ${format(end)}`;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return '';
+  }, [selectedDate]);
 
   // Filter only expense categories
   const expenseCategories = useMemo(() => {
@@ -6044,17 +6093,21 @@ function BudgetManagementPage({
       className="flex flex-col h-full bg-[#FFFDF5]"
       style={getFontFamily()}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-4 bg-[#FFFDF5] border-b border-stone-100 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={onBack}
-            className="w-10 h-10 rounded-full border-2 border-stone-100 flex items-center justify-center text-stone-500 hover:bg-stone-50 transition-colors shadow-sm bg-white"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <span className="text-xl font-bold text-[#5D4037]">預算管理</span>
-        </div>
+      {/* Month Switcher Header */}
+      <div className="flex items-center justify-between px-6 py-4 bg-[#FFFDF5] border-b border-stone-100 flex-shrink-0">
+        <button 
+          onClick={handlePrevMonth} 
+          className="w-10 h-10 rounded-full flex items-center justify-center text-[#5D4037] hover:bg-stone-50 transition-colors shadow-sm bg-white"
+        >
+          <ChevronLeft size={24} />
+        </button>
+        <span className="text-lg font-black text-[#5D4037] tracking-tight">{monthRangeLabel}</span>
+        <button 
+          onClick={handleNextMonth} 
+          className="w-10 h-10 rounded-full flex items-center justify-center text-[#5D4037] hover:bg-stone-50 transition-colors shadow-sm bg-white"
+        >
+          <ChevronRight size={24} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
