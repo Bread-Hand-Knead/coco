@@ -50,6 +50,7 @@ import {
   Database,
   Download,
   Upload,
+  X,
   ShieldCheck,
   LogOut,
   Cloud,
@@ -462,6 +463,55 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [currencyMode, setCurrencyMode] = useState<'TWD' | 'FOREIGN' | null>('TWD');
+
+  // --- PWA Installation Logic ---
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [isAppInstalled, setIsAppInstalled] = useState(false);
+  const [showPWAReminder, setShowPWAReminder] = useState(true);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+      console.log('PWA beforeinstallprompt event captured.');
+    };
+
+    const handleAppInstalled = () => {
+      setIsAppInstalled(true);
+      setIsInstallable(false);
+      setDeferredPrompt(null);
+      console.log('PWA was installed.');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    // Check if app is already installed / running in standalone mode
+    if (window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone) {
+      setIsAppInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    // Show the install prompt
+    deferredPrompt.prompt();
+    // Wait for the user to respond to the prompt
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User response to install prompt: ${outcome}`);
+    // Discard the prompt
+    setDeferredPrompt(null);
+    setIsInstallable(false);
+  };
 
   // --- Auth & Firebase Logic ---
 
@@ -1397,7 +1447,7 @@ export default function App() {
                 </button>
               )
             ) : (
-              !['projects'].includes(currentView) && (
+              !['projects', 'budget'].includes(currentView) && (
                 <div className="relative">
                   <button 
                     onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
@@ -1546,6 +1596,21 @@ export default function App() {
                     label="設定" 
                     onClick={() => { setCurrentView('more'); setIsDrawerOpen(false); }} 
                   />
+                  
+                  {isInstallable && !isAppInstalled && (
+                    <div className="mx-6 my-4">
+                      <button 
+                        onClick={() => {
+                          handleInstallApp();
+                          setIsDrawerOpen(false);
+                        }}
+                        className="w-full py-3.5 bg-gradient-to-r from-[#FFD54F] to-[#FFA000] text-[#5D4037] rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md hover:shadow-lg active:scale-95 transition-all border border-[#FFD54F]/20"
+                        style={getFontFamily()}
+                      >
+                        <Download size={14} /> 下載/安裝 App
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-6 border-t border-stone-50 text-[10px] font-bold text-stone-300 text-center">
@@ -1558,6 +1623,43 @@ export default function App() {
 
         {/* Main Content Area (Scrollable) */}
         <main className="flex-1 overflow-y-auto min-h-0">
+          {currentView === 'home' && isInstallable && !isAppInstalled && showPWAReminder && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }} 
+              animate={{ opacity: 1, y: 0 }} 
+              exit={{ opacity: 0, y: -20 }}
+              className="mx-4 mt-4 p-4 bg-gradient-to-br from-white to-[#FFFDF5] rounded-3xl border border-[#FFD54F]/30 shadow-sm flex items-center justify-between gap-3 relative overflow-hidden"
+              style={getFontFamily()}
+            >
+              {/* Decorative background circle */}
+              <div className="absolute -right-8 -bottom-8 w-24 h-24 bg-[#FFD54F]/10 rounded-full blur-xl pointer-events-none" />
+              
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-[#FFF9E3] rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-white flex-shrink-0">
+                  💰
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-[#5D4037]">將「扣扣」安裝至手機</span>
+                  <span className="text-[10px] font-bold text-stone-400">隨時隨地，離線記帳更順手</span>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 z-10">
+                <button
+                  onClick={handleInstallApp}
+                  className="px-3.5 py-2 bg-[#FFD54F] text-[#5D4037] text-[11px] font-black rounded-xl shadow-sm hover:shadow active:scale-95 transition-all flex-shrink-0"
+                >
+                  安裝 App
+                </button>
+                <button
+                  onClick={() => setShowPWAReminder(false)}
+                  className="p-1.5 hover:bg-stone-50 rounded-lg text-stone-300 hover:text-stone-400 transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            </motion.div>
+          )}
           <AnimatePresence mode="wait">
             {currentView === 'home' && (
               <HomeView 
@@ -2280,6 +2382,60 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
       });
 
       groups.bank = bankItems;
+    }
+
+    // Smart Credit Brand Merging
+    if (groups.credit) {
+      const creditItems: any[] = [];
+      const brandMap: Record<string, Account[]> = {};
+      const BRAND_KEYWORDS = ['國泰', '台新', '中信', '中國信託', '玉山', '富邦', '永豐', '郵局', '兆豐', '第一', '華南', '渣打', '匯豐', '星展'];
+      
+      const unassignedCredits: Account[] = [];
+      
+      groups.credit.forEach(acc => {
+        const foundBrand = BRAND_KEYWORDS.find(k => acc.name.startsWith(k));
+        if (foundBrand) {
+          const canonicalBrand = (foundBrand === '中信' || foundBrand === '中國信託') ? '中國信託' : foundBrand;
+          if (!brandMap[canonicalBrand]) brandMap[canonicalBrand] = [];
+          brandMap[canonicalBrand].push(acc);
+        } else {
+          unassignedCredits.push(acc);
+        }
+      });
+
+      // Add merged groups
+      Object.entries(brandMap).forEach(([brand, brandAccounts]) => {
+        if (brandAccounts.length > 1) {
+          // Inner sort for brand accounts
+          const sortedBrandAccounts = [...brandAccounts].sort((a, b) => (a.order || 0) - (b.order || 0));
+          creditItems.push({
+            id: `brand_credit_${brand}`,
+            name: `${brand}信用卡`,
+            type: 'credit',
+            icon: '💳',
+            isBrandGroup: true,
+            childAccounts: sortedBrandAccounts
+          });
+        } else {
+          creditItems.push(brandAccounts[0]);
+        }
+      });
+      
+      creditItems.push(...unassignedCredits);
+      
+      // Re-sort creditItems because merging might have messed up the order
+      creditItems.sort((a, b) => {
+        const getOrder = (item: any) => {
+          if (item.isBrandGroup) {
+            // Use the minimum order of its children
+            return Math.min(...item.childAccounts.map((c: Account) => c.order || 0));
+          }
+          return item.order || 0;
+        };
+        return getOrder(a) - getOrder(b);
+      });
+
+      groups.credit = creditItems;
     }
 
     return groups;
