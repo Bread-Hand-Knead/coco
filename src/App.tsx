@@ -896,6 +896,7 @@ export default function App() {
 
   const accountBalances = useMemo(() => {
     // Recursive Balance Calculation (Dynamic Real-time Formula)
+    const mergedRecords = getMergedRecords(records, accounts);
     const getBaseBalance = (id: string) => {
       const acc = accounts.find(a => a.id === id);
       if (!acc) return 0;
@@ -903,7 +904,7 @@ export default function App() {
       if (acc.type === 'credit' && !acc.initialBalance) {
         bal = 0;
       }
-      records.forEach(r => {
+      mergedRecords.forEach(r => {
         // Skip '初始資金' records if we are using account.initialBalance for the total
         if (r.category === '初始資金') return;
 
@@ -940,13 +941,14 @@ export default function App() {
 
   // Provide a way to get ONLY the account's own balance (without children) for detail view logic if needed
   const ownBalances = useMemo(() => {
+    const mergedRecords = getMergedRecords(records, accounts);
     const balances: Record<string, number> = {};
     accounts.forEach(acc => {
       let bal = acc.initialBalance || 0;
       if (acc.type === 'credit' && !acc.initialBalance) {
         bal = 0;
       }
-      records.forEach(r => {
+      mergedRecords.forEach(r => {
         if (r.category === '初始資金') return;
         if (r.accountId === acc.id) {
           bal += r.amount;
@@ -2111,9 +2113,10 @@ function StatCard({ title, date, expense, income, onClick }: { title: string, da
 }
 
 export function calculateAccountBalance(account: Account, accounts: Account[], records: Transaction[]): number {
+  const mergedRecords = getMergedRecords(records, accounts);
   const getBaseBalance = (acc: Account) => {
     let bal = acc.type === 'credit' ? 0 : (acc.initialBalance || 0);
-    records.forEach(r => {
+    mergedRecords.forEach(r => {
       if (r.category === '初始資金') return;
       if (r.accountId === acc.id) {
         bal += r.amount;
@@ -3372,8 +3375,9 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   });
 
   const otherRecordsSum = useMemo(() => {
+    const mergedRecords = getMergedRecords(records, accounts);
     let sum = 0;
-    records.forEach(r => {
+    mergedRecords.forEach(r => {
       if (r.category === '初始資金') return;
       if (r.accountId === account.id) {
         sum += r.amount;
@@ -3384,7 +3388,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
       }
     });
     return sum;
-  }, [records, account.id]);
+  }, [records, accounts, account.id]);
 
   const currentTotal = (editedAcc.initialBalance || 0) + otherRecordsSum;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -6795,18 +6799,15 @@ function MoreView({
 
           // Calculate current theoretical sum of all records for this account
           let recordSum = 0;
-          sorted.forEach(r => {
+          const mergedSorted = getMergedRecords(sorted, updatedAccountsWithBalances);
+          mergedSorted.forEach(r => {
             if (r.category === '初始資金') return;
             if (r.accountId === acc.id) {
               recordSum += r.amount;
               if (r.fee) recordSum -= r.fee;
             }
             if (r.type === 'transfer' && r.toAccountId === acc.id) {
-              if (r.toAmount !== undefined) {
-                recordSum += r.toAmount;
-              } else {
-                recordSum -= r.amount * (r.exchangeRate || 1);
-              }
+              recordSum += (r.toAmount ?? Math.abs(r.amount * (r.exchangeRate || 1)));
             }
           });
 
