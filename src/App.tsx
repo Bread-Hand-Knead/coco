@@ -465,7 +465,7 @@ export default function App() {
   const [currencyMode, setCurrencyMode] = useState<'TWD' | 'FOREIGN' | null>('TWD');
 
   // --- PWA Installation Logic ---
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const deferredPromptRef = useRef<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isAppInstalled, setIsAppInstalled] = useState(false);
   const [showPWAReminder, setShowPWAReminder] = useState(true);
@@ -474,8 +474,8 @@ export default function App() {
     const handleBeforeInstallPrompt = (e: Event) => {
       // Prevent Chrome 67 and earlier from automatically showing the prompt
       e.preventDefault();
-      // Stash the event so it can be triggered later.
-      setDeferredPrompt(e);
+      // Stash the event in ref to avoid React state proxy contexts losses
+      deferredPromptRef.current = e;
       setIsInstallable(true);
       console.log('PWA beforeinstallprompt event captured.');
     };
@@ -483,7 +483,7 @@ export default function App() {
     const handleAppInstalled = () => {
       setIsAppInstalled(true);
       setIsInstallable(false);
-      setDeferredPrompt(null);
+      deferredPromptRef.current = null;
       console.log('PWA was installed.');
     };
 
@@ -502,15 +502,22 @@ export default function App() {
   }, []);
 
   const handleInstallApp = async () => {
-    if (!deferredPrompt) return;
-    // Show the install prompt
-    deferredPrompt.prompt();
-    // Wait for the user to respond to the prompt
-    const { outcome } = await deferredPrompt.userChoice;
-    console.log(`User response to install prompt: ${outcome}`);
-    // Discard the prompt
-    setDeferredPrompt(null);
-    setIsInstallable(false);
+    const promptEvent = deferredPromptRef.current;
+    if (!promptEvent) return;
+    
+    try {
+      // Show the install prompt
+      promptEvent.prompt();
+      // Wait for the user to respond to the prompt
+      const { outcome } = await promptEvent.userChoice;
+      console.log(`User response to install prompt: ${outcome}`);
+    } catch (err) {
+      console.error("PWA installation prompt execution failed:", err);
+    } finally {
+      // Discard the prompt to prevent multiple invocation crashes
+      deferredPromptRef.current = null;
+      setIsInstallable(false);
+    }
   };
 
   // --- Auth & Firebase Logic ---
