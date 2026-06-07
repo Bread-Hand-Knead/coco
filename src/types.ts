@@ -6,9 +6,6 @@ export interface Category {
   icon: string;
   type: 'income' | 'expense';
   sub: string[];
-  order?: number;
-  budget?: number;
-  subBudgets?: Record<string, number>;
 }
 
 export interface Transaction {
@@ -30,7 +27,7 @@ export interface Transaction {
 export interface Account {
   id: string;
   name: string;
-  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket' | 'e-payment' | 'insurance' | 'points' | 'other';
+  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket';
   icon: string;
   parentId?: string;
   currency: string;

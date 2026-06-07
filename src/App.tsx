@@ -138,8 +138,6 @@ interface Category {
   type: 'income' | 'expense';
   sub: string[];
   order?: number;
-  budget?: number;
-  subBudgets?: Record<string, number>;
 }
 
 interface Transaction {
@@ -295,16 +293,6 @@ const getTransferSourceAndDest = (tx: Transaction) => {
   const src = isPos ? (tx.toAccountId || '') : tx.accountId;
   const dst = isPos ? tx.accountId : (tx.toAccountId || '');
   return { src, dst };
-};
-
-const defaultTypeOrder: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'insurance', 'points', 'other'];
-
-const getGroupOrder = (type: Account['type'], accountsList: Account[]): number => {
-  const catAccs = accountsList.filter(a => a.type === type);
-  if (catAccs.length > 0) {
-    return Math.min(...catAccs.map(a => a.order ?? 9999));
-  }
-  return 10000 + defaultTypeOrder.indexOf(type);
 };
 
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
@@ -898,7 +886,6 @@ export default function App() {
 
   const accountBalances = useMemo(() => {
     // Recursive Balance Calculation (Dynamic Real-time Formula)
-    const mergedRecords = getMergedRecords(records, accounts);
     const getBaseBalance = (id: string) => {
       const acc = accounts.find(a => a.id === id);
       if (!acc) return 0;
@@ -906,7 +893,7 @@ export default function App() {
       if (acc.type === 'credit' && !acc.initialBalance) {
         bal = 0;
       }
-      mergedRecords.forEach(r => {
+      records.forEach(r => {
         // Skip '初始資金' records if we are using account.initialBalance for the total
         if (r.category === '初始資金') return;
 
@@ -943,14 +930,13 @@ export default function App() {
 
   // Provide a way to get ONLY the account's own balance (without children) for detail view logic if needed
   const ownBalances = useMemo(() => {
-    const mergedRecords = getMergedRecords(records, accounts);
     const balances: Record<string, number> = {};
     accounts.forEach(acc => {
       let bal = acc.initialBalance || 0;
       if (acc.type === 'credit' && !acc.initialBalance) {
         bal = 0;
       }
-      mergedRecords.forEach(r => {
+      records.forEach(r => {
         if (r.category === '初始資金') return;
         if (r.accountId === acc.id) {
           bal += r.amount;
@@ -1698,18 +1684,26 @@ export default function App() {
               )
             )}
             {currentView === 'budget' && (
-              <BudgetManagementPage 
-                monthlyBudget={monthlyBudget}
-                setMonthlyBudget={setMonthlyBudget}
-                syncBudgetToCloud={syncBudgetToCloud}
-                categories={categories}
-                onUpdateCategories={handleUpdateCategories}
-                records={records}
-                accounts={accounts}
-                selectedDate={selectedDate}
-                onDateChange={setSelectedDate}
-                currencyMode={currencyMode}
-                onBack={() => setCurrentView('home')}
+              <PlaceholderView 
+                title="預算管理" 
+                icon={<PieChart size={48} />} 
+                onBack={() => setCurrentView('home')} 
+                content={
+                  <div className="flex flex-col gap-4 mt-8">
+                    <span className="text-[#5D4037] font-bold">目前每月預算：$ {monthlyBudget.toLocaleString()}</span>
+                    <input 
+                      type="range" min="5000" max="100000" step="5000"
+                      value={monthlyBudget}
+                      onChange={(e) => {
+                        const b = parseInt(e.target.value);
+                        setMonthlyBudget(b);
+                        syncBudgetToCloud(b);
+                      }}
+                      className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-[#5D4037]"
+                    />
+                    <p className="text-xs text-stone-400">變更後將自動同步到雲端</p>
+                  </div>
+                }
               />
             )}
             {currentView === 'categories' && <CategoryManagementPage categories={categories} onSave={handleUpdateCategories} onBack={() => setCurrentView('home')} />}
@@ -2107,10 +2101,9 @@ function StatCard({ title, date, expense, income, onClick }: { title: string, da
 }
 
 export function calculateAccountBalance(account: Account, accounts: Account[], records: Transaction[]): number {
-  const mergedRecords = getMergedRecords(records, accounts);
   const getBaseBalance = (acc: Account) => {
     let bal = acc.type === 'credit' ? 0 : (acc.initialBalance || 0);
-    mergedRecords.forEach(r => {
+    records.forEach(r => {
       if (r.category === '初始資金') return;
       if (r.accountId === acc.id) {
         bal += r.amount;
@@ -2210,11 +2203,10 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
   const accountTypeLabels: Record<Account['type'], string> = {
     cash: '現金',
     bank: '銀行',
-    investment: '證券',
+    investment: '投資',
     credit: '信用卡',
-    'e-ticket': '儲值卡',
+    'e-ticket': '電子票證',
     'e-payment': '電子支付',
-    insurance: '保險',
     points: '點數',
     other: '其他'
   };
@@ -2357,9 +2349,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
 
       {/* Account List Groups */}
       <div className="flex flex-col gap-8 px-4 pb-24">
-        {(Object.entries(groupedAccounts) as [Account['type'], any[]][])
-          .sort(([typeA], [typeB]) => getGroupOrder(typeA, accounts) - getGroupOrder(typeB, accounts))
-          .map(([type, typeAccounts]) => {
+        {(Object.entries(groupedAccounts) as [Account['type'], any[]][]).map(([type, typeAccounts]) => {
           const typeTotal = typeAccounts.reduce((sum, acc) => {
             if (acc.isBrandGroup && acc.childAccounts) {
               return sum + acc.childAccounts.reduce((cSum: number, c: Account) => {
@@ -3358,7 +3348,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   onDelete: (id: string) => void,
   onViewDetail?: (acc: Account) => void
 }) {
-  const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket', 'e-payment', 'insurance', 'points', 'other'];
+  const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket', 'e-payment', 'points', 'other'];
   const isNew = !accounts.find(a => a.id === account.id);
   const [editedAcc, setEditedAcc] = useState<Account>(() => {
     // Migrate initialBalance from records if not present on account
@@ -3369,9 +3359,8 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   });
 
   const otherRecordsSum = useMemo(() => {
-    const mergedRecords = getMergedRecords(records, accounts);
     let sum = 0;
-    mergedRecords.forEach(r => {
+    records.forEach(r => {
       if (r.category === '初始資金') return;
       if (r.accountId === account.id) {
         sum += r.amount;
@@ -3382,7 +3371,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
       }
     });
     return sum;
-  }, [records, accounts, account.id]);
+  }, [records, account.id]);
 
   const currentTotal = (editedAcc.initialBalance || 0) + otherRecordsSum;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -3448,11 +3437,10 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                   const labelMap: Record<Account['type'], string> = {
                     cash: '現金',
                     bank: '銀行',
-                    investment: '證券',
+                    investment: '投資',
                     credit: '信用卡',
-                    'e-ticket': '儲值卡',
+                    'e-ticket': '電子票證',
                     'e-payment': '電子支付',
-                    insurance: '保險',
                     points: '點數',
                     other: '其他'
                   };
@@ -4335,62 +4323,31 @@ function AccountSortModal({ accounts, onClose, onSave }: {
   onClose: () => void, 
   onSave: (newOrder: Account[]) => void 
 }) {
-  const [categoryOrder, setCategoryOrder] = useState<Account['type'][]>(() => {
-    const uniqueTypes: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'insurance', 'points', 'other'];
-    return [...uniqueTypes].sort((a, b) => getGroupOrder(a, accounts) - getGroupOrder(b, accounts));
-  });
-
-  // Grouping parents and children within their respective categories
-  const [orderedAccounts, setOrderedAccounts] = useState<Account[]>(() => {
+  // Initialize by grouping children with parents to ensure subtree movement logic works
+  const [sortedAccounts, setSortedAccounts] = useState(() => {
+    const parents = accounts.filter(a => !a.parentId);
     const result: Account[] = [];
-    const uniqueTypes: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'insurance', 'points', 'other'];
-    
-    uniqueTypes.forEach(cat => {
-      const catAccs = accounts.filter(a => a.type === cat);
-      // Group parents and children
-      const parents = catAccs.filter(a => !a.parentId);
-      const catResult: Account[] = [];
-      parents.sort((a, b) => (a.order || 0) - (b.order || 0)).forEach(p => {
-        catResult.push(p);
-        const children = catAccs.filter(c => c.parentId === p.id).sort((a, b) => (a.order || 0) - (b.order || 0));
-        catResult.push(...children);
-      });
-      // Add any orphans just in case
-      catAccs.forEach(a => {
-        if (!catResult.find(r => r.id === a.id)) catResult.push(a);
-      });
-      result.push(...catResult);
+    parents.forEach(p => {
+      result.push(p);
+      const children = accounts.filter(c => c.parentId === p.id);
+      result.push(...children);
     });
-    
+    // Add any orphans just in case
+    accounts.forEach(a => {
+      if (!result.find(r => r.id === a.id)) result.push(a);
+    });
     return result;
   });
 
-  const [expandedCategories, setExpandedCategories] = useState<Account['type'][]>([]);
-
-  const toggleCategoryExpanded = (cat: Account['type']) => {
-    setExpandedCategories(prev => 
-      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
-    );
-  };
-
-  const moveCategory = (index: number, direction: 'up' | 'down') => {
-    const newOrder = [...categoryOrder];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newOrder.length) return;
-    [newOrder[index], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[index]];
-    setCategoryOrder(newOrder);
-  };
-
-  const moveAccountWithinCategory = (cat: Account['type'], indexInCat: number, direction: 'up' | 'down') => {
-    const catAccounts = orderedAccounts.filter(a => a.type === cat);
-    const newCatAccounts = [...catAccounts];
-    const item = newCatAccounts[indexInCat];
-
+  const moveAccount = (index: number, direction: 'up' | 'down') => {
+    const newOrder = [...sortedAccounts];
+    const item = newOrder[index];
+    
     const getSubtreeRange = (idx: number) => {
-      const parent = newCatAccounts[idx];
+      const parent = newOrder[idx];
       let endIdx = idx;
-      for (let i = idx + 1; i < newCatAccounts.length; i++) {
-        if (newCatAccounts[i].parentId === parent.id) {
+      for (let i = idx + 1; i < newOrder.length; i++) {
+        if (newOrder[i].parentId === parent.id) {
           endIdx = i;
         } else {
           break;
@@ -4400,122 +4357,71 @@ function AccountSortModal({ accounts, onClose, onSave }: {
     };
 
     if (item.parentId) {
-      // Child account swap: only swap if the neighbor is a child of the SAME parent
-      const targetIndex = direction === 'up' ? indexInCat - 1 : indexInCat + 1;
-      if (targetIndex < 0 || targetIndex >= newCatAccounts.length) return;
+      // 子帳號排序：僅在同主帳號內移動
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= newOrder.length) return;
       
-      const targetItem = newCatAccounts[targetIndex];
+      const targetItem = newOrder[targetIndex];
+      // Only swap if the target is also a child of the SAME parent
       if (targetItem.parentId === item.parentId) {
-        newCatAccounts[indexInCat] = targetItem;
-        newCatAccounts[targetIndex] = item;
-        
-        setOrderedAccounts(prev => {
-          const result: Account[] = [];
-          let catIndex = 0;
-          prev.forEach(acc => {
-            if (acc.type === cat) {
-              result.push(newCatAccounts[catIndex++]);
-            } else {
-              result.push(acc);
-            }
-          });
-          return result;
-        });
+        newOrder[index] = targetItem;
+        newOrder[targetIndex] = item;
+        setSortedAccounts(newOrder);
       }
     } else {
-      // Parent account swap: move whole subtree (hen with chicks)
-      const [start, end] = getSubtreeRange(indexInCat);
+      // 主帳號排序：整組移動 (母雞帶小雞)
+      const [start, end] = getSubtreeRange(index);
       const groupLength = end - start + 1;
       
       if (direction === 'up') {
         let prevParentStart = -1;
         for (let i = start - 1; i >= 0; i--) {
-          if (!newCatAccounts[i].parentId) {
+          if (!newOrder[i].parentId) {
             prevParentStart = i;
             break;
           }
         }
         if (prevParentStart === -1) return;
         
-        const group = newCatAccounts.splice(start, groupLength);
-        newCatAccounts.splice(prevParentStart, 0, ...group);
+        const group = newOrder.splice(start, groupLength);
+        newOrder.splice(prevParentStart, 0, ...group);
       } else {
         const nextParentStart = end + 1;
-        if (nextParentStart >= newCatAccounts.length) return;
+        if (nextParentStart >= newOrder.length) return;
         
         const [targetStart, targetEnd] = getSubtreeRange(nextParentStart);
-        const group = newCatAccounts.splice(start, groupLength);
+        const group = newOrder.splice(start, groupLength);
+        // Position it after the next group
         const insertAt = targetEnd - groupLength + 1;
-        newCatAccounts.splice(insertAt, 0, ...group);
+        newOrder.splice(insertAt, 0, ...group);
       }
-
-      setOrderedAccounts(prev => {
-        const result: Account[] = [];
-        let catIndex = 0;
-        prev.forEach(acc => {
-          if (acc.type === cat) {
-            result.push(newCatAccounts[catIndex++]);
-          } else {
-            result.push(acc);
-          }
-        });
-        return result;
-      });
+      setSortedAccounts(newOrder);
     }
   };
 
-  const canMoveAccountUp = (cat: Account['type'], indexInCat: number) => {
-    const catAccounts = orderedAccounts.filter(a => a.type === cat);
-    const item = catAccounts[indexInCat];
+  const canMoveUp = (index: number) => {
+    const item = sortedAccounts[index];
     if (item.parentId) {
-      return indexInCat > 0 && catAccounts[indexInCat - 1].parentId === item.parentId;
+      return index > 0 && sortedAccounts[index - 1].parentId === item.parentId;
     }
-    for (let i = indexInCat - 1; i >= 0; i--) {
-      if (!catAccounts[i].parentId) return true;
+    for (let i = index - 1; i >= 0; i--) {
+      if (!sortedAccounts[i].parentId) return true;
     }
     return false;
   };
 
-  const canMoveAccountDown = (cat: Account['type'], indexInCat: number) => {
-    const catAccounts = orderedAccounts.filter(a => a.type === cat);
-    const item = catAccounts[indexInCat];
+  const canMoveDown = (index: number) => {
+    const item = sortedAccounts[index];
     if (item.parentId) {
-      return indexInCat < catAccounts.length - 1 && catAccounts[indexInCat + 1].parentId === item.parentId;
+      return index < sortedAccounts.length - 1 && sortedAccounts[index + 1].parentId === item.parentId;
     }
-    let endIdx = indexInCat;
-    for (let i = indexInCat + 1; i < catAccounts.length; i++) {
-      if (catAccounts[i].parentId === item.id) endIdx = i;
+    // Find end of current group
+    let endIdx = index;
+    for (let i = index + 1; i < sortedAccounts.length; i++) {
+      if (sortedAccounts[i].parentId === item.id) endIdx = i;
       else break;
     }
-    return endIdx < catAccounts.length - 1;
-  };
-
-  const categoryUiConfig: Record<Account['type'], { label: string; bg: string; icon: string }> = {
-    cash: { label: '現金', bg: 'bg-[#26A69A]', icon: '💵' },
-    bank: { label: '銀行', bg: 'bg-[#42A5F5]', icon: '🏦' },
-    credit: { label: '信用卡', bg: 'bg-[#EF5350]', icon: '💳' },
-    'e-payment': { label: '電子支付', bg: 'bg-[#26C6DA]', icon: '📱' },
-    'e-ticket': { label: '儲值卡', bg: 'bg-[#FFA726]', icon: '🚃' },
-    investment: { label: '證券', bg: 'bg-[#78909C]', icon: '📈' },
-    insurance: { label: '保險', bg: 'bg-[#FF7043]', icon: '🛡️' },
-    points: { label: '點數', bg: 'bg-[#FDD835]', icon: '⭐' },
-    other: { label: '其他', bg: 'bg-[#8D6E63]', icon: '💼' }
-  };
-
-  const handleSave = () => {
-    const finalOrderedAccounts: Account[] = [];
-    
-    categoryOrder.forEach(cat => {
-      const catAccs = orderedAccounts.filter(a => a.type === cat);
-      finalOrderedAccounts.push(...catAccs);
-    });
-    
-    const savedAccounts = finalOrderedAccounts.map((acc, index) => ({
-      ...acc,
-      order: index
-    }));
-    
-    onSave(savedAccounts);
+    return endIdx < sortedAccounts.length - 1;
   };
 
   return (
@@ -4535,108 +4441,46 @@ function AccountSortModal({ accounts, onClose, onSave }: {
             <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
               <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
             </button>
-            <h3 className="text-2xl font-black text-[#5D4037]">帳戶類型排序</h3>
+            <h3 className="text-2xl font-black text-[#5D4037]">帳戶排序</h3>
           </div>
           <div className="w-12 h-12 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-md">
             <span className="text-xl font-bold text-[#5D4037]">☰↑</span>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 no-scrollbar">
-          {categoryOrder.map((cat, index) => {
-            const config = categoryUiConfig[cat];
-            const catAccounts = orderedAccounts.filter(a => a.type === cat);
-            const isExpanded = expandedCategories.includes(cat);
-            const hasAccounts = catAccounts.length > 0;
-            
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {sortedAccounts.map((acc, index) => {
+            const isChild = !!acc.parentId;
             return (
-              <div key={cat} className="flex flex-col gap-2">
-                {/* Category Header Row */}
-                <div className="flex items-center gap-3 p-4 bg-white rounded-3xl border-2 border-stone-50 shadow-sm transition-all hover:bg-stone-50/50">
-                  {/* Category Icon */}
-                  <div className={`w-12 h-12 rounded-full ${config.bg} flex items-center justify-center text-2xl shadow-sm text-white`}>
-                    {config.icon}
-                  </div>
-                  
-                  {/* Category Name & Toggle Arrow */}
-                  <button 
-                    onClick={() => toggleCategoryExpanded(cat)}
-                    className="flex-1 flex items-center justify-between min-w-0 text-left font-black text-[#5D4037]"
-                  >
-                    <span className="text-base truncate">{config.label}</span>
-                    <ChevronDown 
-                      size={20} 
-                      className={`text-[#5D4037]/60 transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} 
-                    />
-                  </button>
-                  
-                  {/* Category Sorting Buttons */}
-                  <div className="flex items-center gap-1 border-l border-stone-100 pl-2">
-                    <button 
-                      disabled={index === 0}
-                      onClick={() => moveCategory(index, 'up')}
-                      className="p-1 hover:bg-stone-100 rounded-lg text-stone-300 hover:text-[#5D4037] disabled:opacity-10 transition-all active:scale-75"
-                    >
-                      <ChevronUp size={20} />
-                    </button>
-                    <button 
-                      disabled={index === categoryOrder.length - 1}
-                      onClick={() => moveCategory(index, 'down')}
-                      className="p-1 hover:bg-stone-100 rounded-lg text-stone-300 hover:text-[#5D4037] disabled:opacity-10 transition-all active:scale-75"
-                    >
-                      <ChevronDown size={20} />
-                    </button>
-                  </div>
+              <div 
+                key={acc.id}
+                className={`flex items-center gap-3 p-4 bg-white rounded-3xl border-2 border-stone-50 shadow-sm transition-all group ${isChild ? 'ml-10 border-l-8 border-[#5D4037]/5 bg-white/70 scale-95' : 'relative'}`}
+              >
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl border border-stone-50 shadow-sm ${isChild ? 'bg-white' : 'bg-[#FFFDF5]'}`}>
+                  {acc.icon}
                 </div>
-                
-                {/* Expanded Account List */}
-                <AnimatePresence>
-                  {isExpanded && (
-                    <motion.div 
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden pl-4 pr-2 py-1 space-y-2 border-l-2 border-[#5D4037]/10 ml-6"
-                    >
-                      {hasAccounts ? (
-                        catAccounts.map((acc, idx) => {
-                          const isChild = !!acc.parentId;
-                          return (
-                            <div 
-                              key={acc.id}
-                              className={`flex items-center gap-3 p-3 bg-white/70 rounded-2xl border border-stone-100 shadow-sm transition-all group ${isChild ? 'ml-6 bg-white/40 scale-95' : ''}`}
-                            >
-                              <span className="text-xl">{acc.icon}</span>
-                              <div className="flex-1 min-w-0">
-                                <span className="font-bold text-[#5D4037] text-sm truncate block">{acc.name}</span>
-                              </div>
-                              
-                              {/* Account Sorting Buttons */}
-                              <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity">
-                                <button 
-                                  disabled={!canMoveAccountUp(cat, idx)}
-                                  onClick={() => moveAccountWithinCategory(cat, idx, 'up')}
-                                  className="p-1 hover:bg-stone-50 rounded-lg text-stone-300 hover:text-[#5D4037] disabled:opacity-5 transition-all active:scale-75"
-                                >
-                                  <ChevronUp size={16} />
-                                </button>
-                                <button 
-                                  disabled={!canMoveAccountDown(cat, idx)}
-                                  onClick={() => moveAccountWithinCategory(cat, idx, 'down')}
-                                  className="p-1 hover:bg-stone-50 rounded-lg text-stone-300 hover:text-[#5D4037] disabled:opacity-5 transition-all active:scale-75"
-                                >
-                                  <ChevronDown size={16} />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <div className="text-stone-300 text-xs py-3 pl-2 italic">此類型暫無帳戶</div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                <div className="flex-1 flex flex-col min-w-0">
+                  <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-1">
+                    {isChild ? '子帳戶' : '主帳戶'}
+                  </span>
+                  <span className={`font-black text-[#5D4037] truncate ${isChild ? 'text-sm' : 'text-base'}`}>{acc.name}</span>
+                </div>
+                <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                  <button 
+                    disabled={!canMoveUp(index)}
+                    onClick={() => moveAccount(index, 'up')}
+                    className="p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] disabled:opacity-5 transition-all active:scale-75"
+                  >
+                    <ChevronUp size={24} />
+                  </button>
+                  <button 
+                    disabled={!canMoveDown(index)}
+                    onClick={() => moveAccount(index, 'down')}
+                    className="p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] disabled:opacity-5 transition-all active:scale-75"
+                  >
+                    <ChevronDown size={24} />
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -4645,7 +4489,7 @@ function AccountSortModal({ accounts, onClose, onSave }: {
 
         <div className="p-8 pt-4 flex-shrink-0 bg-white/80 backdrop-blur-sm border-t border-stone-100">
           <button 
-            onClick={handleSave}
+            onClick={() => onSave(sortedAccounts)}
             className="w-full py-5 bg-[#5D4037] text-white rounded-3xl font-black text-xl flex items-center justify-center gap-3 shadow-[0_10px_30px_-10px_rgba(93,64,55,0.4)] active:scale-95 transition-all"
           >
             <Check size={28} /> 完成排序
@@ -5942,709 +5786,6 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   );
 }
 
-function SubCategoryDetailView({
-  parentCat,
-  subCat,
-  records,
-  accounts,
-  monthStr,
-  currencyMode,
-  onBack
-}: {
-  parentCat: string;
-  subCat: string;
-  records: Transaction[];
-  accounts: Account[];
-  monthStr: string;
-  currencyMode: 'TWD' | 'FOREIGN' | null;
-  onBack: () => void;
-}) {
-  const matchingRecords = useMemo(() => {
-    const monthlyRecords = records.filter(r => {
-      const cur = r.currency || 'TWD';
-      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
-      return cur === 'TWD';
-    });
-
-    return monthlyRecords
-      .filter(r => {
-        const pDate = r.postingDate || r.date;
-        if (!pDate.startsWith(monthStr)) return false;
-        if (r.type !== 'expense') return false;
-        const parts = (r.category || '').split(' > ');
-        return parts[0] === parentCat && parts[1] === subCat;
-      })
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [records, parentCat, subCat, monthStr, currencyMode]);
-
-  const totalSpent = useMemo(() => {
-    return matchingRecords.reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
-  }, [matchingRecords]);
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0, x: 20 }} 
-      animate={{ opacity: 1, x: 0 }} 
-      exit={{ opacity: 0, x: -20 }}
-      className="flex flex-col h-full bg-[#FFFDF5]"
-      style={getFontFamily()}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-4 bg-[#FFFDF5] border-b border-stone-100 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={onBack}
-            className="w-10 h-10 rounded-full border-2 border-stone-100 flex items-center justify-center text-stone-500 hover:bg-stone-50 transition-colors shadow-sm bg-white"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <span className="text-xl font-bold text-[#5D4037]">{subCat} 明細</span>
-        </div>
-        <span className="text-xs font-bold text-[#5D4037] bg-stone-100 px-3 py-1.5 rounded-full border border-stone-100">{parentCat}</span>
-      </div>
-
-      {/* Date & Stats bar */}
-      <div className="px-6 py-4 bg-white border-b border-stone-50 flex justify-between items-center text-sm font-bold text-stone-500">
-        <span>本月消費：{matchingRecords.length} 筆</span>
-        <span>總計：<span className="text-rose-500">${totalSpent.toLocaleString()}</span></span>
-      </div>
-
-      {/* List */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {matchingRecords.length > 0 ? (
-          matchingRecords.map(r => {
-            const accName = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
-            return (
-              <div 
-                key={r.id}
-                className="bg-white rounded-[24px] p-4 shadow-sm border-2 border-stone-50 flex items-center justify-between transition-all"
-              >
-                <div className="flex flex-col gap-1 flex-1 min-w-0 pr-3">
-                  <span className="font-bold text-[#5D4037] truncate block text-sm">{r.note || r.category}</span>
-                  <div className="flex items-center gap-2 text-[10px] text-stone-400 font-bold">
-                    <span>{r.date.replace(/-/g, '/')}</span>
-                    <span>•</span>
-                    <span>{accName}</span>
-                  </div>
-                </div>
-                <span className="font-black text-rose-500 text-base flex-shrink-0 whitespace-nowrap">
-                  - $ {(Math.abs(r.amount) + (r.fee || 0)).toLocaleString()}
-                </span>
-              </div>
-            );
-          })
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20 text-center gap-2">
-            <span className="text-4xl">🗒️</span>
-            <span className="text-stone-300 text-sm font-bold">本月無此子分類消費明細</span>
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-function BudgetManagementPage({
-  monthlyBudget,
-  setMonthlyBudget,
-  syncBudgetToCloud,
-  categories,
-  onUpdateCategories,
-  records,
-  accounts,
-  selectedDate,
-  onDateChange,
-  currencyMode,
-  onBack
-}: {
-  monthlyBudget: number;
-  setMonthlyBudget: (b: number) => void;
-  syncBudgetToCloud: (b: number) => void;
-  categories: Category[];
-  onUpdateCategories: (newCats: Category[]) => Promise<void>;
-  records: Transaction[];
-  accounts: Account[];
-  selectedDate: string;
-  onDateChange: (d: string) => void;
-  currencyMode: 'TWD' | 'FOREIGN' | null;
-  onBack: () => void;
-}) {
-  const [editingOverall, setEditingOverall] = useState(false);
-  const [tempOverallBudget, setTempOverallBudget] = useState(monthlyBudget.toString());
-  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
-  const [tempCategoryBudget, setTempCategoryBudget] = useState('');
-  const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
-  const [editingSubId, setEditingSubId] = useState<string | null>(null);
-  const [tempSubBudget, setTempSubBudget] = useState('');
-  const [selectedSubCategoryDetail, setSelectedSubCategoryDetail] = useState<{ parent: string, sub: string } | null>(null);
-
-  const monthStr = selectedDate.substring(0, 7);
-
-  // Month navigation handlers
-  const handlePrevMonth = () => {
-    try {
-      const parts = selectedDate.split('-');
-      if (parts.length >= 2) {
-        const year = parseInt(parts[0]);
-        const month = parseInt(parts[1]);
-        const prev = new Date(year, month - 2, 1);
-        onDateChange(formatLocalDate(prev));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleNextMonth = () => {
-    try {
-      const parts = selectedDate.split('-');
-      if (parts.length >= 2) {
-        const year = parseInt(parts[0]);
-        const month = parseInt(parts[1]);
-        const next = new Date(year, month, 1);
-        onDateChange(formatLocalDate(next));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const monthRangeLabel = useMemo(() => {
-    try {
-      const parts = selectedDate.split('-');
-      if (parts.length >= 2) {
-        const year = parseInt(parts[0]);
-        const month = parseInt(parts[1]);
-        const start = new Date(year, month - 1, 1);
-        const end = new Date(year, month, 0);
-        const format = (d: Date) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
-        return `${format(start)} - ${format(end)}`;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    return '';
-  }, [selectedDate]);
-
-  // Filter only expense categories
-  const expenseCategories = useMemo(() => {
-    return categories.filter(c => c.type === 'expense').sort((a, b) => (a.order || 0) - (b.order || 0));
-  }, [categories]);
-
-  // Total expenses this month (TWD or foreign, filtered by currencyMode)
-  const totalMonthlyExpenses = useMemo(() => {
-    const monthlyRecords = records.filter(r => {
-      const cur = r.currency || 'TWD';
-      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
-      return cur === 'TWD';
-    });
-
-    return monthlyRecords
-      .filter(r => {
-        const pDate = r.postingDate || r.date;
-        return pDate.startsWith(monthStr) && r.category !== '初始資金' && r.type === 'expense';
-      })
-      .reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
-  }, [records, monthStr, currencyMode]);
-
-  // Category monthly expenses map
-  const categoryExpensesMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    
-    const monthlyRecords = records.filter(r => {
-      const cur = r.currency || 'TWD';
-      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
-      return cur === 'TWD';
-    });
-
-    monthlyRecords.forEach(r => {
-      const pDate = r.postingDate || r.date;
-      if (pDate.startsWith(monthStr) && r.category !== '初始資金' && r.type === 'expense') {
-        const parentCat = r.category.split(' > ')[0];
-        const amount = Math.abs(r.amount) + (r.fee || 0);
-        map[parentCat] = (map[parentCat] || 0) + amount;
-      }
-    });
-
-    return map;
-  }, [records, monthStr, currencyMode]);
-
-  // Get monthly transactions for a category
-  const getCategoryMonthlyTransactions = (catName: string) => {
-    const monthlyRecords = records.filter(r => {
-      const cur = r.currency || 'TWD';
-      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
-      return cur === 'TWD';
-    });
-
-    return monthlyRecords
-      .filter(r => {
-        const pDate = r.postingDate || r.date;
-        if (!pDate.startsWith(monthStr)) return false;
-        if (r.type !== 'expense') return false;
-        const rCat = r.category.split(' > ')[0];
-        return rCat === catName;
-      })
-      .sort((a, b) => b.date.localeCompare(a.date));
-  };
-
-  // Get monthly spent for a subcategory
-  const getSubcategoryMonthlyExpense = (parentCatName: string, subCatName: string) => {
-    const monthlyRecords = records.filter(r => {
-      const cur = r.currency || 'TWD';
-      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
-      return cur === 'TWD';
-    });
-
-    return monthlyRecords
-      .filter(r => {
-        const pDate = r.postingDate || r.date;
-        if (!pDate.startsWith(monthStr)) return false;
-        if (r.type !== 'expense') return false;
-        const parts = r.category.split(' > ');
-        return parts[0] === parentCatName && parts[1] === subCatName;
-      })
-      .reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
-  };
-
-  // Handle saving subcategory budget
-  const handleSaveSubBudget = async (catId: string, subName: string) => {
-    const val = tempSubBudget === '' ? undefined : parseInt(tempSubBudget);
-    const updated = categories.map(c => {
-      if (c.id === catId) {
-        const subBudgets = { ...(c.subBudgets || {}) };
-        if (val === undefined || val === 0) {
-          delete subBudgets[subName];
-        } else {
-          subBudgets[subName] = val;
-        }
-        return { ...c, subBudgets };
-      }
-      return c;
-    });
-    await onUpdateCategories(updated);
-    setEditingSubId(null);
-  };
-
-  const overallPercent = monthlyBudget > 0 ? (totalMonthlyExpenses / monthlyBudget) * 100 : 0;
-  const remainingBudget = monthlyBudget - totalMonthlyExpenses;
-
-  // Handle saving overall budget
-  const handleSaveOverall = () => {
-    const val = parseInt(tempOverallBudget) || 0;
-    if (val > 0) {
-      setMonthlyBudget(val);
-      syncBudgetToCloud(val);
-    }
-    setEditingOverall(false);
-  };
-
-  // Handle saving category budget
-  const handleSaveCategoryBudget = async (catId: string) => {
-    const val = tempCategoryBudget === '' ? undefined : parseInt(tempCategoryBudget);
-    const updated = categories.map(c => {
-      if (c.id === catId) {
-        return { ...c, budget: val === 0 ? undefined : val };
-      }
-      return c;
-    });
-    await onUpdateCategories(updated);
-    setEditingCategoryId(null);
-  };
-
-  if (selectedSubCategoryDetail) {
-    return (
-      <SubCategoryDetailView 
-        parentCat={selectedSubCategoryDetail.parent}
-        subCat={selectedSubCategoryDetail.sub}
-        records={records}
-        accounts={accounts}
-        monthStr={monthStr}
-        currencyMode={currencyMode}
-        onBack={() => setSelectedSubCategoryDetail(null)}
-      />
-    );
-  }
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }} 
-      animate={{ opacity: 1, y: 0 }} 
-      exit={{ opacity: 0, y: -20 }}
-      className="flex flex-col h-full bg-[#FFFDF5]"
-      style={getFontFamily()}
-    >
-      {/* Month Switcher Header */}
-      <div className="flex items-center justify-between px-6 py-4 bg-[#FFFDF5] border-b border-stone-100 flex-shrink-0">
-        <button 
-          onClick={handlePrevMonth} 
-          className="w-10 h-10 rounded-full flex items-center justify-center text-[#5D4037] hover:bg-stone-50 transition-colors shadow-sm bg-white"
-        >
-          <ChevronLeft size={24} />
-        </button>
-        <span className="text-lg font-black text-[#5D4037] tracking-tight">{monthRangeLabel}</span>
-        <button 
-          onClick={handleNextMonth} 
-          className="w-10 h-10 rounded-full flex items-center justify-center text-[#5D4037] hover:bg-stone-50 transition-colors shadow-sm bg-white"
-        >
-          <ChevronRight size={24} />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
-        {/* Overall Budget Card */}
-        <div className="bg-white rounded-[32px] p-6 shadow-sm border-2 border-stone-50 flex flex-col gap-5">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-stone-400">本月預算狀態 ({monthStr.replace('-', '/')})</span>
-            {!editingOverall ? (
-              <button 
-                onClick={() => {
-                  setTempOverallBudget(monthlyBudget.toString());
-                  setEditingOverall(true);
-                }}
-                className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037] bg-stone-50 hover:bg-stone-100 px-3 py-1.5 rounded-full border border-stone-100 transition-colors"
-              >
-                <Pencil size={12} />
-                調整總預算
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={handleSaveOverall}
-                  className="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm border border-emerald-100 hover:bg-emerald-100 transition-colors"
-                >
-                  <Check size={14} />
-                </button>
-                <button 
-                  onClick={() => setEditingOverall(false)}
-                  className="w-7 h-7 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shadow-sm border border-rose-100 hover:bg-rose-100 transition-colors"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {editingOverall ? (
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-3 bg-stone-50 p-4 rounded-2xl border-2 border-stone-100">
-                <span className="text-lg font-black text-[#5D4037]">$</span>
-                <input 
-                  type="number" 
-                  pattern="\d*"
-                  inputMode="numeric"
-                  value={tempOverallBudget} 
-                  onChange={(e) => setTempOverallBudget(e.target.value)}
-                  className="bg-transparent text-2xl font-black text-[#5D4037] focus:outline-none w-full"
-                  placeholder="請輸入月預算"
-                  autoFocus
-                />
-              </div>
-              <input 
-                type="range" min="5000" max="150000" step="5000"
-                value={parseInt(tempOverallBudget) || 5000}
-                onChange={(e) => setTempOverallBudget(e.target.value)}
-                className="w-full h-2 bg-stone-100 rounded-lg appearance-none cursor-pointer accent-[#5D4037]"
-              />
-            </div>
-          ) : (
-            <div className="flex items-baseline gap-1">
-              <span className="text-sm font-black text-[#5D4037]">$</span>
-              <span className="text-3xl font-black tracking-tight text-[#5D4037]">
-                {monthlyBudget.toLocaleString()}
-              </span>
-              <span className="text-xs font-bold text-stone-400 ml-2">/ 月</span>
-            </div>
-          )}
-
-          {/* Progress Bar */}
-          <div className="space-y-2">
-            <div className="w-full h-3 bg-stone-100 rounded-full overflow-hidden relative border border-stone-50">
-              <motion.div 
-                initial={{ width: 0 }}
-                animate={{ width: `${Math.min(overallPercent, 100)}%` }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-                className={`h-full rounded-full ${
-                  overallPercent > 100 
-                    ? 'bg-gradient-to-r from-rose-400 to-rose-500' 
-                    : overallPercent > 80 
-                    ? 'bg-gradient-to-r from-amber-400 to-amber-500' 
-                    : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
-                }`}
-              />
-            </div>
-            <div className="flex justify-between text-xs font-bold text-stone-400">
-              <span>已支出: ${totalMonthlyExpenses.toLocaleString()}</span>
-              <span>{overallPercent.toFixed(0)}%</span>
-            </div>
-          </div>
-
-          <div className="border-t border-stone-100 pt-4 flex justify-between items-center">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest leading-none mb-1">
-                {remainingBudget >= 0 ? '剩餘預算' : '超出預算'}
-              </span>
-              <span className={`text-lg font-black ${remainingBudget >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                $ {Math.abs(remainingBudget).toLocaleString()}
-              </span>
-            </div>
-            {remainingBudget < 0 && (
-              <div className="bg-rose-50 border border-rose-100 text-rose-500 rounded-2xl px-3 py-2 text-[10px] font-bold flex items-center gap-1.5 shadow-sm">
-                <AlertCircle size={14} />
-                本月支出已超支！
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Category Budget Section */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-[#5D4037]">分類預算設定 ({expenseCategories.length})</span>
-            <span className="text-xs text-stone-400 font-bold">點選即可快速調整</span>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            {expenseCategories.map(cat => {
-              const spent = categoryExpensesMap[cat.name] || 0;
-              const hasBudget = cat.budget !== undefined && cat.budget > 0;
-              const budgetVal = cat.budget || 0;
-              const percent = hasBudget ? (spent / budgetVal) * 100 : 0;
-              const isEditing = editingCategoryId === cat.id;
-              const isExpanded = expandedCategoryId === cat.id;
-              const catRecords = getCategoryMonthlyTransactions(cat.name);
-
-              return (
-                <div 
-                  key={cat.id}
-                  onClick={() => {
-                    if (editingCategoryId !== cat.id) {
-                      setExpandedCategoryId(isExpanded ? null : cat.id);
-                    }
-                  }}
-                  className={`bg-white rounded-[24px] p-4 shadow-sm border-2 flex flex-col gap-3 transition-all cursor-pointer ${
-                    isExpanded ? 'border-amber-100 bg-[#FFFDF9]' : 'border-stone-50 hover:border-stone-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    {/* Category Title */}
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-[#FFFDF5] rounded-xl flex items-center justify-center text-xl shadow-sm border border-stone-100/50">
-                        {cat.icon}
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-sm font-bold text-[#5D4037]">{cat.name}</span>
-                        <span className="text-[10px] font-bold text-stone-400">已花費: ${spent.toLocaleString()}</span>
-                      </div>
-                    </div>
-
-                    {/* Budget Setting & Chevron */}
-                    <div className="flex items-center gap-2.5">
-                      {isEditing ? (
-                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-1 bg-stone-50 px-3 py-1.5 rounded-xl border-2 border-stone-100 max-w-[120px]">
-                            <span className="text-xs text-stone-400 font-bold">$</span>
-                            <input 
-                              type="number"
-                              pattern="\d*"
-                              inputMode="numeric"
-                              value={tempCategoryBudget}
-                              onChange={(e) => setTempCategoryBudget(e.target.value)}
-                              className="bg-transparent text-sm font-black text-[#5D4037] focus:outline-none w-full text-right"
-                              placeholder="預算金額"
-                              autoFocus
-                            />
-                          </div>
-                          <button 
-                            onClick={() => handleSaveCategoryBudget(cat.id)}
-                            className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm border border-emerald-100 hover:bg-emerald-100 transition-colors"
-                          >
-                            <Check size={14} />
-                          </button>
-                          <button 
-                            onClick={() => setEditingCategoryId(null)}
-                            className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shadow-sm border border-rose-100 hover:bg-rose-100 transition-colors"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTempCategoryBudget(hasBudget ? budgetVal.toString() : '');
-                            setEditingCategoryId(cat.id);
-                          }}
-                          className="flex items-center gap-1.5 bg-stone-50 hover:bg-stone-100 border border-stone-100/50 rounded-full px-3 py-1.5 cursor-pointer transition-colors"
-                        >
-                          <span className="text-xs font-black text-[#5D4037]">
-                            {hasBudget ? `$ ${budgetVal.toLocaleString()}` : '設定預算'}
-                          </span>
-                          <Pencil size={10} className="text-stone-400" />
-                        </div>
-                      )}
-                      
-                      <div className="text-stone-400 flex-shrink-0">
-                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Progress Bar (only if budget is set) */}
-                  {hasBudget && (
-                    <div className="space-y-1 mt-1">
-                      <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden relative border border-stone-50">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${Math.min(percent, 100)}%` }}
-                          transition={{ duration: 0.5, ease: "easeOut" }}
-                          className={`h-full rounded-full ${
-                            percent > 100 
-                              ? 'bg-rose-400' 
-                              : percent > 80 
-                              ? 'bg-amber-400' 
-                              : 'bg-emerald-400'
-                          }`}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[10px] font-bold text-stone-400">
-                        <span>剩餘: ${Math.max(0, budgetVal - spent).toLocaleString()}</span>
-                        <span>{percent.toFixed(0)}%</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Expanded Subcategories or fallback to Transaction Details */}
-                  <AnimatePresence>
-                    {isExpanded && (
-                      <motion.div 
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="overflow-hidden"
-                      >
-                        <div className="mt-3 pt-3 border-t border-stone-100 flex flex-col gap-3">
-                          {cat.sub && cat.sub.length > 0 ? (
-                            cat.sub.map(sub => {
-                              const subSpent = getSubcategoryMonthlyExpense(cat.name, sub);
-                              const subBudget = cat.subBudgets?.[sub] || 0;
-                              const subPercent = subBudget > 0 ? (subSpent / subBudget) * 100 : 0;
-                              const isEditingSub = editingSubId === `${cat.id}_${sub}`;
-
-                              return (
-                                <div 
-                                  key={sub} 
-                                  onClick={() => {
-                                    if (!isEditingSub) {
-                                      setSelectedSubCategoryDetail({ parent: cat.name, sub });
-                                    }
-                                  }}
-                                  className="flex flex-col gap-1.5 py-2 px-2 hover:bg-stone-50/30 rounded-xl transition-colors cursor-pointer border-b border-stone-50/50 last:border-0"
-                                >
-                                  <div className="flex justify-between items-center text-xs">
-                                    <span className="font-bold text-[#5D4037]">{sub}</span>
-                                    
-                                    {isEditingSub ? (
-                                      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                        <div className="flex items-center gap-1 bg-stone-50 px-2 py-1 rounded-lg border-2 border-stone-100 max-w-[80px]">
-                                          <span className="text-[10px] text-stone-400 font-bold">$</span>
-                                          <input 
-                                            type="number"
-                                            pattern="\d*"
-                                            inputMode="numeric"
-                                            value={tempSubBudget}
-                                            onChange={(e) => setTempSubBudget(e.target.value)}
-                                            className="bg-transparent text-[11px] font-black text-[#5D4037] focus:outline-none w-full text-right"
-                                            placeholder="預算"
-                                            autoFocus
-                                          />
-                                        </div>
-                                        <button 
-                                          onClick={() => handleSaveSubBudget(cat.id, sub)}
-                                          className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shadow-sm"
-                                        >
-                                          <Check size={12} />
-                                        </button>
-                                        <button 
-                                          onClick={() => setEditingSubId(null)}
-                                          className="w-6 h-6 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-100 shadow-sm"
-                                        >
-                                          <X size={12} />
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setTempSubBudget(subBudget > 0 ? subBudget.toString() : '');
-                                          setEditingSubId(`${cat.id}_${sub}`);
-                                        }}
-                                        className="flex flex-col items-end gap-0.5 cursor-pointer hover:opacity-85 text-right"
-                                      >
-                                        <span className="font-black text-rose-400 leading-none">
-                                          $ {subSpent.toLocaleString()}
-                                        </span>
-                                        <div className="flex items-center gap-0.5 mt-0.5 leading-none">
-                                          <span className="text-[9px] text-stone-400">
-                                            $ {subBudget.toLocaleString()}
-                                          </span>
-                                          <Pencil size={8} className="text-stone-300" />
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                  
-                                  {/* Subcategory budget progress bar */}
-                                  <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden relative">
-                                    <motion.div 
-                                      initial={{ width: 0 }}
-                                      animate={{ width: `${subBudget > 0 ? Math.min(subPercent, 100) : 0}%` }}
-                                      transition={{ duration: 0.5, ease: "easeOut" }}
-                                      className={`h-full rounded-full ${
-                                        subPercent > 100 
-                                          ? 'bg-rose-400' 
-                                          : subPercent > 80 
-                                          ? 'bg-amber-400' 
-                                          : 'bg-emerald-400/80'
-                                      }`}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            // Fallback to transaction details if no subcategories exist
-                            catRecords.length > 0 ? (
-                              catRecords.map(r => (
-                                <div key={r.id} className="flex justify-between items-center text-xs py-1.5 border-b border-stone-50/50 last:border-0 hover:bg-stone-50/30 px-2 rounded-xl transition-colors gap-3">
-                                  <div className="flex flex-col gap-0.5 flex-1 min-w-0 pr-1">
-                                    <span className="font-bold text-[#5D4037] truncate block">{r.note || r.category}</span>
-                                    <span className="text-[10px] text-stone-400">{r.date.replace(/-/g, '/')}</span>
-                                  </div>
-                                  <span className="font-black text-rose-400 flex-shrink-0 whitespace-nowrap">
-                                    - $ {(Math.abs(r.amount) + (r.fee || 0)).toLocaleString()}
-                                  </span>
-                                </div>
-                              ))
-                            ) : (
-                              <span className="text-stone-300 text-xs text-center py-2">本月無消費明細</span>
-                            )
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
 function PlaceholderView({ title, icon, onBack, content }: { title: string, icon: React.ReactNode, onBack: () => void, content?: React.ReactNode }) {
   return (
     <motion.div 
@@ -7496,15 +6637,18 @@ function MoreView({
 
           // Calculate current theoretical sum of all records for this account
           let recordSum = 0;
-          const mergedSorted = getMergedRecords(sorted, updatedAccountsWithBalances);
-          mergedSorted.forEach(r => {
+          sorted.forEach(r => {
             if (r.category === '初始資金') return;
             if (r.accountId === acc.id) {
               recordSum += r.amount;
               if (r.fee) recordSum -= r.fee;
             }
             if (r.type === 'transfer' && r.toAccountId === acc.id) {
-              recordSum += (r.toAmount ?? Math.abs(r.amount * (r.exchangeRate || 1)));
+              if (r.toAmount !== undefined) {
+                recordSum += r.toAmount;
+              } else {
+                recordSum -= r.amount * (r.exchangeRate || 1);
+              }
             }
           });
 
