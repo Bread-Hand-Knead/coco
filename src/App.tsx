@@ -5967,6 +5967,7 @@ function BudgetManagementPage({
   const [tempOverallBudget, setTempOverallBudget] = useState(monthlyBudget.toString());
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [tempCategoryBudget, setTempCategoryBudget] = useState('');
+  const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
 
   const monthStr = selectedDate.substring(0, 7);
 
@@ -6058,6 +6059,25 @@ function BudgetManagementPage({
 
     return map;
   }, [records, monthStr, currencyMode]);
+
+  // Get monthly transactions for a category
+  const getCategoryMonthlyTransactions = (catName: string) => {
+    const monthlyRecords = records.filter(r => {
+      const cur = r.currency || 'TWD';
+      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
+      return cur === 'TWD';
+    });
+
+    return monthlyRecords
+      .filter(r => {
+        const pDate = r.postingDate || r.date;
+        if (!pDate.startsWith(monthStr)) return false;
+        if (r.type !== 'expense') return false;
+        const rCat = r.category.split(' > ')[0];
+        return rCat === catName;
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+  };
 
   const overallPercent = monthlyBudget > 0 ? (totalMonthlyExpenses / monthlyBudget) * 100 : 0;
   const remainingBudget = monthlyBudget - totalMonthlyExpenses;
@@ -6230,11 +6250,20 @@ function BudgetManagementPage({
               const budgetVal = cat.budget || 0;
               const percent = hasBudget ? (spent / budgetVal) * 100 : 0;
               const isEditing = editingCategoryId === cat.id;
+              const isExpanded = expandedCategoryId === cat.id;
+              const catRecords = getCategoryMonthlyTransactions(cat.name);
 
               return (
                 <div 
                   key={cat.id}
-                  className="bg-white rounded-[24px] p-4 shadow-sm border-2 border-stone-50 flex flex-col gap-3 transition-all"
+                  onClick={() => {
+                    if (editingCategoryId !== cat.id) {
+                      setExpandedCategoryId(isExpanded ? null : cat.id);
+                    }
+                  }}
+                  className={`bg-white rounded-[24px] p-4 shadow-sm border-2 flex flex-col gap-3 transition-all cursor-pointer ${
+                    isExpanded ? 'border-amber-100 bg-[#FFFDF9]' : 'border-stone-50 hover:border-stone-100'
+                  }`}
                 >
                   <div className="flex items-center justify-between w-full">
                     {/* Category Title */}
@@ -6251,7 +6280,7 @@ function BudgetManagementPage({
                     {/* Budget Setting Input/Text */}
                     <div className="flex items-center gap-2">
                       {isEditing ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-1 bg-stone-50 px-3 py-1.5 rounded-xl border-2 border-stone-100 max-w-[120px]">
                             <span className="text-xs text-stone-400 font-bold">$</span>
                             <input 
@@ -6280,7 +6309,8 @@ function BudgetManagementPage({
                         </div>
                       ) : (
                         <div 
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setTempCategoryBudget(hasBudget ? budgetVal.toString() : '');
                             setEditingCategoryId(cat.id);
                           }}
@@ -6318,6 +6348,37 @@ function BudgetManagementPage({
                       </div>
                     </div>
                   )}
+
+                  {/* Expanded Transaction Details */}
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div 
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-3 pt-3 border-t border-stone-100 flex flex-col gap-2">
+                          {catRecords.length > 0 ? (
+                            catRecords.map(r => (
+                              <div key={r.id} className="flex justify-between items-center text-xs py-1.5 border-b border-stone-50/50 last:border-0 hover:bg-stone-50/30 px-2 rounded-xl transition-colors">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="font-bold text-[#5D4037]">{r.note || r.category}</span>
+                                  <span className="text-[10px] text-stone-400">{r.date.replace(/-/g, '/')}</span>
+                                </div>
+                                <span className="font-black text-rose-400">
+                                  - $ {(Math.abs(r.amount) + (r.fee || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-stone-300 text-xs text-center py-2">本月無消費明細</span>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })}
