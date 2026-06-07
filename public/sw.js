@@ -1,23 +1,23 @@
-const CACHE_NAME = 'coco-cache-v2';
+const CACHE_NAME = 'coco-cache-v3';
 const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+  '/coco/',
+  '/coco/index.html',
+  '/coco/manifest.json',
+  '/coco/icon-192.png',
+  '/coco/icon-512.png'
 ];
 
-// Install Event: Cache essential shell assets
+// Install Event: Cache essential shell assets with absolute paths
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker] Pre-caching offline shell v2');
+      console.log('[Service Worker] Pre-caching offline shell v3');
       return cache.addAll(ASSETS_TO_CACHE);
     }).then(() => self.skipWaiting())
   );
 });
 
-// Activate Event: Cleanup old caches (including v1)
+// Activate Event: Cleanup old caches (including v1 and v2)
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -33,7 +33,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event: Optimized strategies
+// Fetch Event: Robust caching strategies
 self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
 
@@ -48,7 +48,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Strategy 1: Network First for index.html / navigation to break cache hell
+  // Strategy 1: Network First for index.html / navigation
   if (event.request.mode === 'navigate' || requestUrl.pathname.endsWith('/') || requestUrl.pathname.endsWith('index.html')) {
     event.respondWith(
       fetch(event.request)
@@ -63,14 +63,16 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
-          // Offline fallback
-          return caches.match('./index.html');
+          // Offline fallback - try match exact request, then fallback to cached index.html
+          return caches.match(event.request).then((response) => {
+            return response || caches.match('/coco/index.html') || caches.match('/coco/');
+          });
         })
     );
     return;
   }
 
-  // Strategy 2: Stale-While-Revalidate for static assets (JS, CSS, images)
+  // Strategy 2: Stale-While-Revalidate for static assets (JS, CSS, images) with robust error catch
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -89,18 +91,24 @@ self.addEventListener('fetch', (event) => {
         return cachedResponse;
       }
 
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+      return fetch(event.request)
+        .then((networkResponse) => {
+          if (!networkResponse || networkResponse.status !== 200) {
+            return networkResponse;
+          }
+
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+
           return networkResponse;
-        }
-
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
+        })
+        .catch((err) => {
+          console.warn('[Service Worker] Fetch failed for static asset:', event.request.url, err);
+          // Return a fallback or a status to prevent rejected promise crash
+          return new Response('Asset fetch failed', { status: 488, statusText: 'Network Error' });
         });
-
-        return networkResponse;
-      });
     })
   );
 });
