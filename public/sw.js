@@ -1,4 +1,4 @@
-const CACHE_NAME = 'coco-cache-v1';
+const CACHE_NAME = 'coco-cache-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -11,13 +11,13 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker] Pre-caching offline shell');
+      console.log('[Service Worker] Pre-caching offline shell v2');
       return cache.addAll(ASSETS_TO_CACHE);
     }).then(() => self.skipWaiting())
   );
 });
 
-// Activate Event: Cleanup old caches
+// Activate Event: Cleanup old caches (including v1)
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -33,7 +33,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event: Cache first or Stale-While-Revalidate
+// Fetch Event: Optimized strategies
 self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
 
@@ -48,10 +48,33 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Strategy 1: Network First for index.html / navigation to break cache hell
+  if (event.request.mode === 'navigate' || requestUrl.pathname.endsWith('/') || requestUrl.pathname.endsWith('index.html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+            return networkResponse;
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          // Offline fallback
+          return caches.match('./index.html');
+        })
+    );
+    return;
+  }
+
+  // Strategy 2: Stale-While-Revalidate for static assets (JS, CSS, images)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Fetch new version in background to update cache (Stale-While-Revalidate)
+        // Fetch new version in background to update cache
         fetch(event.request)
           .then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
@@ -61,7 +84,7 @@ self.addEventListener('fetch', (event) => {
             }
           })
           .catch(() => {
-            // Ignore network fetch errors during background update
+            // Ignore background fetch errors
           });
         return cachedResponse;
       }
@@ -77,11 +100,6 @@ self.addEventListener('fetch', (event) => {
         });
 
         return networkResponse;
-      }).catch(() => {
-        // Fallback for offline mode when requests fail and aren't cached
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
       });
     })
   );
