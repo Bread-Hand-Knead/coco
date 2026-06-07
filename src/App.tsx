@@ -5941,6 +5941,108 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   );
 }
 
+function SubCategoryDetailView({
+  parentCat,
+  subCat,
+  records,
+  accounts,
+  monthStr,
+  currencyMode,
+  onBack
+}: {
+  parentCat: string;
+  subCat: string;
+  records: Transaction[];
+  accounts: Account[];
+  monthStr: string;
+  currencyMode: 'TWD' | 'FOREIGN' | null;
+  onBack: () => void;
+}) {
+  const matchingRecords = useMemo(() => {
+    const monthlyRecords = records.filter(r => {
+      const cur = r.currency || 'TWD';
+      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
+      return cur === 'TWD';
+    });
+
+    return monthlyRecords
+      .filter(r => {
+        const pDate = r.postingDate || r.date;
+        if (!pDate.startsWith(monthStr)) return false;
+        if (r.type !== 'expense') return false;
+        const parts = r.category.split(' > ');
+        return parts[0] === parentCat && parts[1] === subCat;
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [records, parentCat, subCat, monthStr, currencyMode]);
+
+  const totalSpent = useMemo(() => {
+    return matchingRecords.reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
+  }, [matchingRecords]);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: 20 }} 
+      animate={{ opacity: 1, x: 0 }} 
+      exit={{ opacity: 0, x: -20 }}
+      className="flex flex-col h-full bg-[#FFFDF5]"
+      style={getFontFamily()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-4 bg-[#FFFDF5] border-b border-stone-100 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={onBack}
+            className="w-10 h-10 rounded-full border-2 border-stone-100 flex items-center justify-center text-stone-500 hover:bg-stone-50 transition-colors shadow-sm bg-white"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <span className="text-xl font-bold text-[#5D4037]">{subCat} 明細</span>
+        </div>
+        <span className="text-xs font-bold text-[#5D4037] bg-stone-100 px-3 py-1.5 rounded-full border border-stone-100">{parentCat}</span>
+      </div>
+
+      {/* Date & Stats bar */}
+      <div className="px-6 py-4 bg-white border-b border-stone-50 flex justify-between items-center text-sm font-bold text-stone-500">
+        <span>本月消費：{matchingRecords.length} 筆</span>
+        <span>總計：<span className="text-rose-500">${totalSpent.toLocaleString()}</span></span>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {matchingRecords.length > 0 ? (
+          matchingRecords.map(r => {
+            const accName = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
+            return (
+              <div 
+                key={r.id}
+                className="bg-white rounded-[24px] p-4 shadow-sm border-2 border-stone-50 flex items-center justify-between transition-all"
+              >
+                <div className="flex flex-col gap-1 flex-1 min-w-0 pr-3">
+                  <span className="font-bold text-[#5D4037] truncate block text-sm">{r.note || r.category}</span>
+                  <div className="flex items-center gap-2 text-[10px] text-stone-400 font-bold">
+                    <span>{r.date.replace(/-/g, '/')}</span>
+                    <span>•</span>
+                    <span>{accName}</span>
+                  </div>
+                </div>
+                <span className="font-black text-rose-500 text-base flex-shrink-0 whitespace-nowrap">
+                  - $ {(Math.abs(r.amount) + (r.fee || 0)).toLocaleString()}
+                </span>
+              </div>
+            );
+          })
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-2">
+            <span className="text-4xl">🗒️</span>
+            <span className="text-stone-300 text-sm font-bold">本月無此子分類消費明細</span>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 function BudgetManagementPage({
   monthlyBudget,
   setMonthlyBudget,
@@ -5971,6 +6073,7 @@ function BudgetManagementPage({
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
   const [editingSubId, setEditingSubId] = useState<string | null>(null);
   const [tempSubBudget, setTempSubBudget] = useState('');
+  const [selectedSubCategoryDetail, setSelectedSubCategoryDetail] = useState<{ parent: string, sub: string } | null>(null);
 
   const monthStr = selectedDate.substring(0, 7);
 
@@ -6145,6 +6248,20 @@ function BudgetManagementPage({
     await onUpdateCategories(updated);
     setEditingCategoryId(null);
   };
+
+  if (selectedSubCategoryDetail) {
+    return (
+      <SubCategoryDetailView 
+        parentCat={selectedSubCategoryDetail.parent}
+        subCat={selectedSubCategoryDetail.sub}
+        records={records}
+        accounts={accounts}
+        monthStr={monthStr}
+        currencyMode={currencyMode}
+        onBack={() => setSelectedSubCategoryDetail(null)}
+      />
+    );
+  }
 
   return (
     <motion.div 
@@ -6413,7 +6530,15 @@ function BudgetManagementPage({
                               const isEditingSub = editingSubId === `${cat.id}_${sub}`;
 
                               return (
-                                <div key={sub} className="flex flex-col gap-1.5 py-1.5 border-b border-stone-50/50 last:border-0">
+                                <div 
+                                  key={sub} 
+                                  onClick={() => {
+                                    if (!isEditingSub) {
+                                      setSelectedSubCategoryDetail({ parent: cat.name, sub });
+                                    }
+                                  }}
+                                  className="flex flex-col gap-1.5 py-2 px-2 hover:bg-stone-50/30 rounded-xl transition-colors cursor-pointer border-b border-stone-50/50 last:border-0"
+                                >
                                   <div className="flex justify-between items-center text-xs">
                                     <span className="font-bold text-[#5D4037]">{sub}</span>
                                     
