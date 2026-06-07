@@ -139,6 +139,7 @@ interface Category {
   sub: string[];
   order?: number;
   budget?: number;
+  subBudgets?: Record<string, number>;
 }
 
 interface Transaction {
@@ -5968,6 +5969,8 @@ function BudgetManagementPage({
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [tempCategoryBudget, setTempCategoryBudget] = useState('');
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
+  const [tempSubBudget, setTempSubBudget] = useState('');
 
   const monthStr = selectedDate.substring(0, 7);
 
@@ -6077,6 +6080,44 @@ function BudgetManagementPage({
         return rCat === catName;
       })
       .sort((a, b) => b.date.localeCompare(a.date));
+  };
+
+  // Get monthly spent for a subcategory
+  const getSubcategoryMonthlyExpense = (parentCatName: string, subCatName: string) => {
+    const monthlyRecords = records.filter(r => {
+      const cur = r.currency || 'TWD';
+      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
+      return cur === 'TWD';
+    });
+
+    return monthlyRecords
+      .filter(r => {
+        const pDate = r.postingDate || r.date;
+        if (!pDate.startsWith(monthStr)) return false;
+        if (r.type !== 'expense') return false;
+        const parts = r.category.split(' > ');
+        return parts[0] === parentCatName && parts[1] === subCatName;
+      })
+      .reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
+  };
+
+  // Handle saving subcategory budget
+  const handleSaveSubBudget = async (catId: string, subName: string) => {
+    const val = tempSubBudget === '' ? undefined : parseInt(tempSubBudget);
+    const updated = categories.map(c => {
+      if (c.id === catId) {
+        const subBudgets = { ...(c.subBudgets || {}) };
+        if (val === undefined || val === 0) {
+          delete subBudgets[subName];
+        } else {
+          subBudgets[subName] = val;
+        }
+        return { ...c, subBudgets };
+      }
+      return c;
+    });
+    await onUpdateCategories(updated);
+    setEditingSubId(null);
   };
 
   const overallPercent = monthlyBudget > 0 ? (totalMonthlyExpenses / monthlyBudget) * 100 : 0;
@@ -6277,8 +6318,8 @@ function BudgetManagementPage({
                       </div>
                     </div>
 
-                    {/* Budget Setting Input/Text */}
-                    <div className="flex items-center gap-2">
+                    {/* Budget Setting & Chevron */}
+                    <div className="flex items-center gap-2.5">
                       {isEditing ? (
                         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-1 bg-stone-50 px-3 py-1.5 rounded-xl border-2 border-stone-100 max-w-[120px]">
@@ -6322,6 +6363,10 @@ function BudgetManagementPage({
                           <Pencil size={10} className="text-stone-400" />
                         </div>
                       )}
+                      
+                      <div className="text-stone-400 flex-shrink-0">
+                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                      </div>
                     </div>
                   </div>
 
@@ -6349,7 +6394,7 @@ function BudgetManagementPage({
                     </div>
                   )}
 
-                  {/* Expanded Transaction Details */}
+                  {/* Expanded Subcategories or fallback to Transaction Details */}
                   <AnimatePresence>
                     {isExpanded && (
                       <motion.div 
@@ -6359,21 +6404,104 @@ function BudgetManagementPage({
                         onClick={(e) => e.stopPropagation()}
                         className="overflow-hidden"
                       >
-                        <div className="mt-3 pt-3 border-t border-stone-100 flex flex-col gap-2">
-                          {catRecords.length > 0 ? (
-                            catRecords.map(r => (
-                              <div key={r.id} className="flex justify-between items-center text-xs py-1.5 border-b border-stone-50/50 last:border-0 hover:bg-stone-50/30 px-2 rounded-xl transition-colors gap-3">
-                                <div className="flex flex-col gap-0.5 flex-1 min-w-0 pr-1">
-                                  <span className="font-bold text-[#5D4037] truncate block">{r.note || r.category}</span>
-                                  <span className="text-[10px] text-stone-400">{r.date.replace(/-/g, '/')}</span>
+                        <div className="mt-3 pt-3 border-t border-stone-100 flex flex-col gap-3">
+                          {cat.sub && cat.sub.length > 0 ? (
+                            cat.sub.map(sub => {
+                              const subSpent = getSubcategoryMonthlyExpense(cat.name, sub);
+                              const subBudget = cat.subBudgets?.[sub] || 0;
+                              const subPercent = subBudget > 0 ? (subSpent / subBudget) * 100 : 0;
+                              const isEditingSub = editingSubId === `${cat.id}_${sub}`;
+
+                              return (
+                                <div key={sub} className="flex flex-col gap-1.5 py-1.5 border-b border-stone-50/50 last:border-0">
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="font-bold text-[#5D4037]">{sub}</span>
+                                    
+                                    {isEditingSub ? (
+                                      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                        <div className="flex items-center gap-1 bg-stone-50 px-2 py-1 rounded-lg border-2 border-stone-100 max-w-[80px]">
+                                          <span className="text-[10px] text-stone-400 font-bold">$</span>
+                                          <input 
+                                            type="number"
+                                            pattern="\d*"
+                                            inputMode="numeric"
+                                            value={tempSubBudget}
+                                            onChange={(e) => setTempSubBudget(e.target.value)}
+                                            className="bg-transparent text-[11px] font-black text-[#5D4037] focus:outline-none w-full text-right"
+                                            placeholder="預算"
+                                            autoFocus
+                                          />
+                                        </div>
+                                        <button 
+                                          onClick={() => handleSaveSubBudget(cat.id, sub)}
+                                          className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shadow-sm"
+                                        >
+                                          <Check size={12} />
+                                        </button>
+                                        <button 
+                                          onClick={() => setEditingSubId(null)}
+                                          className="w-6 h-6 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-100 shadow-sm"
+                                        >
+                                          <X size={12} />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setTempSubBudget(subBudget > 0 ? subBudget.toString() : '');
+                                          setEditingSubId(`${cat.id}_${sub}`);
+                                        }}
+                                        className="flex flex-col items-end gap-0.5 cursor-pointer hover:opacity-85 text-right"
+                                      >
+                                        <span className="font-black text-rose-400 leading-none">
+                                          $ {subSpent.toLocaleString()}
+                                        </span>
+                                        <div className="flex items-center gap-0.5 mt-0.5 leading-none">
+                                          <span className="text-[9px] text-stone-400">
+                                            $ {subBudget.toLocaleString()}
+                                          </span>
+                                          <Pencil size={8} className="text-stone-300" />
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Subcategory budget progress bar */}
+                                  <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden relative">
+                                    <motion.div 
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${subBudget > 0 ? Math.min(subPercent, 100) : 0}%` }}
+                                      transition={{ duration: 0.5, ease: "easeOut" }}
+                                      className={`h-full rounded-full ${
+                                        subPercent > 100 
+                                          ? 'bg-rose-400' 
+                                          : subPercent > 80 
+                                          ? 'bg-amber-400' 
+                                          : 'bg-emerald-400/80'
+                                      }`}
+                                    />
+                                  </div>
                                 </div>
-                                <span className="font-black text-rose-400 flex-shrink-0 whitespace-nowrap">
-                                  - $ {(Math.abs(r.amount) + (r.fee || 0)).toLocaleString()}
-                                </span>
-                              </div>
-                            ))
+                              );
+                            })
                           ) : (
-                            <span className="text-stone-300 text-xs text-center py-2">本月無消費明細</span>
+                            // Fallback to transaction details if no subcategories exist
+                            catRecords.length > 0 ? (
+                              catRecords.map(r => (
+                                <div key={r.id} className="flex justify-between items-center text-xs py-1.5 border-b border-stone-50/50 last:border-0 hover:bg-stone-50/30 px-2 rounded-xl transition-colors gap-3">
+                                  <div className="flex flex-col gap-0.5 flex-1 min-w-0 pr-1">
+                                    <span className="font-bold text-[#5D4037] truncate block">{r.note || r.category}</span>
+                                    <span className="text-[10px] text-stone-400">{r.date.replace(/-/g, '/')}</span>
+                                  </div>
+                                  <span className="font-black text-rose-400 flex-shrink-0 whitespace-nowrap">
+                                    - $ {(Math.abs(r.amount) + (r.fee || 0)).toLocaleString()}
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <span className="text-stone-300 text-xs text-center py-2">本月無消費明細</span>
+                            )
                           )}
                         </div>
                       </motion.div>

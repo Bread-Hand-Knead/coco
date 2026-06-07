@@ -8,6 +8,7 @@ export interface Category {
   sub: string[];
   order?: number;
   budget?: number;
+  subBudgets?: Record<string, number>;
 }
 
 export interface Transaction {
