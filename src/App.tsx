@@ -138,6 +138,7 @@ interface Category {
   type: 'income' | 'expense';
   sub: string[];
   order?: number;
+  budget?: number;
 }
 
 interface Transaction {
@@ -1696,26 +1697,16 @@ export default function App() {
               )
             )}
             {currentView === 'budget' && (
-              <PlaceholderView 
-                title="預算管理" 
-                icon={<PieChart size={48} />} 
-                onBack={() => setCurrentView('home')} 
-                content={
-                  <div className="flex flex-col gap-4 mt-8">
-                    <span className="text-[#5D4037] font-bold">目前每月預算：$ {monthlyBudget.toLocaleString()}</span>
-                    <input 
-                      type="range" min="5000" max="100000" step="5000"
-                      value={monthlyBudget}
-                      onChange={(e) => {
-                        const b = parseInt(e.target.value);
-                        setMonthlyBudget(b);
-                        syncBudgetToCloud(b);
-                      }}
-                      className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-[#5D4037]"
-                    />
-                    <p className="text-xs text-stone-400">變更後將自動同步到雲端</p>
-                  </div>
-                }
+              <BudgetManagementPage 
+                monthlyBudget={monthlyBudget}
+                setMonthlyBudget={setMonthlyBudget}
+                syncBudgetToCloud={syncBudgetToCloud}
+                categories={categories}
+                onUpdateCategories={handleUpdateCategories}
+                records={records}
+                selectedDate={selectedDate}
+                currencyMode={currencyMode}
+                onBack={() => setCurrentView('home')}
               />
             )}
             {currentView === 'categories' && <CategoryManagementPage categories={categories} onSave={handleUpdateCategories} onBack={() => setCurrentView('home')} />}
@@ -5944,6 +5935,342 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
           />
         )}
       </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function BudgetManagementPage({
+  monthlyBudget,
+  setMonthlyBudget,
+  syncBudgetToCloud,
+  categories,
+  onUpdateCategories,
+  records,
+  selectedDate,
+  currencyMode,
+  onBack
+}: {
+  monthlyBudget: number;
+  setMonthlyBudget: (b: number) => void;
+  syncBudgetToCloud: (b: number) => void;
+  categories: Category[];
+  onUpdateCategories: (newCats: Category[]) => Promise<void>;
+  records: Transaction[];
+  selectedDate: string;
+  currencyMode: 'TWD' | 'FOREIGN' | null;
+  onBack: () => void;
+}) {
+  const [editingOverall, setEditingOverall] = useState(false);
+  const [tempOverallBudget, setTempOverallBudget] = useState(monthlyBudget.toString());
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [tempCategoryBudget, setTempCategoryBudget] = useState('');
+
+  const monthStr = selectedDate.substring(0, 7);
+
+  // Filter only expense categories
+  const expenseCategories = useMemo(() => {
+    return categories.filter(c => c.type === 'expense').sort((a, b) => (a.order || 0) - (b.order || 0));
+  }, [categories]);
+
+  // Total expenses this month (TWD or foreign, filtered by currencyMode)
+  const totalMonthlyExpenses = useMemo(() => {
+    const monthlyRecords = records.filter(r => {
+      const cur = r.currency || 'TWD';
+      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
+      return cur === 'TWD';
+    });
+
+    return monthlyRecords
+      .filter(r => {
+        const pDate = r.postingDate || r.date;
+        return pDate.startsWith(monthStr) && r.category !== '初始資金' && r.type === 'expense';
+      })
+      .reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
+  }, [records, monthStr, currencyMode]);
+
+  // Category monthly expenses map
+  const categoryExpensesMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    
+    const monthlyRecords = records.filter(r => {
+      const cur = r.currency || 'TWD';
+      if (currencyMode === 'FOREIGN') return cur !== 'TWD';
+      return cur === 'TWD';
+    });
+
+    monthlyRecords.forEach(r => {
+      const pDate = r.postingDate || r.date;
+      if (pDate.startsWith(monthStr) && r.category !== '初始資金' && r.type === 'expense') {
+        const parentCat = r.category.split(' > ')[0];
+        const amount = Math.abs(r.amount) + (r.fee || 0);
+        map[parentCat] = (map[parentCat] || 0) + amount;
+      }
+    });
+
+    return map;
+  }, [records, monthStr, currencyMode]);
+
+  const overallPercent = monthlyBudget > 0 ? (totalMonthlyExpenses / monthlyBudget) * 100 : 0;
+  const remainingBudget = monthlyBudget - totalMonthlyExpenses;
+
+  // Handle saving overall budget
+  const handleSaveOverall = () => {
+    const val = parseInt(tempOverallBudget) || 0;
+    if (val > 0) {
+      setMonthlyBudget(val);
+      syncBudgetToCloud(val);
+    }
+    setEditingOverall(false);
+  };
+
+  // Handle saving category budget
+  const handleSaveCategoryBudget = async (catId: string) => {
+    const val = tempCategoryBudget === '' ? undefined : parseInt(tempCategoryBudget);
+    const updated = categories.map(c => {
+      if (c.id === catId) {
+        return { ...c, budget: val === 0 ? undefined : val };
+      }
+      return c;
+    });
+    await onUpdateCategories(updated);
+    setEditingCategoryId(null);
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }} 
+      animate={{ opacity: 1, y: 0 }} 
+      exit={{ opacity: 0, y: -20 }}
+      className="flex flex-col h-full bg-[#FFFDF5]"
+      style={getFontFamily()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-4 bg-[#FFFDF5] border-b border-stone-100 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={onBack}
+            className="w-10 h-10 rounded-full border-2 border-stone-100 flex items-center justify-center text-stone-500 hover:bg-stone-50 transition-colors shadow-sm bg-white"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <span className="text-xl font-bold text-[#5D4037]">預算管理</span>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+        {/* Overall Budget Card */}
+        <div className="bg-white rounded-[32px] p-6 shadow-sm border-2 border-stone-50 flex flex-col gap-5">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-stone-400">本月預算狀態 ({monthStr.replace('-', '/')})</span>
+            {!editingOverall ? (
+              <button 
+                onClick={() => {
+                  setTempOverallBudget(monthlyBudget.toString());
+                  setEditingOverall(true);
+                }}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037] bg-stone-50 hover:bg-stone-100 px-3 py-1.5 rounded-full border border-stone-100 transition-colors"
+              >
+                <Pencil size={12} />
+                調整總預算
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleSaveOverall}
+                  className="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm border border-emerald-100 hover:bg-emerald-100 transition-colors"
+                >
+                  <Check size={14} />
+                </button>
+                <button 
+                  onClick={() => setEditingOverall(false)}
+                  className="w-7 h-7 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shadow-sm border border-rose-100 hover:bg-rose-100 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {editingOverall ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3 bg-stone-50 p-4 rounded-2xl border-2 border-stone-100">
+                <span className="text-lg font-black text-[#5D4037]">$</span>
+                <input 
+                  type="number" 
+                  pattern="\d*"
+                  inputMode="numeric"
+                  value={tempOverallBudget} 
+                  onChange={(e) => setTempOverallBudget(e.target.value)}
+                  className="bg-transparent text-2xl font-black text-[#5D4037] focus:outline-none w-full"
+                  placeholder="請輸入月預算"
+                  autoFocus
+                />
+              </div>
+              <input 
+                type="range" min="5000" max="150000" step="5000"
+                value={parseInt(tempOverallBudget) || 5000}
+                onChange={(e) => setTempOverallBudget(e.target.value)}
+                className="w-full h-2 bg-stone-100 rounded-lg appearance-none cursor-pointer accent-[#5D4037]"
+              />
+            </div>
+          ) : (
+            <div className="flex items-baseline gap-1">
+              <span className="text-sm font-black text-[#5D4037]">$</span>
+              <span className="text-3xl font-black tracking-tight text-[#5D4037]">
+                {monthlyBudget.toLocaleString()}
+              </span>
+              <span className="text-xs font-bold text-stone-400 ml-2">/ 月</span>
+            </div>
+          )}
+
+          {/* Progress Bar */}
+          <div className="space-y-2">
+            <div className="w-full h-3 bg-stone-100 rounded-full overflow-hidden relative border border-stone-50">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.min(overallPercent, 100)}%` }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                className={`h-full rounded-full ${
+                  overallPercent > 100 
+                    ? 'bg-gradient-to-r from-rose-400 to-rose-500' 
+                    : overallPercent > 80 
+                    ? 'bg-gradient-to-r from-amber-400 to-amber-500' 
+                    : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
+                }`}
+              />
+            </div>
+            <div className="flex justify-between text-xs font-bold text-stone-400">
+              <span>已支出: ${totalMonthlyExpenses.toLocaleString()}</span>
+              <span>{overallPercent.toFixed(0)}%</span>
+            </div>
+          </div>
+
+          <div className="border-t border-stone-100 pt-4 flex justify-between items-center">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest leading-none mb-1">
+                {remainingBudget >= 0 ? '剩餘預算' : '超出預算'}
+              </span>
+              <span className={`text-lg font-black ${remainingBudget >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                $ {Math.abs(remainingBudget).toLocaleString()}
+              </span>
+            </div>
+            {remainingBudget < 0 && (
+              <div className="bg-rose-50 border border-rose-100 text-rose-500 rounded-2xl px-3 py-2 text-[10px] font-bold flex items-center gap-1.5 shadow-sm">
+                <AlertCircle size={14} />
+                本月支出已超支！
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Category Budget Section */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-[#5D4037]">分類預算設定 ({expenseCategories.length})</span>
+            <span className="text-xs text-stone-400 font-bold">點選即可快速調整</span>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {expenseCategories.map(cat => {
+              const spent = categoryExpensesMap[cat.name] || 0;
+              const hasBudget = cat.budget !== undefined && cat.budget > 0;
+              const budgetVal = cat.budget || 0;
+              const percent = hasBudget ? (spent / budgetVal) * 100 : 0;
+              const isEditing = editingCategoryId === cat.id;
+
+              return (
+                <div 
+                  key={cat.id}
+                  className="bg-white rounded-[24px] p-4 shadow-sm border-2 border-stone-50 flex flex-col gap-3 transition-all"
+                >
+                  <div className="flex items-center justify-between w-full">
+                    {/* Category Title */}
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-[#FFFDF5] rounded-xl flex items-center justify-center text-xl shadow-sm border border-stone-100/50">
+                        {cat.icon}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-[#5D4037]">{cat.name}</span>
+                        <span className="text-[10px] font-bold text-stone-400">已花費: ${spent.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    {/* Budget Setting Input/Text */}
+                    <div className="flex items-center gap-2">
+                      {isEditing ? (
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 bg-stone-50 px-3 py-1.5 rounded-xl border-2 border-stone-100 max-w-[120px]">
+                            <span className="text-xs text-stone-400 font-bold">$</span>
+                            <input 
+                              type="number"
+                              pattern="\d*"
+                              inputMode="numeric"
+                              value={tempCategoryBudget}
+                              onChange={(e) => setTempCategoryBudget(e.target.value)}
+                              className="bg-transparent text-sm font-black text-[#5D4037] focus:outline-none w-full text-right"
+                              placeholder="預算金額"
+                              autoFocus
+                            />
+                          </div>
+                          <button 
+                            onClick={() => handleSaveCategoryBudget(cat.id)}
+                            className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm border border-emerald-100 hover:bg-emerald-100 transition-colors"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button 
+                            onClick={() => setEditingCategoryId(null)}
+                            className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shadow-sm border border-rose-100 hover:bg-rose-100 transition-colors"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div 
+                          onClick={() => {
+                            setTempCategoryBudget(hasBudget ? budgetVal.toString() : '');
+                            setEditingCategoryId(cat.id);
+                          }}
+                          className="flex items-center gap-1.5 bg-stone-50 hover:bg-stone-100 border border-stone-100/50 rounded-full px-3 py-1.5 cursor-pointer transition-colors"
+                        >
+                          <span className="text-xs font-black text-[#5D4037]">
+                            {hasBudget ? `$ ${budgetVal.toLocaleString()}` : '設定預算'}
+                          </span>
+                          <Pencil size={10} className="text-stone-400" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Progress Bar (only if budget is set) */}
+                  {hasBudget && (
+                    <div className="space-y-1 mt-1">
+                      <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden relative border border-stone-50">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(percent, 100)}%` }}
+                          transition={{ duration: 0.5, ease: "easeOut" }}
+                          className={`h-full rounded-full ${
+                            percent > 100 
+                              ? 'bg-rose-400' 
+                              : percent > 80 
+                              ? 'bg-amber-400' 
+                              : 'bg-emerald-400'
+                          }`}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] font-bold text-stone-400">
+                        <span>剩餘: ${Math.max(0, budgetVal - spent).toLocaleString()}</span>
+                        <span>{percent.toFixed(0)}%</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </motion.div>
   );
 }

@@ -6,6 +6,8 @@ export interface Category {
   icon: string;
   type: 'income' | 'expense';
   sub: string[];
+  order?: number;
+  budget?: number;
 }
 
 export interface Transaction {
