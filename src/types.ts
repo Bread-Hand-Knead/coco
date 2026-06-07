@@ -27,7 +27,7 @@ export interface Transaction {
 export interface Account {
   id: string;
   name: string;
-  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket';
+  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket' | 'e-payment' | 'insurance' | 'points' | 'other';
   icon: string;
   parentId?: string;
   currency: string;
