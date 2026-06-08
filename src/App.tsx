@@ -2872,7 +2872,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const targetIds = [account.id, ...childrenIds];
     const targetYearMonth = dateRangeStrings.filter;
 
-    const monthRecords = records.filter(r => 
+    const mergedRecords = getMergedRecords(records, accounts);
+    const monthRecords = mergedRecords.filter(r => 
       (targetYearMonth ? (r.postingDate || r.date).startsWith(targetYearMonth) : true) &&
       r.category !== '初始資金'
     );
