@@ -2864,7 +2864,43 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return calculateAccountBalance(account, accounts, records); 
   }, [account, accounts, records]);
 
-  const listBalance = calculatedBalance;
+  const listBalance = useMemo(() => {
+    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
+    const targetIds = [account.id, ...childrenIds];
+    const targetYearMonth = dateRangeStrings.filter;
+
+    const monthRecords = records.filter(r => 
+      (targetYearMonth ? (r.postingDate || r.date).startsWith(targetYearMonth) : true) &&
+      r.category !== '初始資金'
+    );
+
+    const getBaseBalance = (acc: Account) => {
+      let bal = 0;
+      monthRecords.forEach(r => {
+        if (r.accountId === acc.id) {
+          bal += r.amount;
+          if (r.fee) bal -= r.fee;
+        }
+        if (r.type === 'transfer' && r.toAccountId === acc.id) {
+          bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+        }
+      });
+      return bal;
+    };
+
+    const getRecursiveBalance = (id: string): number => {
+      const acc = accounts.find(a => a.id === id);
+      if (!acc) return 0;
+      let total = getBaseBalance(acc);
+      const children = accounts.filter(a => a.parentId === id);
+      children.forEach(child => {
+        total += getRecursiveBalance(child.id);
+      });
+      return total;
+    };
+
+    return getRecursiveBalance(account.id);
+  }, [account, accounts, records, dateRangeStrings.filter]);
 
   return (
     <motion.div 
