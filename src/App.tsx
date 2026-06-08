@@ -50,7 +50,6 @@ import {
   Database,
   Download,
   Upload,
-  X,
   ShieldCheck,
   LogOut,
   Cloud,
