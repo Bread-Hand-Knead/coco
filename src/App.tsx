@@ -463,6 +463,55 @@ export default function App() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [currencyMode, setCurrencyMode] = useState<'TWD' | 'FOREIGN' | null>('TWD');
 
+  // --- History Navigation Sync for Hardware Back Button ---
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state) {
+        if (event.state.view) setCurrentView(event.state.view);
+        setSelectedProjectId(event.state.projectId || null);
+        setIsDrawerOpen(!!event.state.isDrawerOpen);
+        setIsRecordModalOpen(!!event.state.isRecordModalOpen);
+      } else {
+        setCurrentView('home');
+        setSelectedProjectId(null);
+        setIsDrawerOpen(false);
+        setIsRecordModalOpen(false);
+      }
+    };
+
+    // Initialize root state
+    if (!window.history.state) {
+      window.history.replaceState({ 
+        view: 'home', 
+        projectId: null, 
+        isDrawerOpen: false,
+        isRecordModalOpen: false
+      }, '');
+    }
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    const currentState = window.history.state;
+    const matchesView = currentState && currentState.view === currentView;
+    const matchesProject = currentState && currentState.projectId === selectedProjectId;
+    const matchesDrawer = currentState && !!currentState.isDrawerOpen === isDrawerOpen;
+    const matchesRecordModal = currentState && !!currentState.isRecordModalOpen === isRecordModalOpen;
+
+    if (!matchesView || !matchesProject || !matchesDrawer || !matchesRecordModal) {
+      window.history.pushState({ 
+        view: currentView, 
+        projectId: selectedProjectId, 
+        isDrawerOpen: isDrawerOpen,
+        isRecordModalOpen: isRecordModalOpen
+      }, '');
+    }
+  }, [currentView, selectedProjectId, isDrawerOpen, isRecordModalOpen]);
+
   // --- PWA Installation Logic ---
   const deferredPromptRef = useRef<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
