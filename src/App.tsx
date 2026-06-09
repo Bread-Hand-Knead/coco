@@ -2867,6 +2867,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   categories: Category[]
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => {
     const d = new Date(selectedDate);
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -3021,9 +3022,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             >
               <ChevronLeft size={20} />
             </button>
-            <span className="text-stone-500 font-bold text-sm tracking-tighter">
+            <button 
+              onClick={() => setIsDatePickerOpen(true)}
+              className="text-stone-500 font-bold text-sm tracking-tighter px-3 py-1 hover:bg-white/40 active:scale-95 rounded-xl transition-all"
+            >
               {dateRangeStrings.range}
-            </span>
+            </button>
             <button 
               onClick={() => changeMonth(1)}
               className="w-8 h-8 flex items-center justify-center text-[#5D4037] hover:bg-white/60 rounded-full transition-colors"
@@ -3214,6 +3218,19 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             onDelete={() => {
               onDeleteRecord(editingRecord);
               setEditingRecord(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isDatePickerOpen && (
+          <YearMonthPickerModal 
+            initialYear={currentMonth.getFullYear()}
+            initialMonth={currentMonth.getMonth() + 1}
+            onClose={() => setIsDatePickerOpen(false)}
+            onSelect={(year, month) => {
+              setCurrentMonth(new Date(year, month - 1, 1));
             }}
           />
         )}
@@ -4956,6 +4973,84 @@ function ProjectSortModal({ projects, onClose, onSave }: {
   );
 }
 
+function YearMonthPickerModal({ 
+  initialYear, 
+  initialMonth, 
+  onClose, 
+  onSelect 
+}: { 
+  initialYear: number, 
+  initialMonth: number, 
+  onClose: () => void, 
+  onSelect: (year: number, month: number) => void 
+}) {
+  const [selectedYear, setSelectedYear] = useState(initialYear);
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-[#5D4037]/60 backdrop-blur-md z-[90] flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+        className="bg-[#FFFDF5] w-full max-w-xs rounded-[44px] flex flex-col shadow-2xl border-4 border-white overflow-hidden p-6 gap-6"
+        style={getFontFamily()}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between flex-shrink-0 px-2">
+          <h3 className="text-xl font-black text-[#5D4037]">選擇年月</h3>
+          <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+            <X className="w-5 h-5 text-[#5D4037]" />
+          </button>
+        </div>
+
+        {/* Year Selector */}
+        <div className="flex items-center justify-between bg-white/60 p-2 rounded-2xl border border-stone-100 shadow-inner">
+          <button 
+            onClick={() => setSelectedYear(prev => prev - 1)}
+            className="w-10 h-10 flex items-center justify-center text-[#5D4037] hover:bg-stone-50 rounded-xl transition-colors active:scale-90"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <span className="text-lg font-black text-[#5D4037] tracking-wider">{selectedYear} 年</span>
+          <button 
+            onClick={() => setSelectedYear(prev => prev + 1)}
+            className="w-10 h-10 flex items-center justify-center text-[#5D4037] hover:bg-stone-50 rounded-xl transition-colors active:scale-90"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+
+        {/* Month Selector Grid */}
+        <div className="grid grid-cols-3 gap-3">
+          {months.map(m => {
+            const isSelected = selectedYear === initialYear && m === initialMonth;
+            return (
+              <button
+                key={m}
+                onClick={() => {
+                  onSelect(selectedYear, m);
+                  onClose();
+                }}
+                className={`py-3.5 rounded-2xl text-sm font-black transition-all active:scale-90 border-2 ${
+                  isSelected 
+                    ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F] shadow-md' 
+                    : 'bg-white text-stone-500 border-stone-50 hover:bg-stone-50 shadow-sm'
+                }`}
+              >
+                {m} 月
+              </button>
+            );
+          })}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: { 
   project: Project, 
   projects: Project[],
@@ -6066,6 +6161,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
     return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
   const monthRangeLabel = useMemo(() => {
     const [y, m] = currentMonth.split('/').map(Number);
@@ -6132,7 +6228,12 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
       {/* Month Switcher */}
       <div className="flex items-center justify-between px-6 py-4 bg-[#FFF9E3]/30">
         <button onClick={handlePrevMonth} className="p-2 text-[#5D4037]"><ChevronLeft size={24} /></button>
-        <span className="text-lg font-bold text-[#5D4037]">{monthRangeLabel}</span>
+        <button 
+          onClick={() => setIsDatePickerOpen(true)}
+          className="text-lg font-bold text-[#5D4037] px-3 py-1 hover:bg-white/40 active:scale-95 rounded-xl transition-all"
+        >
+          {monthRangeLabel}
+        </button>
         <button onClick={handleNextMonth} className="p-2 text-[#5D4037]"><ChevronRight size={24} /></button>
       </div>
 
@@ -6236,6 +6337,24 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
               setEditingRecord(null);
             }}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isDatePickerOpen && (
+          (() => {
+            const [y, m] = currentMonth.split('/').map(Number);
+            return (
+              <YearMonthPickerModal 
+                initialYear={y}
+                initialMonth={m}
+                onClose={() => setIsDatePickerOpen(false)}
+                onSelect={(year, month) => {
+                  setCurrentMonth(`${year}/${String(month).padStart(2, '0')}`);
+                }}
+              />
+            );
+          })()
         )}
       </AnimatePresence>
     </motion.div>
