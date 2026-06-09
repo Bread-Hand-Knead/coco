@@ -7,6 +7,7 @@ import {
   ChevronRight, 
   Plus, 
   X, 
+  Delete, 
   Wallet, 
   Smile, 
   Home, 
@@ -7993,6 +7994,14 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
   const handleKey = (key: string) => {
     if (key === 'AC') { setAmount('0'); return; }
+    if (key === 'BACKSPACE') {
+      if (amount.length > 1) {
+        setAmount(amount.slice(0, -1));
+      } else {
+        setAmount('0');
+      }
+      return;
+    }
     
     if (key === '=') {
       // 鍵盤上的 '=' 鍵點擊時：只計算表達式，更新欄位，不儲存
@@ -8588,9 +8597,20 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                         <option value="KRW">韓元 (KRW)</option>
                       </select>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
                       <span className={`text-3xl font-black ${tab === 'income' ? 'text-[#03A9F4]' : tab === 'expense' ? 'text-[#E91E63]' : 'text-[#5D4037]'}`}>{amount}</span>
-                      <button onClick={(e) => { e.stopPropagation(); handleKey('AC'); }} className="w-10 h-10 bg-rose-50 text-rose-400 rounded-full flex items-center justify-center font-bold text-xs">AC</button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleKey('BACKSPACE'); }} 
+                        className="w-10 h-10 bg-stone-100 text-stone-500 active:scale-95 active:bg-stone-200 transition-all rounded-full flex items-center justify-center"
+                      >
+                        <Delete size={18} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleKey('AC'); }} 
+                        className="w-10 h-10 bg-rose-50 text-rose-400 active:scale-95 active:bg-rose-100 transition-all rounded-full flex items-center justify-center font-bold text-xs"
+                      >
+                        AC
+                      </button>
                     </div>
                   </div>
 
