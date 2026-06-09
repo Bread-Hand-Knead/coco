@@ -56,8 +56,9 @@ import {
   Cloud,
   CloudUpload,
   Loader2,
+  GripVertical,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -238,6 +239,7 @@ interface Project {
   color?: string;
   description?: string;
   parentId?: string;
+  order?: number;
 }
 
 // --- Initial Data ---
@@ -268,7 +270,7 @@ const INITIAL_TEMPLATES: Template[] = [
 ];
 
 const INITIAL_PROJECTS: Project[] = [
-  { id: 'p1', name: '預設專案', icon: '📂', color: 'bg-stone-100', description: '系統預設專案' },
+  { id: 'p1', name: '預設專案', icon: '📂', color: 'bg-stone-100', description: '系統預設專案', order: 1 },
 ];
 
 // --- Main App ---
@@ -460,8 +462,12 @@ export default function App() {
   const [templates, setTemplates] = useState<Template[]>(INITIAL_TEMPLATES);
   const [fixedRecords, setFixedRecords] = useState<FixedRecord[]>([]);
   const [installments, setInstallments] = useState<Installment[]>([]);
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  const [rawProjects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  const projects = useMemo(() => {
+    return [...rawProjects].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  }, [rawProjects]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [isProjectSortModalOpen, setIsProjectSortModalOpen] = useState(false);
   const [currencyMode, setCurrencyMode] = useState<'TWD' | 'FOREIGN' | null>('TWD');
 
   // --- History Navigation Sync for Hardware Back Button ---
@@ -807,6 +813,27 @@ export default function App() {
         // Feedback is usually not needed for background sync, but user requested explicit feedback in logic elsewhere
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/accounts/sort`);
+      }
+    }
+  };
+  
+  const handleSortProjects = async (updatedProjects: Project[]) => {
+    // 立即更新本地 state 以獲得流暢體驗
+    setProjects(updatedProjects);
+    setIsProjectSortModalOpen(false);
+    
+    if (user) {
+      try {
+        const batch = writeBatch(db);
+        updatedProjects.forEach(proj => {
+          batch.update(doc(db, 'users', user.uid, 'projects', proj.id), {
+            order: proj.order,
+            updatedAt: serverTimestamp()
+          });
+        });
+        await batch.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/projects/sort`);
       }
     }
   };
@@ -1355,14 +1382,20 @@ export default function App() {
   };
 
   const handleSaveProject = async (p: Project) => {
+    let finalProject = { ...p };
+    if (!projects.find(x => x.id === p.id)) {
+      const maxOrder = projects.reduce((max, x) => Math.max(max, x.order || 0), 0);
+      finalProject.order = maxOrder + 1;
+    }
+
     if (user) {
-      await syncToCloud('projects', p, p.id);
+      await syncToCloud('projects', finalProject, finalProject.id);
     } else {
       setProjects(prev => {
-        if (prev.find(x => x.id === p.id)) {
-          return prev.map(x => x.id === p.id ? p : x);
+        if (prev.find(x => x.id === finalProject.id)) {
+          return prev.map(x => x.id === finalProject.id ? finalProject : x);
         } else {
-          return [...prev, p];
+          return [...prev, finalProject];
         }
       });
     }
@@ -1427,7 +1460,12 @@ export default function App() {
                   </>
                 ) : (
                   <>
-                    <button className="p-2 hover:bg-white/50 rounded-full transition-colors"><Layers size={24} className="text-[#5D4037]" /></button>
+                    <button 
+                      onClick={() => setIsProjectSortModalOpen(true)}
+                      className="p-2 hover:bg-white/50 rounded-full transition-colors"
+                    >
+                      <Layers size={24} className="text-[#5D4037]" />
+                    </button>
                     <button 
                       onClick={handleAddProject}
                       className="p-2 hover:bg-white/50 rounded-full transition-colors"
@@ -2020,6 +2058,17 @@ export default function App() {
               accounts={accounts}
               onClose={() => setIsAccountSortModalOpen(false)}
               onSave={handleSortAccounts}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Project Sort Modal */}
+        <AnimatePresence>
+          {isProjectSortModalOpen && (
+            <ProjectSortModal 
+              projects={projects}
+              onClose={() => setIsProjectSortModalOpen(false)}
+              onSave={handleSortProjects}
             />
           )}
         </AnimatePresence>
@@ -4743,6 +4792,160 @@ function AccountSortModal({ accounts, onClose, onSave }: {
         <div className="p-8 pt-4 flex-shrink-0 bg-white/80 backdrop-blur-sm border-t border-stone-100">
           <button 
             onClick={() => onSave(sortedAccounts)}
+            className="w-full py-5 bg-[#5D4037] text-white rounded-3xl font-black text-xl flex items-center justify-center gap-3 shadow-[0_10px_30px_-10px_rgba(93,64,55,0.4)] active:scale-95 transition-all"
+          >
+            <Check size={28} /> 完成排序
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function ProjectSortModal({ projects, onClose, onSave }: {
+  projects: Project[],
+  onClose: () => void,
+  onSave: (newOrder: Project[]) => void
+}) {
+  const [rootProjects, setRootProjects] = useState(() => 
+    projects.filter(p => !p.parentId)
+  );
+
+  const [childProjectsMap, setChildProjectsMap] = useState<Record<string, Project[]>>(() => {
+    const map: Record<string, Project[]> = {};
+    projects.forEach(p => {
+      if (p.parentId) {
+        if (!map[p.parentId]) {
+          map[p.parentId] = [];
+        }
+        map[p.parentId].push(p);
+      }
+    });
+    return map;
+  });
+
+  const handleReorderChildren = (parentId: string, newChildren: Project[]) => {
+    setChildProjectsMap(prev => ({
+      ...prev,
+      [parentId]: newChildren
+    }));
+  };
+
+  const handleSave = () => {
+    let currentOrder = 1;
+    const finalProjects: Project[] = [];
+
+    rootProjects.forEach(rp => {
+      finalProjects.push({ ...rp, order: currentOrder++ });
+      const children = childProjectsMap[rp.id] || [];
+      children.forEach(cp => {
+        finalProjects.push({ ...cp, order: currentOrder++ });
+      });
+    });
+
+    projects.forEach(p => {
+      if (!finalProjects.find(fp => fp.id === p.id)) {
+        finalProjects.push({ ...p, order: currentOrder++ });
+      }
+    });
+
+    onSave(finalProjects);
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-[#5D4037]/60 backdrop-blur-md z-[80] flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[44px] flex flex-col shadow-2xl border-4 border-white overflow-hidden max-h-[85vh]"
+        style={getFontFamily()}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-8 pb-4 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+              <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
+            </button>
+            <h3 className="text-2xl font-black text-[#5D4037]">專案排序</h3>
+          </div>
+          <div className="w-12 h-12 bg-[#FFD54F] rounded-2xl flex items-center justify-center shadow-md">
+            <Layers size={24} className="text-[#5D4037]" />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+          <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest leading-none mb-2 px-1">
+            按住右側圖示 ☰ 上下拖曳以排序
+          </div>
+          
+          <Reorder.Group axis="y" values={rootProjects} onReorder={setRootProjects} className="space-y-4">
+            {rootProjects.map(project => {
+              const children = childProjectsMap[project.id] || [];
+              return (
+                <Reorder.Item 
+                  key={project.id} 
+                  value={project}
+                  className="bg-white rounded-3xl border-2 border-stone-50 shadow-sm p-4 space-y-3 relative"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl border border-stone-50 shadow-sm bg-[#FFFDF5]">
+                      {project.icon || '📂'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none block mb-1">
+                        主專案
+                      </span>
+                      <span className="font-black text-base text-[#5D4037] truncate block">{project.name}</span>
+                    </div>
+                    <div className="cursor-grab active:cursor-grabbing p-2 text-stone-300 hover:text-[#5D4037] transition-colors">
+                      <GripVertical size={20} />
+                    </div>
+                  </div>
+
+                  {children.length > 0 && (
+                    <div className="pl-6 pt-2 border-t border-stone-50 space-y-2">
+                      <Reorder.Group 
+                        axis="y" 
+                        values={children} 
+                        onReorder={(newChildren) => handleReorderChildren(project.id, newChildren)}
+                        className="space-y-2"
+                      >
+                        {children.map(child => (
+                          <Reorder.Item 
+                            key={child.id} 
+                            value={child}
+                            className="flex items-center gap-3 p-3 bg-stone-50/70 rounded-2xl border border-stone-100/50 relative"
+                          >
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base border border-stone-50 shadow-sm bg-white">
+                              {child.icon || '📄'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-[8px] font-bold text-stone-300 uppercase tracking-widest leading-none block mb-0.5">
+                                子專案
+                              </span>
+                              <span className="font-bold text-sm text-[#5D4037] truncate block">{child.name}</span>
+                            </div>
+                            <div className="cursor-grab active:cursor-grabbing p-1.5 text-stone-300 hover:text-[#5D4037] transition-colors">
+                              <GripVertical size={16} />
+                            </div>
+                          </Reorder.Item>
+                        ))}
+                      </Reorder.Group>
+                    </div>
+                  )}
+                </Reorder.Item>
+              );
+            })}
+          </Reorder.Group>
+          <div className="h-6" />
+        </div>
+
+        <div className="p-8 pt-4 flex-shrink-0 bg-white/80 backdrop-blur-sm border-t border-stone-100">
+          <button 
+            onClick={handleSave}
             className="w-full py-5 bg-[#5D4037] text-white rounded-3xl font-black text-xl flex items-center justify-center gap-3 shadow-[0_10px_30px_-10px_rgba(93,64,55,0.4)] active:scale-95 transition-all"
           >
             <Check size={28} /> 完成排序
