@@ -6317,6 +6317,7 @@ function ReportsView({ records, projects, categories }: {
 }) {
   const [dateRange, setDateRange] = useState<'thisMonth' | 'last3Months' | 'last6Months' | 'lastYear'>('thisMonth');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
+  const [activeSector, setActiveSector] = useState<any>(null);
   
   const COLORS = ['#FFD54F', '#FFAB91', '#81C784', '#90CAF9', '#CE93D8', '#BCAAA4', '#B0BEC5', '#FFCCBC', '#C5E1A5', '#FFF59D'];
 
@@ -6454,6 +6455,9 @@ function ReportsView({ records, projects, categories }: {
                 paddingAngle={8}
                 dataKey="value"
                 stroke="none"
+                onMouseEnter={(data) => setActiveSector(data)}
+                onMouseLeave={() => setActiveSector(null)}
+                onClick={(data) => setActiveSector(data)}
               >
                 {stats.pieData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -6461,26 +6465,21 @@ function ReportsView({ records, projects, categories }: {
               </Pie>
               <Tooltip 
                 content={<CustomTooltip />}
-                position={(coordinate) => {
-                  if (!coordinate) return null;
-                  const container = document.querySelector('.recharts-responsive-container');
-                  const w = container ? container.clientWidth : 300;
-                  const h = container ? container.clientHeight : 300;
-                  const cx = w / 2;
-                  const cy = h / 2;
-                  const dx = coordinate.x - cx;
-                  const dy = coordinate.y - cy;
-                  const distance = Math.sqrt(dx * dx + dy * dy);
-                  if (distance === 0) return { x: coordinate.x, y: coordinate.y };
+                position={(() => {
+                  if (!activeSector || typeof activeSector.cx === 'undefined') return undefined;
+                  const { cx, cy, midAngle, outerRadius } = activeSector;
+                  const radian = -midAngle * (Math.PI / 180);
+                  // 圓環外半徑是 110px，所以把 Tooltip 放在外圍 140px（半徑上）以完全不遮擋圓環與中央總支出
+                  const targetRadius = 140;
+                  const tx = cx + Math.cos(radian) * targetRadius;
+                  const ty = cy + Math.sin(radian) * targetRadius;
                   
-                  // 圓環外半徑是 110px，故設為 135px 讓 Tooltip 落在外圍
-                  // 假設 Tooltip 平均寬度約為 90px (偏置 45px)，高度約 40px (偏置 20px)
-                  const targetRadius = 135;
+                  // 依 Tooltip 寬度約 90px，高度約 40px 做置中微調
                   return {
-                    x: cx + (dx / distance) * targetRadius - 45,
-                    y: cy + (dy / distance) * targetRadius - 20
+                    x: tx - 45,
+                    y: ty - 20
                   };
-                }}
+                })()}
               />
             </RePieChart>
           </ResponsiveContainer>
