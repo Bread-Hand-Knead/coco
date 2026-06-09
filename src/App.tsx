@@ -6282,21 +6282,23 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
+    const categoryColor = payload[0].color || '#FFD54F';
     return (
       <div 
-        className="bg-white/95 backdrop-blur-md border border-stone-100/80 p-2.5 rounded-2xl shadow-xl flex items-center gap-2 pointer-events-none"
+        className="bg-white/95 backdrop-blur-md border-2 p-2.5 rounded-2xl shadow-xl flex items-center gap-2 pointer-events-none"
         style={{
-          boxShadow: '0 10px 25px -5px rgba(93, 64, 55, 0.2)',
+          borderColor: categoryColor,
+          boxShadow: '0 10px 25px -5px rgba(93, 64, 55, 0.25)',
           ...getFontFamily()
         }}
       >
         <div 
           className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
-          style={{ backgroundColor: payload[0].color || '#FFD54F' }}
+          style={{ backgroundColor: categoryColor }}
         />
         <div 
           className="flex items-center gap-1.5 text-xs font-black text-[#5D4037]" 
-          style={{ textShadow: '1px 1px 2px rgba(93,64,55,0.08)' }}
+          style={{ textShadow: '1px 1px 2px rgba(93,64,55,0.15)' }}
         >
           <span>{data.name}</span>
           <span className="text-stone-300 font-normal">:</span>
@@ -6459,7 +6461,26 @@ function ReportsView({ records, projects, categories }: {
               </Pie>
               <Tooltip 
                 content={<CustomTooltip />}
-                offset={35}
+                position={(coordinate) => {
+                  if (!coordinate) return null;
+                  const container = document.querySelector('.recharts-responsive-container');
+                  const w = container ? container.clientWidth : 300;
+                  const h = container ? container.clientHeight : 300;
+                  const cx = w / 2;
+                  const cy = h / 2;
+                  const dx = coordinate.x - cx;
+                  const dy = coordinate.y - cy;
+                  const distance = Math.sqrt(dx * dx + dy * dy);
+                  if (distance === 0) return { x: coordinate.x, y: coordinate.y };
+                  
+                  // 圓環外半徑是 110px，故設為 135px 讓 Tooltip 落在外圍
+                  // 假設 Tooltip 平均寬度約為 90px (偏置 45px)，高度約 40px (偏置 20px)
+                  const targetRadius = 135;
+                  return {
+                    x: cx + (dx / distance) * targetRadius - 45,
+                    y: cy + (dy / distance) * targetRadius - 20
+                  };
+                }}
               />
             </RePieChart>
           </ResponsiveContainer>
