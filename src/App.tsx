@@ -6279,6 +6279,35 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   );
 }
 
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div 
+        className="bg-white/95 backdrop-blur-md border border-stone-100/80 p-2.5 rounded-2xl shadow-xl flex items-center gap-2 pointer-events-none"
+        style={{
+          boxShadow: '0 10px 25px -5px rgba(93, 64, 55, 0.2)',
+          ...getFontFamily()
+        }}
+      >
+        <div 
+          className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
+          style={{ backgroundColor: payload[0].color || '#FFD54F' }}
+        />
+        <div 
+          className="flex items-center gap-1.5 text-xs font-black text-[#5D4037]" 
+          style={{ textShadow: '1px 1px 2px rgba(93,64,55,0.08)' }}
+        >
+          <span>{data.name}</span>
+          <span className="text-stone-300 font-normal">:</span>
+          <span className="text-sm font-black text-[#5D4037]">${data.value.toLocaleString()}</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 function ReportsView({ records, projects, categories }: { 
   records: Transaction[], 
   projects: Project[], 
@@ -6429,13 +6458,8 @@ function ReportsView({ records, projects, categories }: {
                 ))}
               </Pie>
               <Tooltip 
-                contentStyle={{ 
-                  borderRadius: '24px', 
-                  border: 'none', 
-                  boxShadow: '0 10px 25px -10px rgba(0,0,0,0.1)',
-                  padding: '12px 16px',
-                  ...getFontFamily()
-                }}
+                content={<CustomTooltip />}
+                offset={35}
               />
             </RePieChart>
           </ResponsiveContainer>
