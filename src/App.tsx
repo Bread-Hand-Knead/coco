@@ -6469,16 +6469,21 @@ function ReportsView({ records, projects, categories }: {
                   if (!activeSector || typeof activeSector.cx === 'undefined') return undefined;
                   const { cx, cy, midAngle, outerRadius } = activeSector;
                   const radian = -midAngle * (Math.PI / 180);
-                  // 圓環外半徑是 110px，所以把 Tooltip 放在外圍 140px（半徑上）以完全不遮擋圓環與中央總支出
-                  const targetRadius = 140;
+                  
+                  // 圓環外半徑是 110px，所以把貼齊邊緣半徑設為 120px
+                  const targetRadius = 120;
                   const tx = cx + Math.cos(radian) * targetRadius;
                   const ty = cy + Math.sin(radian) * targetRadius;
                   
-                  // 依 Tooltip 寬度約 90px，高度約 40px 做置中微調
-                  return {
-                    x: tx - 45,
-                    y: ty - 20
-                  };
+                  // 定義 Tooltip 估算寬高 (此尺寸適用於分類與金額字數長度)
+                  const tooltipWidth = 130;
+                  const tooltipHeight = 40;
+                  
+                  // 使用平滑邊界貼齊插值公式，確保在任何角度下，Tooltip 的外邊界都剛好外切於 targetRadius
+                  const x = tx - (tooltipWidth * (1 - Math.cos(radian))) / 2;
+                  const y = ty - (tooltipHeight * (1 - Math.sin(radian))) / 2;
+                  
+                  return { x, y };
                 })()}
               />
             </RePieChart>
