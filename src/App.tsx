@@ -7962,16 +7962,54 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     return false;
   });
 
+  const evaluateExpression = (expr: string): string => {
+    // 將 × 替換為 *, ÷ 替換為 /
+    let cleanExpr = expr.replace(/×/g, '*').replace(/÷/g, '/');
+    
+    // 只允許數字、小數點和 + - * / 運算子，防止安全與執行期錯誤
+    cleanExpr = cleanExpr.replace(/[^0-9.+\-*/()]/g, '');
+    
+    try {
+      // 遞迴移除尾部多餘的運算子，例如 "123+" -> "123"
+      while (['+', '-', '*', '/'].includes(cleanExpr.slice(-1))) {
+        cleanExpr = cleanExpr.slice(0, -1);
+      }
+      
+      if (!cleanExpr) return '0';
+      
+      // 使用 Function 進行安全計算
+      const result = new Function(`return (${cleanExpr})`)();
+      if (typeof result !== 'number' || isNaN(result) || !isFinite(result)) {
+        return '0';
+      }
+      
+      // 限制浮點數精度（十位數），避免例如 0.1 + 0.2 = 0.30000000000000004
+      return parseFloat(result.toFixed(10)).toString();
+    } catch (e) {
+      console.error("Evaluation failed", e);
+      return expr;
+    }
+  };
+
   const handleKey = (key: string) => {
     if (key === 'AC') { setAmount('0'); return; }
+    
     if (key === '=') {
-      const rawAmt = parseFloat(amount) || 0;
+      // 鍵盤上的 '=' 鍵點擊時：只計算表達式，更新欄位，不儲存
+      setAmount(evaluateExpression(amount));
+      return;
+    }
+    
+    if (key === 'SAVE') {
+      // 點擊「儲存紀錄」按鈕時：計算並儲存
+      const calculatedAmtStr = evaluateExpression(amount);
+      setAmount(calculatedAmtStr);
+      
+      const rawAmt = parseFloat(calculatedAmtStr) || 0;
       const finalFee = parseFloat(fee) || 0;
       const rate = parseFloat(exchangeRate) || 1;
       
       // Smart Sign Parsing:
-      // - If amount has negative sign (rawAmt < 0), auto determine as expense or transfer
-      // - If amount has positive sign (rawAmt >= 0), determine based on active tab
       let resolvedType: 'income' | 'expense' | 'transfer' = tab === 'template' ? 'expense' : tab;
       if (rawAmt < 0) {
         resolvedType = tab === 'transfer' ? 'transfer' : 'expense';
@@ -8003,7 +8041,23 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       });
       return;
     }
-    if (amount === '0') { setAmount(key); } else { setAmount(amount + key); }
+    
+    // 一般輸入處理
+    if (amount === '0') {
+      if (['+', '-', '×', '÷'].includes(key)) {
+        setAmount('0' + key);
+      } else {
+        setAmount(key);
+      }
+    } else {
+      const lastChar = amount.slice(-1);
+      // 避免連續兩個運算子
+      if (['+', '-', '×', '÷'].includes(lastChar) && ['+', '-', '×', '÷'].includes(key)) {
+        setAmount(amount.slice(0, -1) + key);
+      } else {
+        setAmount(amount + key);
+      }
+    }
   };
 
   const handleApplyTemplate = (t: Template) => {
@@ -8579,7 +8633,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                         </div>
                         
                         <button 
-                          onClick={() => handleKey('=')}
+                          onClick={() => handleKey('SAVE')}
                           className="w-full py-5 bg-[#5D4037] text-white rounded-[25px] font-black text-xl shadow-xl mt-2 active:scale-95 transition-transform"
                         >
                           儲存紀錄
