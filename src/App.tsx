@@ -8625,7 +8625,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                             <button 
                               key={k}
                               onClick={() => handleKey(k)}
-                              className={`h-14 rounded-xl flex items-center justify-center text-xl font-bold shadow-sm ${['÷', '×', '-', '+', '='].includes(k) ? 'bg-[#FFD54F] text-[#5D4037]' : k === '=' ? 'bg-[#5D4037] text-white' : 'bg-white text-[#5D4037]'}`}
+                              className={`h-14 rounded-xl flex items-center justify-center text-xl font-bold shadow-sm active:scale-95 transition-all ${['÷', '×', '-', '+', '='].includes(k) ? 'bg-[#FFD54F] text-[#5D4037] active:bg-[#FBC02D]' : 'bg-white text-[#5D4037] active:bg-[#FFF9E3]'}`}
                             >
                               {k}
                             </button>
@@ -8634,7 +8634,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                         
                         <button 
                           onClick={() => handleKey('SAVE')}
-                          className="w-full py-5 bg-[#5D4037] text-white rounded-[25px] font-black text-xl shadow-xl mt-2 active:scale-95 transition-transform"
+                          className="w-full py-5 bg-[#5D4037] text-white rounded-[25px] font-black text-xl shadow-xl mt-2 active:scale-95 active:bg-[#4E342E] transition-all"
                         >
                           儲存紀錄
                         </button>
