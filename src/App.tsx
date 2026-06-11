@@ -3134,9 +3134,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                           } else if (isTo && !isFrom) {
                             colorClass = 'text-[#03A9F4]';
                             sign = '+';
+                            const displayAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * (record.exchangeRate || 1));
                             return (
                               <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
-                                 {sign} $ {Math.abs(record.amount).toLocaleString()}
+                                 {sign} $ {Math.abs(displayAmt).toLocaleString()}
                               </span>
                             );
                           } else {
