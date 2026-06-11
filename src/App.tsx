@@ -3261,6 +3261,20 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
 
+  const fromAcc = accounts.find(a => a.id === edited.accountId);
+  const toAcc = accounts.find(a => a.id === edited.toAccountId);
+
+  const editRateLabel = useMemo(() => {
+    const srcCur = fromAcc?.currency || 'TWD';
+    const dstCur = toAcc?.currency || 'TWD';
+    if (srcCur === 'TWD' && dstCur !== 'TWD') {
+      return `匯率 (1 ${dstCur} = ? TWD)`;
+    } else if (srcCur !== 'TWD' && dstCur === 'TWD') {
+      return `匯率 (1 ${srcCur} = ? TWD)`;
+    }
+    return `匯率 (1 ${srcCur} = ? ${dstCur})`;
+  }, [fromAcc, toAcc]);
+
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -3549,19 +3563,43 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">匯率</label>
+                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">{editRateLabel}</label>
                     <input 
                       type="number"
                       value={edited.exchangeRate || 1}
-                      onChange={e => setEdited({ ...edited, exchangeRate: parseFloat(e.target.value) || 1 })}
+                      onChange={e => {
+                        const rate = parseFloat(e.target.value) || 1;
+                        const amt = Math.abs(edited.amount);
+                        let toAmt = amt * rate;
+                        if (fromAcc?.currency === 'TWD' && toAcc?.currency !== 'TWD') {
+                          toAmt = amt / rate;
+                        } else if (fromAcc?.currency !== 'TWD' && toAcc?.currency === 'TWD') {
+                          toAmt = amt * rate;
+                        }
+                        if (toAcc?.currency === 'JPY') {
+                          toAmt = Math.round(toAmt);
+                        }
+                        setEdited({ ...edited, exchangeRate: rate, toAmount: toAmt });
+                      }}
                       className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">實收金額</label>
+                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">實收金額 ({toAcc?.currency})</label>
                     <input 
                       type="number"
-                      value={edited.toAmount || edited.amount * (edited.exchangeRate || 1)}
+                      value={edited.toAmount !== undefined ? edited.toAmount : (() => {
+                        const amt = Math.abs(edited.amount);
+                        const rate = edited.exchangeRate || 1;
+                        let toAmt = amt * rate;
+                        if (fromAcc?.currency === 'TWD' && toAcc?.currency !== 'TWD') {
+                          toAmt = amt / rate;
+                        }
+                        if (toAcc?.currency === 'JPY') {
+                          toAmt = Math.round(toAmt);
+                        }
+                        return toAmt;
+                      })()}
                       onChange={e => setEdited({ ...edited, toAmount: parseFloat(e.target.value) || 0 })}
                       className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                     />
@@ -9012,6 +9050,20 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
   }, [isCreditCard]);
 
+  const currentAccount = accounts.find(a => a.id === selectedAccountId);
+  const currentToAccount = accounts.find(a => a.id === toAccountId);
+
+  const rateLabel = useMemo(() => {
+    const srcCur = currentAccount?.currency || 'TWD';
+    const dstCur = currentToAccount?.currency || 'TWD';
+    if (srcCur === 'TWD' && dstCur !== 'TWD') {
+      return `匯率 (1 ${dstCur} = ? TWD)`;
+    } else if (srcCur !== 'TWD' && dstCur === 'TWD') {
+      return `匯率 (1 ${srcCur} = ? TWD)`;
+    }
+    return `匯率 (1 ${srcCur} = ? ${dstCur})`;
+  }, [currentAccount, currentToAccount]);
+
   // 聯動計算：當金額或匯率改變時，自動更新實收金額 toAmount
   useEffect(() => {
     const hasOperator = /[+\-*/×÷]/.test(amount);
@@ -9020,9 +9072,19 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     const amt = parseFloat(amount) || 0;
     const rate = parseFloat(exchangeRate) || 0;
     if (amt > 0 && rate > 0) {
-      const targetCurrency = accounts.find(a => a.id === toAccountId)?.currency || '';
-      const calculated = amt * rate;
-      if (targetCurrency === 'JPY') {
+      const srcCur = currentAccount?.currency || 'TWD';
+      const dstCur = currentToAccount?.currency || 'TWD';
+      
+      let calculated = 0;
+      if (srcCur === 'TWD' && dstCur !== 'TWD') {
+        calculated = amt / rate;
+      } else if (srcCur !== 'TWD' && dstCur === 'TWD') {
+        calculated = amt * rate;
+      } else {
+        calculated = amt * rate;
+      }
+
+      if (dstCur === 'JPY') {
         setToAmount(Math.round(calculated).toString());
       } else {
         setToAmount(parseFloat(calculated.toFixed(4)).toString());
@@ -9030,7 +9092,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     } else {
       setToAmount('0');
     }
-  }, [amount, exchangeRate, toAccountId, accounts]);
+  }, [amount, exchangeRate, toAccountId, selectedAccountId, accounts, currentAccount, currentToAccount]);
 
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddSubCategoryModal, setShowAddSubCategoryModal] = useState(false);
@@ -9070,8 +9132,6 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setShowCalculator(true);
   };
 
-  const currentAccount = accounts.find(a => a.id === selectedAccountId);
-  const currentToAccount = accounts.find(a => a.id === toAccountId);
   const currentMainCat = categories.find(c => c.name === mainCategory);
 
   const filteredCategories = categories.filter(c => {
@@ -9507,7 +9567,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                       {currentAccount?.currency !== currentToAccount?.currency && (
                         <>
                           <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-stone-300 uppercase">匯率 (1 {currentAccount?.currency} = ?)</label>
+                            <label className="text-[10px] font-bold text-stone-300 uppercase">{rateLabel}</label>
                             <input 
                               type="number"
                               value={exchangeRate}
