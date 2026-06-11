@@ -9011,6 +9011,26 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
   }, [isCreditCard]);
 
+  // 聯動計算：當金額或匯率改變時，自動更新實收金額 toAmount
+  useEffect(() => {
+    const hasOperator = /[+\-*/×÷]/.test(amount);
+    if (hasOperator) return;
+
+    const amt = parseFloat(amount) || 0;
+    const rate = parseFloat(exchangeRate) || 0;
+    if (amt > 0 && rate > 0) {
+      const targetCurrency = accounts.find(a => a.id === toAccountId)?.currency || '';
+      const calculated = amt * rate;
+      if (targetCurrency === 'JPY') {
+        setToAmount(Math.round(calculated).toString());
+      } else {
+        setToAmount(parseFloat(calculated.toFixed(4)).toString());
+      }
+    } else {
+      setToAmount('0');
+    }
+  }, [amount, exchangeRate, toAccountId, accounts]);
+
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddSubCategoryModal, setShowAddSubCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
