@@ -3253,8 +3253,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                               <span className="text-stone-400 font-bold min-w-[65px]">
                                 {account.type === 'credit' ? '刷卡累積:' : '帳戶餘額:'}
                               </span>
-                              <span className={`font-black text-sm ${account.type === 'credit' ? 'text-rose-500' : 'text-[#5D4037]'}`}>
-                                $ {Math.abs(balanceMap[record.id] || 0).toLocaleString()}
+                              <span className={`font-black text-sm ${account.type === 'credit' ? 'text-rose-500' : ((balanceMap[record.id] || 0) < 0 ? 'text-rose-400' : 'text-[#5D4037]')}`}>
+                                {account.type === 'credit' 
+                                  ? `$ ${Math.abs(balanceMap[record.id] || 0).toLocaleString()}` 
+                                  : `${(balanceMap[record.id] || 0) < 0 ? '- $ ' : '$ '}${Math.abs(balanceMap[record.id] || 0).toLocaleString()}`
+                                }
                               </span>
                             </div>
                           </div>
