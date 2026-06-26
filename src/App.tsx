@@ -175,6 +175,7 @@ interface Transaction {
   _importDestAccountName?: string;
   _importProjectName?: string;
   _importBalance?: number;
+  _importMainAccountName?: string;
   _isMergedTransfer?: boolean;
   _mergedRecordIds?: string[];
   _mergedDisplayName?: string;
@@ -7739,6 +7740,143 @@ function MoreView({
   const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [activeImportTab, setActiveImportTab] = useState<'unique' | 'duplicates'>('unique');
+
+  const importClassification = useMemo(() => {
+    if (!importPreview) return { unique: [], duplicates: [] };
+
+    const existingAccountNamesMap = new Map<string, string>();
+    accounts.forEach(a => {
+      existingAccountNamesMap.set(a.name.trim(), a.id);
+      existingAccountNamesMap.set(a.name.trim().toLowerCase(), a.id);
+    });
+
+    const existingProjectNamesMap = new Map<string, string>();
+    projects.forEach(p => {
+      existingProjectNamesMap.set(p.name.trim().toLowerCase(), p.id);
+    });
+
+    const cleanAccName = (s: string) => {
+      return String(s).replace(/\s+/g, '').replace(/[-_@()（）]/g, '').trim().toLowerCase();
+    };
+
+    const findExistingAccountId = (nameText: string) => {
+      const cleaned = cleanAccName(nameText);
+      const acc = accounts.find(a => cleanAccName(a.name) === cleaned);
+      return acc?.id;
+    };
+
+    const unique: Transaction[] = [];
+    const duplicates: Transaction[] = [];
+    const currentRecords = [...records];
+
+    importPreview.transactions.forEach(imported => {
+      const mainRawName = imported._importMainAccountName?.trim();
+      const sourceName = imported._importSourceAccountName?.trim();
+      const destName = imported._importDestAccountName?.trim();
+      const importProjName = imported._importProjectName?.trim();
+
+      const getMappedAccountId = (nameText: string | undefined, defaultId: string) => {
+        if (!nameText || nameText === '-') return defaultId;
+        const trimmed = nameText.trim();
+        const target = existingAccountNamesMap.get(trimmed) || 
+                       existingAccountNamesMap.get(trimmed.toLowerCase()) || 
+                       findExistingAccountId(trimmed);
+        return target || defaultId;
+      };
+
+      let resolvedAccountId = imported.accountId;
+      let resolvedToAccountId = imported.toAccountId;
+
+      if (mainRawName && mainRawName !== '-') {
+        resolvedAccountId = getMappedAccountId(mainRawName, imported.accountId);
+        if (imported.type === 'transfer') {
+          let targetName = '';
+          if (sourceName && sourceName !== '-' && sourceName !== mainRawName) {
+            targetName = sourceName;
+          } else if (destName && destName !== '-' && destName !== mainRawName) {
+            targetName = destName;
+          }
+          if (targetName) {
+            resolvedToAccountId = getMappedAccountId(targetName, imported.toAccountId || '');
+          } else {
+            resolvedToAccountId = imported.toAccountId;
+          }
+        } else {
+          resolvedToAccountId = undefined;
+        }
+      } else {
+        if (imported.type === 'income') {
+          resolvedAccountId = (destName && destName !== '-') ? getMappedAccountId(destName, imported.accountId) : 
+                             ((sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId);
+          resolvedToAccountId = undefined;
+        } else if (imported.type === 'expense') {
+          resolvedAccountId = (sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId;
+          resolvedToAccountId = undefined;
+        } else if (imported.type === 'transfer') {
+          const isPos = imported.amount > 0;
+          const mainName = isPos ? destName : sourceName;
+          const targetName = isPos ? sourceName : destName;
+
+          resolvedAccountId = (mainName && mainName !== '-') ? getMappedAccountId(mainName, imported.accountId) : imported.accountId;
+          resolvedToAccountId = (targetName && targetName !== '-') ? getMappedAccountId(targetName, imported.toAccountId || '') : imported.toAccountId;
+        }
+      }
+
+      if (imported.type === 'transfer') {
+        if (!resolvedAccountId) {
+          resolvedAccountId = accounts[0]?.id || 'cash';
+        }
+        if (!resolvedToAccountId) {
+          const sibling = accounts.find(a => a.id !== resolvedAccountId);
+          resolvedToAccountId = sibling?.id || '';
+        }
+      }
+
+      let resolvedProjectId = imported.projectId;
+      if (importProjName) {
+         const projNameToFind = importProjName.includes(' > ') ? importProjName.split(' > ').pop() : importProjName;
+         if (projNameToFind) {
+           resolvedProjectId = existingProjectNamesMap.get(projNameToFind.trim().toLowerCase()) || imported.projectId;
+         }
+      }
+
+      const recordToProcess = {
+        ...imported,
+        accountId: resolvedAccountId || accounts[0]?.id || 'cash',
+        toAccountId: resolvedToAccountId,
+        projectId: resolvedProjectId
+      };
+
+      const duplicateIndex = currentRecords.findIndex(existing => 
+        existing.date === recordToProcess.date &&
+        existing.type === recordToProcess.type &&
+        existing.amount === recordToProcess.amount &&
+        existing.category === recordToProcess.category &&
+        existing.accountId === recordToProcess.accountId &&
+        existing.toAccountId === recordToProcess.toAccountId &&
+        (existing.note || '') === (recordToProcess.note || '')
+      );
+
+      if (duplicateIndex !== -1) {
+        duplicates.push(recordToProcess);
+      } else {
+        unique.push(recordToProcess);
+        currentRecords.push(recordToProcess);
+      }
+    });
+
+    return { unique, duplicates };
+  }, [importPreview, records, accounts, projects]);
+
+  useEffect(() => {
+    if (importClassification.unique.length === 0 && importClassification.duplicates.length > 0) {
+      setActiveImportTab('duplicates');
+    } else {
+      setActiveImportTab('unique');
+    }
+  }, [importClassification]);
+
   const handleManualSync = async () => {
     if (!user) {
       alert('請先登入後再進行同步。');
@@ -8908,16 +9046,56 @@ function MoreView({
               </div>
             </div>
 
+            {/* Tabs (if there are duplicates) */}
+            {importClassification.duplicates.length > 0 && (
+              <div className="px-8 pb-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveImportTab('unique')}
+                  className={`flex-1 py-3 px-4 rounded-2xl font-black text-xs transition-all shadow-sm border-2 ${
+                    activeImportTab === 'unique'
+                      ? 'bg-[#5D4037] text-white border-[#5D4037]'
+                      : 'bg-white/40 text-stone-400 border-transparent hover:bg-white/60'
+                  }`}
+                >
+                  欲匯入項目 ({importClassification.unique.length} 筆)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveImportTab('duplicates')}
+                  className={`flex-1 py-3 px-4 rounded-2xl font-black text-xs transition-all shadow-sm border-2 ${
+                    activeImportTab === 'duplicates'
+                      ? 'bg-orange-500 text-white border-orange-500'
+                      : 'bg-white/40 text-orange-600/70 border-transparent hover:bg-white/60'
+                  }`}
+                >
+                  重複已跳過 ({importClassification.duplicates.length} 筆)
+                </button>
+              </div>
+            )}
+
             {/* List */}
             <div className="h-[400px] overflow-y-auto px-6 py-4 space-y-3 flex-shrink-0">
               <div className="flex items-center justify-between px-2 text-[10px] font-black text-stone-300 uppercase tracking-widest sticky top-0 bg-[#FFF9E3] py-2 z-10">
-                <span>欲匯入項目 ({importPreview.total} 筆)</span>
+                <span>
+                  {activeImportTab === 'unique' 
+                    ? `欲匯入項目 (${importClassification.unique.length} 筆)` 
+                    : `已篩選重複項目 (${importClassification.duplicates.length} 筆)`}
+                </span>
                 <span>金額</span>
               </div>
               
               <div className="space-y-2">
-                {importPreview.transactions.map((r, idx) => (
-                  <div key={idx} className="bg-white/60 rounded-2xl p-4 flex items-center gap-3 border border-white shadow-sm">
+                {((activeImportTab === 'unique' || importClassification.duplicates.length === 0) 
+                  ? importClassification.unique 
+                  : importClassification.duplicates
+                ).map((r, idx) => (
+                  <div key={idx} className="bg-white/60 rounded-2xl p-4 flex items-center gap-3 border border-white shadow-sm relative overflow-hidden">
+                    {activeImportTab === 'duplicates' && (
+                      <div className="absolute right-0 top-0 bg-orange-100 text-orange-600 font-black text-[9px] px-2.5 py-0.5 rounded-bl-xl border-l border-b border-orange-200">
+                        重複已跳過
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[10px] font-black text-[#FBC02D] bg-[#FBC02D]/10 px-2 py-0.5 rounded-full" style={getFontFamily()}>
@@ -8971,6 +9149,15 @@ function MoreView({
                     </div>
                   </div>
                 ))}
+
+                {((activeImportTab === 'unique' || importClassification.duplicates.length === 0) 
+                  ? importClassification.unique 
+                  : importClassification.duplicates
+                ).length === 0 && (
+                  <div className="text-center py-12 text-stone-400 font-bold text-sm bg-white/40 rounded-3xl border border-dashed border-stone-200">
+                    {activeImportTab === 'unique' ? '沒有新明細需要匯入' : '無重複明細'}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -8984,7 +9171,7 @@ function MoreView({
 
               <button 
                 onClick={handleConfirmImport}
-                disabled={isSyncing}
+                disabled={isSyncing || importClassification.unique.length === 0}
                 className="w-full bg-[#5D4037] text-white py-5 rounded-[25px] font-black text-[18px] active:scale-95 transition-all shadow-xl hover:bg-[#3E2723] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isSyncing ? (
@@ -8992,7 +9179,9 @@ function MoreView({
                     <Loader2 size={24} className="animate-spin text-[#FFD54F]" />
                     <span>正努力同步明細中...</span>
                   </>
-                ) : '確認匯入'}
+                ) : (
+                  importClassification.unique.length === 0 ? '無新明細可匯入' : '確認匯入'
+                )}
               </button>
               <button 
                 onClick={() => setImportPreview(null)}
