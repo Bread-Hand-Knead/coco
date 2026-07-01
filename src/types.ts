@@ -22,6 +22,7 @@ export interface Transaction {
   toAmount?: number;
   exchangeRate?: number;
   fee?: number;
+  transferredDate?: string;
 }
 
 export interface Account {

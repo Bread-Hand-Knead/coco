@@ -164,6 +164,7 @@ interface Transaction {
   installmentGroupId?: string;
   projectId?: string;
   fee?: number;
+  transferredDate?: string;
   isCompleted?: boolean;
   status?: 'active' | 'settled';
   paidCount?: number;
@@ -1174,7 +1175,7 @@ export default function App() {
     };
   }, [records, selectedDate, currencyMode]);
 
-  const handleSaveRecord = async (record: Omit<Transaction, 'id'>) => {
+  const handleSaveRecord = async (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => {
     if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
       const installmentGroupId = Date.now().toString();
       const perAmount = Math.round(record.amount / record.totalInstallments);
@@ -1214,7 +1215,9 @@ export default function App() {
         setRecords(prev => [...prev, newRecord]);
       }
     }
-    setIsRecordModalOpen(false);
+    if (!keepOpen) {
+      setIsRecordModalOpen(false);
+    }
   };
 
   const handleUpdateRecord = async (oldRecord: Transaction, newRecord: Transaction) => {
@@ -3248,6 +3251,113 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                 {record.note ? record.note.replace(/\[固定收支\]/g, '').trim() : '無備註'}
                               </span>
                             </div>
+
+                            {/* 轉帳附加資訊：手續費與匯率 */}
+                            {(record.type === 'transfer' || record._isMergedTransfer) && (() => {
+                              const { src, dst } = getTransferSourceAndDest(record);
+                              const srcAcc = accounts.find(a => a.id === src);
+                              const dstAcc = accounts.find(a => a.id === dst);
+                              const srcCur = srcAcc?.currency || 'TWD';
+                              const dstCur = dstAcc?.currency || 'TWD';
+                              
+                              const hasConversion = srcCur !== dstCur || !!record.exchangeRate;
+                              const rate = record.exchangeRate || 1;
+                              const toAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * rate);
+                              
+                              let rateStr = '';
+                              if (srcCur === 'TWD' && dstCur !== 'TWD') {
+                                rateStr = `1 ${dstCur} = ${rate} TWD`;
+                              } else if (srcCur !== 'TWD' && dstCur === 'TWD') {
+                                rateStr = `1 ${srcCur} = ${rate} TWD`;
+                              } else {
+                                rateStr = `1 ${srcCur} = ${rate} ${dstCur}`;
+                              }
+                              
+                              return (
+                                <>
+                                  {hasConversion && (
+                                    <>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-stone-400 font-bold min-w-[65px]">當時匯率:</span>
+                                        <span className="font-black text-[#5D4037]">
+                                          {rateStr}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-stone-400 font-bold min-w-[65px]">實收金額:</span>
+                                        <span className="font-black text-[#5D4037]">
+                                          {dstCur} {Math.abs(toAmt).toLocaleString()}
+                                        </span>
+                                      </div>
+                                    </>
+                                  )}
+                                  {record.fee ? (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-stone-400 font-bold min-w-[65px]">手續費:</span>
+                                      <span className="font-black text-rose-500">
+                                        $ {record.fee.toLocaleString()} ({srcCur})
+                                      </span>
+                                    </div>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
+
+                            {/* 項目 3.5：已轉帳狀態與日期 (消費限定) */}
+                            {record.type === 'expense' && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-stone-400 font-bold min-w-[65px]">轉帳狀態:</span>
+                                {record.transferredDate ? (
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg text-xs font-black border border-emerald-200">
+                                      ✓ 已轉帳 ({record.transferredDate})
+                                    </span>
+                                    <input 
+                                      type="date"
+                                      value={record.transferredDate}
+                                      onClick={e => e.stopPropagation()}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        onUpdateRecord(record, { ...record, transferredDate: e.target.value || undefined });
+                                      }}
+                                      className="px-1.5 py-0.5 bg-white border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                                    />
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onUpdateRecord(record, { ...record, transferredDate: undefined });
+                                      }}
+                                      className="text-stone-400 hover:text-rose-500 text-xs font-bold px-1"
+                                      title="清除轉帳日期"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onUpdateRecord(record, { ...record, transferredDate: formatLocalDate(new Date()) });
+                                      }}
+                                      className="bg-stone-50 hover:bg-stone-100 text-stone-600 px-2 py-1 rounded-lg text-xs font-bold border border-stone-200 active:scale-95 transition-all"
+                                    >
+                                      標記為已轉帳
+                                    </button>
+                                    <span className="text-[#8C7B72]/70 text-xs">或選擇日期:</span>
+                                    <input 
+                                      type="date"
+                                      onClick={e => e.stopPropagation()}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        onUpdateRecord(record, { ...record, transferredDate: e.target.value || undefined });
+                                      }}
+                                      className="px-1.5 py-0.5 bg-white border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             
                             {/* 項目 4：當下餘額或刷卡累積 */}
                             <div className="flex items-center gap-2 border-t border-dashed border-stone-100 pt-2.5 mt-1">
@@ -3600,6 +3710,29 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                 </button>
               </div>
             </div>
+
+            {edited.type === 'expense' && (
+              <div className="space-y-2 bg-[#E8F5E9]/20 p-4 rounded-3xl border border-white shadow-sm flex flex-col gap-1">
+                <label className="text-[10px] font-black text-[#2E7D32] uppercase tracking-widest px-1">轉帳過去的日期 (已付款)</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="date"
+                    value={edited.transferredDate || ''}
+                    onChange={e => setEdited({ ...edited, transferredDate: e.target.value || undefined })}
+                    className="flex-1 p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    style={getFontFamily()}
+                  />
+                  {edited.transferredDate && (
+                    <button 
+                      onClick={() => setEdited({ ...edited, transferredDate: undefined })}
+                      className="px-4 py-3 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl font-bold transition-all text-sm"
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別</label>
@@ -9295,7 +9428,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   onUpdateTemplates: (t: Template[]) => void,
   onUpdateCategories: (c: Category[]) => void,
   onClose: () => void, 
-  onSave: (r: any) => void,
+  onSave: (r: any, keepOpen?: boolean) => void,
   selectedDate: string
 }) {
   const [tab, setTab] = useState<'template' | 'expense' | 'income' | 'transfer'>('template');
@@ -9457,6 +9590,55 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
   };
 
+  const handleSaveAndAnother = () => {
+    const calculatedAmtStr = evaluateExpression(amount);
+    setAmount(calculatedAmtStr);
+    
+    const rawAmt = parseFloat(calculatedAmtStr) || 0;
+    if (rawAmt === 0) {
+      alert("請輸入金額！");
+      return;
+    }
+    
+    const finalFee = parseFloat(fee) || 0;
+    const rate = parseFloat(exchangeRate) || 1;
+    
+    let resolvedType: 'income' | 'expense' | 'transfer' = tab === 'template' ? 'expense' : tab;
+    if (rawAmt < 0) {
+      resolvedType = tab === 'transfer' ? 'transfer' : 'expense';
+    } else {
+      if (tab === 'expense') resolvedType = 'expense';
+      else if (tab === 'income') resolvedType = 'income';
+      else if (tab === 'transfer') resolvedType = 'transfer';
+    }
+
+    const finalAmount = (resolvedType === 'expense' || resolvedType === 'transfer') ? -Math.abs(rawAmt) : Math.abs(rawAmt);
+    
+    onSave({ 
+      amount: finalAmount, 
+      fee: finalFee,
+      category: subCategory || mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'), 
+      note: note.trim() || undefined,
+      type: resolvedType, 
+      accountId: selectedAccountId, 
+      toAccountId: resolvedType === 'transfer' ? toAccountId : undefined, 
+      toAmount: resolvedType === 'transfer' ? (parseFloat(toAmount) || Math.abs(finalAmount) * rate) : undefined,
+      exchangeRate: resolvedType === 'transfer' ? rate : undefined,
+      date: consumptionDate,
+      postingDate: isPending ? undefined : postingDate,
+      isPending: isPending,
+      isInstallment,
+      totalInstallments: isInstallment ? totalInstallments : undefined,
+      projectId: selectedProjectId !== 'p1' ? selectedProjectId : undefined,
+      currency
+    }, true);
+
+    setAmount('0');
+    setToAmount('0');
+    setNote('');
+    setFee('0');
+  };
+
   const handleKey = (key: string) => {
     if (key === 'AC') { setAmount('0'); return; }
     if (key === 'BACKSPACE') {
@@ -9480,6 +9662,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       setAmount(calculatedAmtStr);
       
       const rawAmt = parseFloat(calculatedAmtStr) || 0;
+      if (rawAmt === 0) {
+        alert("請輸入金額！");
+        return;
+      }
+      
       const finalFee = parseFloat(fee) || 0;
       const rate = parseFloat(exchangeRate) || 1;
       
@@ -9512,7 +9699,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         totalInstallments: isInstallment ? totalInstallments : undefined,
         projectId: selectedProjectId !== 'p1' ? selectedProjectId : undefined,
         currency
-      });
+      }, false);
       return;
     }
     
@@ -10117,12 +10304,20 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           ))}
                         </div>
                         
-                        <button 
-                          onClick={() => handleKey('SAVE')}
-                          className="w-full py-5 bg-[#5D4037] text-white rounded-[25px] font-black text-xl shadow-xl mt-2 active:scale-95 active:bg-[#4E342E] transition-all"
-                        >
-                          儲存紀錄
-                        </button>
+                        <div className="grid grid-cols-2 gap-3 mt-2">
+                          <button 
+                            onClick={handleSaveAndAnother}
+                            className="w-full py-5 bg-white border-2 border-[#5D4037] text-[#5D4037] rounded-[25px] font-black text-xl shadow-md active:scale-95 hover:bg-stone-50 transition-all"
+                          >
+                            再記一筆
+                          </button>
+                          <button 
+                            onClick={() => handleKey('SAVE')}
+                            className="w-full py-5 bg-[#5D4037] text-white rounded-[25px] font-black text-xl shadow-xl active:scale-95 active:bg-[#4E342E] transition-all"
+                          >
+                            儲存紀錄
+                          </button>
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
