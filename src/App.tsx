@@ -3303,8 +3303,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                               );
                             })()}
 
-                            {/* 項目 3.5：已轉帳狀態與日期 (消費限定) */}
-                            {record.type === 'expense' && (
+                            {/* 項目 3.5：已轉帳狀態與日期 (消費與轉帳皆適用) */}
+                            {(record.type === 'expense' || record.type === 'transfer') && (
                               <div className="flex items-center gap-2">
                                 <span className="text-stone-400 font-bold min-w-[65px]">轉帳狀態:</span>
                                 {record.transferredDate ? (
@@ -3711,7 +3711,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
               </div>
             </div>
 
-            {edited.type === 'expense' && (
+            {(edited.type === 'expense' || edited.type === 'transfer') && (
               <div className="space-y-2 bg-[#E8F5E9]/20 p-4 rounded-3xl border border-white shadow-sm flex flex-col gap-1">
                 <label className="text-[10px] font-black text-[#2E7D32] uppercase tracking-widest px-1">轉帳過去的日期 (已付款)</label>
                 <div className="flex items-center gap-2">
