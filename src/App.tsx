@@ -3102,6 +3102,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                 <span className="opacity-80">{firstAccName}</span>
                                 <span className="text-amber-600 font-bold">➔</span>
                                 <span className="opacity-80 font-black text-amber-800">{secondAccName}</span>
+                                {record.transferredDate && (
+                                  <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold ml-1">
+                                    已轉帳
+                                  </span>
+                                )}
                               </div>
                             );
                           })()
@@ -3113,6 +3118,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             {account.type === 'credit' && (!record.postingDate || record.isPending) && (
                               <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-500 rounded-full font-bold">
                                 未入帳
+                              </span>
+                            )}
+                            {record.transferredDate && (
+                              <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold">
+                                已轉帳
                               </span>
                             )}
                             {account.parentId === undefined && record.accountId !== account.id && (
@@ -6691,6 +6701,9 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                        {recordAccount?.type === 'credit' && (!record.postingDate || record.isPending) && (
                          <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-500 rounded font-bold">未入帳</span>
                        )}
+                       {record.transferredDate && (
+                         <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-600 rounded font-bold">已轉帳</span>
+                       )}
                     </div>
                     {record.type === 'transfer' ? (
                       (() => {
@@ -6707,6 +6720,9 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                               <span className="opacity-80" style={getFontFamily()}>{firstAccName}</span>
                               <span className="text-amber-600 font-bold" style={getFontFamily()}>➔</span>
                               <span className="opacity-80 font-black text-amber-800" style={getFontFamily()}>{secondAccName}</span>
+                              {record.transferredDate && (
+                                <span className="text-[10px] px-1 py-0.5 bg-emerald-100 text-emerald-600 rounded font-bold ml-1">已轉帳</span>
+                              )}
                             </div>
                             {/* Line 3: Date as subtext YYYY-MM-DD */}
                             <span className="text-[11px] font-medium text-stone-400" style={getFontFamily()}>
@@ -7528,6 +7544,9 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                           <span className="opacity-80" style={getFontFamily()}>{firstAccName}</span>
                           <span className="text-amber-600 font-bold" style={getFontFamily()}>➔</span>
                           <span className="opacity-80 font-black text-amber-800" style={getFontFamily()}>{secondAccName}</span>
+                          {record.transferredDate && (
+                            <span className="text-[10px] px-1 py-0.5 bg-emerald-100 text-emerald-600 rounded font-bold ml-1">已轉帳</span>
+                          )}
                         </div>
                         {/* Line 3: Date as subtext YYYY-MM-DD */}
                         <span className="text-[11px] font-medium text-stone-400" style={getFontFamily()}>
@@ -7547,6 +7566,11 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                   })() && (
                     <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-500 rounded-full font-bold">
                       未入帳
+                    </span>
+                  )}
+                  {record.transferredDate && (
+                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold">
+                      已轉帳
                     </span>
                   )}
                   <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold" style={getFontFamily()}>
