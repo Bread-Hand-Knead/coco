@@ -300,6 +300,69 @@ const getTransferSourceAndDest = (tx: Transaction) => {
   const src = isPos ? (tx.toAccountId || '') : tx.accountId;
   const dst = isPos ? tx.accountId : (tx.toAccountId || '');
   return { src, dst };
+
+const getLatestExchangeRate = (records: Transaction[], accounts: Account[], targetCurrency: string, beforeDate?: string): number => {
+  if (!targetCurrency || targetCurrency === 'TWD') return 1;
+  
+  const relevantTransfers = records.filter(r => {
+    if (r.type !== 'transfer' && !r._isMergedTransfer) return false;
+    if (beforeDate && r.date > beforeDate) return false;
+    
+    const srcAcc = accounts.find(a => a.id === r.accountId);
+    const dstAcc = accounts.find(a => a.id === r.toAccountId);
+    const srcCur = srcAcc?.currency || 'TWD';
+    const dstCur = dstAcc?.currency || 'TWD';
+    
+    return (srcCur === 'TWD' && dstCur === targetCurrency) || (srcCur === targetCurrency && dstCur === 'TWD');
+  });
+  
+  if (relevantTransfers.length > 0) {
+    relevantTransfers.sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      return b.id.localeCompare(a.id);
+    });
+    const latest = relevantTransfers[0];
+    if (latest.exchangeRate) {
+      return latest.exchangeRate;
+    }
+  }
+  
+  if (targetCurrency === 'JPY') return 0.22;
+  if (targetCurrency === 'USD') return 32.5;
+  if (targetCurrency === 'KRW') return 0.024;
+  if (targetCurrency === 'EUR') return 35.0;
+  return 1;
+};
+
+const getTwdEquivalentText = (records: Transaction[], accounts: Account[], record: Transaction): string | null => {
+  const recordCurrency = record.currency || accounts.find(a => a.id === record.accountId)?.currency || 'TWD';
+  if (recordCurrency === 'TWD') return null;
+  
+  let twdAmt = 0;
+  
+  if (record.type === 'transfer' || record._isMergedTransfer) {
+    const { src, dst } = getTransferSourceAndDest(record);
+    const srcAcc = accounts.find(a => a.id === src);
+    const dstAcc = accounts.find(a => a.id === dst);
+    const srcCur = srcAcc?.currency || 'TWD';
+    const dstCur = dstAcc?.currency || 'TWD';
+    
+    if (srcCur === 'TWD') {
+      twdAmt = Math.abs(record.amount);
+    } else if (dstCur === 'TWD') {
+      twdAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * (record.exchangeRate || 1));
+    } else {
+      const rate = record.exchangeRate || getLatestExchangeRate(records, accounts, srcCur, record.date);
+      twdAmt = Math.abs(record.amount) * rate;
+    }
+  } else {
+    const rate = getLatestExchangeRate(records, accounts, recordCurrency, record.date);
+    twdAmt = Math.abs(record.amount) * rate;
+  }
+  
+  return `(約 NT$ ${Math.round(twdAmt).toLocaleString()})`;
+};
 };
 
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
@@ -2379,11 +2442,26 @@ function DynamicAccountBalance({
   const isNegative = calculatedBalance < 0;
   const colorClass = isNegative ? 'text-rose-400' : 'text-[#5D4037]';
 
+  const twdText = useMemo(() => {
+    if (!showAmounts) return null;
+    if (account.isBrandGroup || !account.currency || account.currency === 'TWD') return null;
+    const rate = getLatestExchangeRate(transactions, accounts, account.currency);
+    const twdBal = Math.round(calculatedBalance * rate);
+    return `(約 NT$ ${twdBal.toLocaleString()})`;
+  }, [account, accounts, transactions, calculatedBalance, showAmounts]);
+
   return (
-    <span className={`${className} ${colorClass}`} style={getFontFamily()}>
-      <span className="mr-1" style={getFontFamily()}>$</span>
-      {formatAmount(calculatedBalance)}
-    </span>
+    <div className="flex items-baseline gap-1.5 flex-wrap" style={getFontFamily()}>
+      <span className={`${className} ${colorClass}`} style={getFontFamily()}>
+        <span className="mr-1" style={getFontFamily()}>$</span>
+        {formatAmount(calculatedBalance)}
+      </span>
+      {twdText && (
+        <span className="text-xs font-bold text-stone-400" style={getFontFamily()}>
+          {twdText}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -3004,11 +3082,20 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 {account.type === 'credit' ? '目前未繳金額' : '目前餘額'}
               </span>
             </div>
-            <div className="flex items-baseline gap-1" style={getFontFamily()}>
+            <div className="flex items-baseline gap-1 flex-wrap" style={getFontFamily()}>
               <span className="text-sm font-black text-stone-300">$</span>
               <span className={`text-4xl font-black tracking-tight ${calculatedBalance < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`} style={getFontFamily()}>
                 {calculatedBalance.toLocaleString()}
               </span>
+              {account.currency && account.currency !== 'TWD' && (() => {
+                const rate = getLatestExchangeRate(records, accounts, account.currency);
+                const twdBal = Math.round(calculatedBalance * rate);
+                return (
+                  <span className="text-sm font-bold text-stone-400 ml-1.5" style={getFontFamily()}>
+                    (約 NT$ {twdBal.toLocaleString()})
+                  </span>
+                );
+              })()}
             </div>
           </div>
           <button 
@@ -3153,6 +3240,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             
                             let colorClass = 'text-stone-400';
                             let sign = '';
+                            const twdText = getTwdEquivalentText(records, accounts, record);
                             
                             if (record.type === 'transfer' || record._isMergedTransfer) {
                               if (isFrom && !isTo) {
@@ -3171,11 +3259,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                 colorClass = 'text-[#03A9F4]';
                                 sign = '+';
                                 const displayAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * (record.exchangeRate || 1));
-                                return (
-                                  <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
-                                     {sign} $ {Math.abs(displayAmt).toLocaleString()}
-                                  </span>
-                                );
+                                 return (
+                                   <div className="flex flex-col items-end">
+                                     <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
+                                        {sign} $ {Math.abs(displayAmt).toLocaleString()}
+                                     </span>
+                                     {twdText && <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>}
+                                   </div>
+                                 );
                               } else {
                                 const isOut = record.amount < 0;
                                 colorClass = isOut ? 'text-[#E91E63]' : 'text-[#03A9F4]';
@@ -3189,11 +3280,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                               sign = '-';
                             }
                             
-                            return (
-                              <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
-                                 {sign} $ {Math.abs(record.amount).toLocaleString()}
-                              </span>
-                            );
+                             return (
+                               <div className="flex flex-col items-end">
+                                 <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
+                                    {sign} $ {Math.abs(record.amount).toLocaleString()}
+                                 </span>
+                                 {twdText && <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>}
+                               </div>
+                             );
                           })()}
                           
                           {/* 轉入轉出標籤 */}
@@ -4568,15 +4662,21 @@ function CalendarView({ records, accounts, categories, onBack }: { records: Tran
                 </div>
               )}
               
-              <div className="flex items-center justify-between mt-1">
-                <span className={`font-black text-xl ${
-                  (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
-                  record.type === 'income' ? 'text-[#03A9F4]' : 
-                  record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'
-                }`} style={getFontFamily()}>
-                  {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : record.type === 'expense' ? '-' : '')} $ {Math.abs(record.amount).toLocaleString()}
-                </span>
-              </div>
+                <div className="flex items-baseline justify-between mt-1 flex-wrap">
+                  <span className={`font-black text-xl ${
+                    (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
+                    record.type === 'income' ? 'text-[#03A9F4]' :
+                    record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'
+                  }`} style={getFontFamily()}>
+                    {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : record.type === 'expense' ? '-' : '')} $ {Math.abs(record.amount).toLocaleString()}
+                  </span>
+                  {(() => {
+                    const twdText = getTwdEquivalentText(records, accounts, record);
+                    return twdText ? (
+                      <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>
+                    ) : null;
+                  })()}
+                </div>
             </div>
           </div>
         )) : (
@@ -6737,11 +6837,19 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                       </div>
                     )}
                   </div>
-                  <div className={`text-[17px] font-bold ${
-                    (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
-                    record.type === 'income' ? 'text-[#03A9F4]' : 'text-[#E91E63]'
-                  }`} style={getFontFamily()}>
-                    {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : '-')}${Math.abs(record.amount).toLocaleString()}
+                  <div className="flex flex-col items-end">
+                    <div className={`text-[17px] font-bold ${
+                      (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
+                      record.type === 'income' ? 'text-[#03A9F4]' : 'text-[#E91E63]'
+                    }`} style={getFontFamily()}>
+                      {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : '-')}${Math.abs(record.amount).toLocaleString()}
+                    </div>
+                    {(() => {
+                      const twdText = getTwdEquivalentText(records, accounts, record);
+                      return twdText ? (
+                        <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
               );})}
@@ -7578,14 +7686,20 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                   </span>
                 </div>
                 )}
-                <div className="flex items-center justify-between mt-1">
+                <div className="flex items-baseline justify-between mt-1 flex-wrap">
                   <span className={`font-black text-xl ${
                     (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
-                    record.type === 'income' ? 'text-[#03A9F4]' : 
+                    record.type === 'income' ? 'text-[#03A9F4]' :
                     record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'
                   }`} style={getFontFamily()}>
                     {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : record.type === 'expense' ? '-' : '')} $ {Math.abs(record.amount).toLocaleString()}
                   </span>
+                  {(() => {
+                    const twdText = getTwdEquivalentText(records, accounts, record);
+                    return twdText ? (
+                      <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>
+                    ) : null;
+                  })()}
                 </div>
               </div>
             </div>
@@ -9494,6 +9608,13 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       setIsDateExpanded(true);
     }
   }, [isCreditCard]);
+
+  // Synchronize transaction currency with the selected account's currency
+  useEffect(() => {
+    if (currentAccount) {
+      setCurrency(currentAccount.currency || 'TWD');
+    }
+  }, [selectedAccountId, currentAccount]);
 
   const currentAccount = accounts.find(a => a.id === selectedAccountId);
   const currentToAccount = accounts.find(a => a.id === toAccountId);
