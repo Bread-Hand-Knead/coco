@@ -1170,8 +1170,14 @@ export default function App() {
       const parentInFiltered = acc.parentId && filteredAccounts.some(p => p.id === acc.parentId);
       if (!parentInFiltered) {
         const bal = accountBalances[acc.id] || 0;
-        if (bal >= 0) assets += bal;
-        else liabilities += bal;
+        const cur = acc.currency || 'TWD';
+        let twdBal = bal;
+        if (currencyMode === 'FOREIGN' && cur !== 'TWD') {
+          const rate = getLatestExchangeRate(records, accounts, cur);
+          twdBal = bal * rate;
+        }
+        if (twdBal >= 0) assets += twdBal;
+        else liabilities += twdBal;
       }
     });
 
@@ -1180,7 +1186,7 @@ export default function App() {
       totalAssets: assets,
       totalLiabilities: Math.abs(liabilities)
     };
-  }, [accounts, accountBalances, currencyMode]);
+  }, [accounts, accountBalances, currencyMode, records]);
 
   const stats = useMemo(() => {
     const monthStr = selectedDate.substring(0, 7);
@@ -2405,23 +2411,23 @@ function DynamicAccountBalance({
   accounts,
   transactions, 
   showAmounts,
+  currencyMode = 'TWD',
   className = "text-xl sm:text-[26px] font-black mt-1"
 }: { 
   account: Account | any, 
   accounts: Account[],
   transactions: Transaction[], 
   showAmounts: boolean,
+  currencyMode?: 'TWD' | 'FOREIGN',
   className?: string
 }) {
   const calculatedBalance = useMemo(() => {
     if (account.isBrandGroup && account.childAccounts) {
       return account.childAccounts.reduce((sum: number, c: Account) => {
-        const isCredit = c.type === 'credit';
-        if (isCredit) {
-          return sum + calculateAccountBalance(c, accounts, transactions);
-        } else {
-          return sum + calculateAccountBalance(c, accounts, transactions);
-        }
+        const bal = calculateAccountBalance(c, accounts, transactions);
+        const cur = c.currency || 'TWD';
+        const rate = (currencyMode === 'FOREIGN' && cur !== 'TWD') ? getLatestExchangeRate(transactions, accounts, cur) : 1;
+        return sum + (bal * rate);
       }, 0);
     }
     const isCredit = account.type === 'credit';
@@ -2432,7 +2438,7 @@ function DynamicAccountBalance({
       // 銀行/現金/電子支付帳戶 (資產類)
       return calculateAccountBalance(account, accounts, transactions);
     }
-  }, [account, accounts, transactions]);
+  }, [account, accounts, transactions, currencyMode]);
 
   const formatAmount = (val: number) => {
     if (!showAmounts) return '****';
@@ -2450,10 +2456,12 @@ function DynamicAccountBalance({
     return `(約 NT$ ${twdBal.toLocaleString()})`;
   }, [account, accounts, transactions, calculatedBalance, showAmounts]);
 
+  const showTwdSymbol = currencyMode === 'FOREIGN' && (account.isBrandGroup || account.currency === 'TWD');
+
   return (
     <div className="flex items-baseline gap-1.5 flex-wrap" style={getFontFamily()}>
       <span className={`${className} ${colorClass}`} style={getFontFamily()}>
-        <span className="mr-1" style={getFontFamily()}>$</span>
+        <span className="mr-1" style={getFontFamily()}>{showTwdSymbol ? 'NT$' : '$'}</span>
         {formatAmount(calculatedBalance)}
       </span>
       {twdText && (
@@ -2664,7 +2672,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
               </button>
             </div>
             <div className="text-4xl font-black text-[#5D4037] tracking-tight mt-2" style={getFontFamily()}>
-              <span className="text-2xl mr-2">$</span>{formatAmount(netAssets)}
+              <span className="text-2xl mr-2">{currencyMode === 'FOREIGN' ? 'NT$' : '$'}</span>{formatAmount(netAssets)}
             </div>
           </div>
           <div className="flex flex-col gap-4 text-right">
@@ -2673,14 +2681,18 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                 <span>資產</span>
                 <HelpCircle size={12} />
               </div>
-              <span className="text-blue-400 font-black text-lg" style={getFontFamily()}>$ {formatAmount(totalAssets)}</span>
+              <span className="text-blue-400 font-black text-lg" style={getFontFamily()}>
+                {currencyMode === 'FOREIGN' ? 'NT$ ' : '$ '}{formatAmount(totalAssets)}
+              </span>
             </div>
             <div className="flex flex-col">
               <div className="flex items-center justify-end gap-1 text-stone-400 text-xs font-bold">
                 <span>負債</span>
                 <HelpCircle size={12} />
               </div>
-              <span className="text-rose-400 font-black text-lg" style={getFontFamily()}>$ -{formatAmount(totalLiabilities)}</span>
+              <span className="text-rose-400 font-black text-lg" style={getFontFamily()}>
+                {currencyMode === 'FOREIGN' ? 'NT$ ' : '$ '}-{formatAmount(totalLiabilities)}
+              </span>
             </div>
           </div>
         </div>
@@ -2694,10 +2706,16 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
           const typeTotal = typeAccounts.reduce((sum, acc) => {
             if (acc.isBrandGroup && acc.childAccounts) {
               return sum + acc.childAccounts.reduce((cSum: number, c: Account) => {
-                return cSum + calculateAccountBalance(c, accounts, records);
+                const bal = calculateAccountBalance(c, accounts, records);
+                const cur = c.currency || 'TWD';
+                const rate = (currencyMode === 'FOREIGN' && cur !== 'TWD') ? getLatestExchangeRate(records, accounts, cur) : 1;
+                return cSum + (bal * rate);
               }, 0);
             }
-            return sum + calculateAccountBalance(acc as Account, accounts, records);
+            const bal = calculateAccountBalance(acc as Account, accounts, records);
+            const cur = acc.currency || 'TWD';
+            const rate = (currencyMode === 'FOREIGN' && cur !== 'TWD') ? getLatestExchangeRate(records, accounts, cur) : 1;
+            return sum + (bal * rate);
           }, 0);
 
           return (
@@ -2705,8 +2723,8 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
               {/* Group Header */}
               <div className="px-2 flex justify-between items-end border-b border-[#5D4037]/10 pb-2">
                 <span className="text-lg font-black text-[#5D4037]">{accountTypeLabels[type]}</span>
-                <span className={`text-sm font-bold text-stone-400`} style={getFontFamily()}>
-                  合計 $ {formatAmount(typeTotal)}
+                <span className="text-sm font-bold text-stone-400" style={getFontFamily()}>
+                  合計 {currencyMode === 'FOREIGN' ? 'NT$ ' : '$ '}{formatAmount(typeTotal)}
                 </span>
               </div>
 
@@ -2741,6 +2759,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                               accounts={accounts}
                               transactions={records}
                               showAmounts={showAmounts}
+                              currencyMode={currencyMode}
                               className="text-xl sm:text-[26px] font-black mt-1"
                             />
                           </div>
@@ -2823,6 +2842,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                             accounts={accounts}
                                             transactions={records}
                                             showAmounts={showAmounts}
+                                            currencyMode={currencyMode}
                                             className="text-base sm:text-lg font-black mt-0.5"
                                           />
                                         </div>
@@ -2890,6 +2910,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                                     accounts={accounts}
                                                     transactions={records}
                                                     showAmounts={showAmounts}
+                                                    currencyMode={currencyMode}
                                                     className="text-sm sm:text-base font-black"
                                                   />
                                                 </div>
