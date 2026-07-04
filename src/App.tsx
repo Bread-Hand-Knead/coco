@@ -300,6 +300,7 @@ const getTransferSourceAndDest = (tx: Transaction) => {
   const src = isPos ? (tx.toAccountId || '') : tx.accountId;
   const dst = isPos ? tx.accountId : (tx.toAccountId || '');
   return { src, dst };
+};
 
 const getLatestExchangeRate = (records: Transaction[], accounts: Account[], targetCurrency: string, beforeDate?: string): number => {
   if (!targetCurrency || targetCurrency === 'TWD') return 1;
@@ -362,7 +363,6 @@ const getTwdEquivalentText = (records: Transaction[], accounts: Account[], recor
   }
   
   return `(約 NT$ ${Math.round(twdAmt).toLocaleString()})`;
-};
 };
 
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
