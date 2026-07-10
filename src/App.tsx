@@ -8031,6 +8031,22 @@ function MoreView({
   const [importPreview, setImportPreview] = useState<{ transactions: Transaction[], total: number } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dangerAction, setDangerAction] = useState<'date' | 'account' | null>(null);
+  const [deleteStartDate, setDeleteStartDate] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+  });
+  const [deleteEndDate, setDeleteEndDate] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  });
+  const [selectedDeleteAccountId, setSelectedDeleteAccountId] = useState<string>('');
+  const [deleteAccountMode, setDeleteAccountMode] = useState<'clearOnly' | 'deleteFull'>('clearOnly');
 
   const [activeImportTab, setActiveImportTab] = useState<'unique' | 'duplicates'>('unique');
 
@@ -9018,6 +9034,151 @@ function MoreView({
     e.target.value = '';
   };
 
+  const handleDeleteByDateRange = async () => {
+    if (!deleteStartDate || !deleteEndDate) {
+      alert("請選擇起迄日期！");
+      return;
+    }
+    if (deleteStartDate > deleteEndDate) {
+      alert("開始日期不能晚於結束日期！");
+      return;
+    }
+
+    const confirm1 = window.confirm(`⚠️ 警告：確定要刪除自 ${deleteStartDate} 至 ${deleteEndDate} 期間的所有明細嗎？`);
+    if (!confirm1) return;
+    
+    const confirm2 = window.confirm('此操作將永久移除該期間的交易明細，且無法還原。您真的確定嗎？');
+    if (!confirm2) return;
+
+    setIsSyncing(true);
+    try {
+      const toDelete = records.filter(r => {
+        const d = r.postingDate || r.date;
+        return d >= deleteStartDate && d <= deleteEndDate;
+      });
+
+      if (toDelete.length === 0) {
+        alert("該期間內沒有任何明細交易。");
+        setIsSyncing(false);
+        return;
+      }
+
+      if (user) {
+        const chunks: Transaction[][] = [];
+        for (let i = 0; i < toDelete.length; i += 400) {
+          chunks.push(toDelete.slice(i, i + 400));
+        }
+
+        for (const chunk of chunks) {
+          const batch = writeBatch(db);
+          chunk.forEach(r => {
+            batch.delete(doc(db, 'users', user.uid, 'transactions', r.id));
+          });
+          await batch.commit();
+        }
+      }
+
+      const toDeleteIds = new Set(toDelete.map(r => r.id));
+      setRecords(records.filter(r => !toDeleteIds.has(r.id)));
+      alert(`已成功刪除該期間共 ${toDelete.length} 筆明細交易！`);
+      setDangerAction(null);
+    } catch (err: any) {
+      console.error('Delete range failed:', err);
+      alert('刪除失敗：' + (err.message || '請稍後再試。'));
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDeleteAccountData = async () => {
+    if (!selectedDeleteAccountId) {
+      alert("請選取要處理的帳戶！");
+      return;
+    }
+
+    const targetAccount = accounts.find(a => a.id === selectedDeleteAccountId);
+    if (!targetAccount) return;
+
+    const getAccountAndDescendants = (accId: string): string[] => {
+      const ids = [accId];
+      const findChildren = (parentId: string) => {
+        accounts.filter(a => a.parentId === parentId).forEach(child => {
+          ids.push(child.id);
+          findChildren(child.id);
+        });
+      };
+      findChildren(accId);
+      return ids;
+    };
+
+    const targetAccountIds = getAccountAndDescendants(selectedDeleteAccountId);
+    const targetAccountNames = accounts
+      .filter(a => targetAccountIds.includes(a.id))
+      .map(a => `『${a.name}』`)
+      .join('、');
+
+    const isDeleteFull = deleteAccountMode === 'deleteFull';
+    let promptMsg = '';
+    if (isDeleteFull) {
+      promptMsg = `⚠️ 警告：確定要完全刪除帳戶 ${targetAccountNames} 及其所有關聯的交易明細嗎？\n(包含轉入/轉出該帳戶的紀錄都會被刪除，且帳戶將會被永久移除)`;
+    } else {
+      promptMsg = `確定要清空帳戶 ${targetAccountNames} 的所有交易明細嗎？\n(帳戶本身將會保留，但所有關聯的明細將被清空)`;
+    }
+
+    const confirm1 = window.confirm(promptMsg);
+    if (!confirm1) return;
+
+    const confirm2 = window.confirm('此操作將永久移除相關資料，且無法還原。確定要繼續嗎？');
+    if (!confirm2) return;
+
+    setIsSyncing(true);
+    try {
+      const toDelete = records.filter(r => 
+        targetAccountIds.includes(r.accountId) || 
+        (r.toAccountId && targetAccountIds.includes(r.toAccountId))
+      );
+
+      if (user) {
+        const chunks: Transaction[][] = [];
+        for (let i = 0; i < toDelete.length; i += 400) {
+          chunks.push(toDelete.slice(i, i + 400));
+        }
+
+        for (const chunk of chunks) {
+          const batch = writeBatch(db);
+          chunk.forEach(r => {
+            batch.delete(doc(db, 'users', user.uid, 'transactions', r.id));
+          });
+          await batch.commit();
+        }
+
+        if (isDeleteFull) {
+          const batch = writeBatch(db);
+          targetAccountIds.forEach(aid => {
+            batch.delete(doc(db, 'users', user.uid, 'accounts', aid));
+          });
+          await batch.commit();
+        }
+      }
+
+      const toDeleteIds = new Set(toDelete.map(r => r.id));
+      setRecords(records.filter(r => !toDeleteIds.has(r.id)));
+      
+      if (isDeleteFull) {
+        setAccounts(prev => prev.filter(a => !targetAccountIds.includes(a.id)));
+      }
+
+      alert(`已成功處理！共刪除了 ${toDelete.length} 筆明細交易${isDeleteFull ? `並移除了 ${targetAccountIds.length} 個帳戶` : ''}。`);
+      setDangerAction(null);
+      setSelectedDeleteAccountId('');
+    } catch (err: any) {
+      console.error('Delete account data failed:', err);
+      alert('刪除失敗：' + (err.message || '請稍後再試。'));
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleResetAllData = async () => {
     // Triple confirmation for extreme safety
     const confirm1 = window.confirm('⚠️ 警告：確定要刪除所有明細、帳戶與計畫資料嗎？');
@@ -9243,14 +9404,154 @@ function MoreView({
         <p className="text-[10px] font-bold text-stone-300 leading-relaxed">
           以下操作將永久移除您的資料，請務必確認已備份重要資訊。
         </p>
-        <button 
-          onClick={handleResetAllData}
-          disabled={isSyncing}
-          className="flex items-center justify-center gap-3 p-5 bg-rose-50 hover:bg-rose-100 rounded-[24px] border-2 border-white shadow-sm transition-all active:scale-[0.98] w-full"
-        >
-          <Trash2 size={24} className="text-rose-500" />
-          <span className="text-lg font-black text-rose-500">重設所有資料</span>
-        </button>
+
+        <div className="flex flex-col gap-3">
+          <button 
+            onClick={() => setDangerAction(dangerAction === 'date' ? null : 'date')}
+            className={`flex items-center justify-between p-4 rounded-2xl border transition-all active:scale-[0.98] ${
+              dangerAction === 'date' ? 'bg-rose-500 border-rose-500 text-white shadow-md' : 'bg-rose-50/30 border-rose-100/50 text-rose-600 hover:bg-rose-50'
+            }`}
+            style={getFontFamily()}
+          >
+            <div className="flex items-center gap-3">
+              <CalendarIcon size={20} />
+              <span className="font-black text-sm">刪除特定期間明細</span>
+            </div>
+            <ChevronDown size={18} className={`transition-transform duration-200 ${dangerAction === 'date' ? 'rotate-180' : ''}`} />
+          </button>
+
+          <AnimatePresence>
+            {dangerAction === 'date' && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden border border-rose-100 bg-rose-50/10 rounded-2xl p-4 flex flex-col gap-4 mt-1"
+                style={getFontFamily()}
+              >
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-[#5D4037]/60">開始日期</label>
+                    <input 
+                      type="date"
+                      value={deleteStartDate}
+                      onChange={e => setDeleteStartDate(e.target.value)}
+                      className="bg-white border border-rose-100 rounded-xl px-3 py-2 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-rose-300"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-[#5D4037]/60">結束日期</label>
+                    <input 
+                      type="date"
+                      value={deleteEndDate}
+                      onChange={e => setDeleteEndDate(e.target.value)}
+                      className="bg-white border border-rose-100 rounded-xl px-3 py-2 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-rose-300"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleDeleteByDateRange}
+                  disabled={isSyncing}
+                  className="bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 active:scale-95 transition-all shadow-md"
+                >
+                  <Trash2 size={14} />
+                  <span>確認刪除此期間明細</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <button 
+            onClick={() => setDangerAction(dangerAction === 'account' ? null : 'account')}
+            className={`flex items-center justify-between p-4 rounded-2xl border transition-all active:scale-[0.98] ${
+              dangerAction === 'account' ? 'bg-rose-500 border-rose-500 text-white shadow-md' : 'bg-rose-50/30 border-rose-100/50 text-rose-600 hover:bg-rose-50'
+            }`}
+            style={getFontFamily()}
+          >
+            <div className="flex items-center gap-3">
+              <Database size={20} />
+              <span className="font-black text-sm">清空特定帳戶資料</span>
+            </div>
+            <ChevronDown size={18} className={`transition-transform duration-200 ${dangerAction === 'account' ? 'rotate-180' : ''}`} />
+          </button>
+
+          <AnimatePresence>
+            {dangerAction === 'account' && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden border border-rose-100 bg-rose-50/10 rounded-2xl p-4 flex flex-col gap-4 mt-1"
+                style={getFontFamily()}
+              >
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-[#5D4037]/60">選擇要清除的帳戶</label>
+                  <select
+                    value={selectedDeleteAccountId}
+                    onChange={e => setSelectedDeleteAccountId(e.target.value)}
+                    className="bg-white border border-rose-100 rounded-xl px-3 py-2 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-rose-300 w-full"
+                  >
+                    <option value="">-- 請選擇帳戶 --</option>
+                    {accounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.icon} {acc.name} ({acc.currency || 'TWD'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-2 bg-white/50 p-3 rounded-xl border border-rose-50">
+                  <span className="text-[10px] font-bold text-[#5D4037]/60">刪除範圍選項</span>
+                  <div className="flex items-center gap-4 mt-1">
+                    <button
+                      onClick={() => setDeleteAccountMode('clearOnly')}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${
+                        deleteAccountMode === 'clearOnly'
+                          ? 'bg-[#5D4037] text-white border-[#5D4037]'
+                          : 'bg-white text-stone-500 border-stone-200'
+                      }`}
+                    >
+                      僅清空交易明細
+                    </button>
+                    <button
+                      onClick={() => setDeleteAccountMode('deleteFull')}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${
+                        deleteAccountMode === 'deleteFull'
+                          ? 'bg-rose-500 text-white border-rose-500'
+                          : 'bg-white text-stone-500 border-stone-200'
+                      }`}
+                    >
+                      完全刪除帳戶及其明細
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleDeleteAccountData}
+                  disabled={isSyncing}
+                  className="bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 active:scale-95 transition-all shadow-md"
+                >
+                  <Trash2 size={14} />
+                  <span>確認執行清除帳戶資料</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <hr className="border-rose-50 my-1" />
+
+          <button 
+            onClick={handleResetAllData}
+            disabled={isSyncing}
+            className="flex items-center justify-center gap-3 p-4 bg-rose-50 hover:bg-rose-100 rounded-2xl border border-rose-100 shadow-sm transition-all active:scale-[0.98] w-full"
+          >
+            <Trash2 size={18} className="text-rose-500" />
+            <span className="text-sm font-black text-rose-500">重設所有資料</span>
+          </button>
+        </div>
       </div>
       
       <div className="h-[40px]" />
