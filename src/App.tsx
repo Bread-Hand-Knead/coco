@@ -9491,6 +9491,32 @@ function MoreView({
                       備份包含所有交易紀錄與分期計畫。還原功能將匯入檔案並<span className="text-orange-600 font-bold">取代</span>現有資料，建議先匯出目前的備份。
                     </p>
                   </div>
+
+                  <div className="bg-[#5D4037]/5 p-5 rounded-3xl space-y-3 mt-4 text-[#5D4037]">
+                    <div className="flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest opacity-40">
+                      <ShieldCheck size={12} />
+                      <span>資料庫診斷資訊</span>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="font-bold border-b border-[#5D4037]/10 pb-1">帳戶列表 ({accounts.length} 個):</div>
+                      <div className="max-h-24 overflow-y-auto space-y-1 font-mono text-[10px] leading-tight">
+                        {accounts.map(a => (
+                          <div key={a.id} className="bg-white/40 p-1 rounded">
+                            ID: {a.id} | 名稱: {a.name} | 餘額: {calculateAccountBalance(a, accounts, records)} | 初始: {a.initialBalance || 0}
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="font-bold border-b border-[#5D4037]/10 pb-1 pt-2">最新 10 筆明細 (共 {records.length} 筆):</div>
+                      <div className="max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] leading-tight">
+                        {records.slice(0, 10).map(r => (
+                          <div key={r.id} className="bg-white/40 p-1 rounded">
+                            ID: {r.id} | 日期: {r.date} | 帳戶: {r.accountId} | 金額: {r.amount} | 備註: {r.note || '-'}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
