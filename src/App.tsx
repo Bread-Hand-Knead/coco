@@ -8433,17 +8433,7 @@ function MoreView({
         }
       });
 
-      if (newAccountsToCreate.length > 0) {
-        if (user) {
-          const accBatch = writeBatch(db);
-          newAccountsToCreate.forEach(acc => {
-            const accRef = doc(db, 'users', user.uid, 'accounts', acc.id);
-            accBatch.set(accRef, cleanData(acc));
-          });
-          await accBatch.commit();
-        }
-        setAccounts(prev => [...prev, ...newAccountsToCreate]);
-      }
+      // newAccountsToCreate will be written to Firestore and updated locally at the end of the import process to prevent duplicate state updates.
 
       // 2.5 Identify missing projects and create them
       const existingProjectNamesMap = new Map(projects.map(p => [p.name.trim().toLowerCase(), p.id]));
@@ -8670,6 +8660,8 @@ function MoreView({
       }
 
       // 4. Automatic Baseline Alignment (Align initialBalance with Excel's Latest Balance)
+      let finalAccountList = [...accounts, ...newAccountsToCreate];
+
       if (importPreview.accountLatestBalances && Object.keys(importPreview.accountLatestBalances).length > 0) {
         // Map raw names back to correctly resolved account IDs
         const resolvedLatestBalances: Record<string, number> = {};
@@ -8682,8 +8674,7 @@ function MoreView({
           }
         });
 
-        const updatedAccountsWithBalances = [...accounts, ...newAccountsToCreate];
-        const finalAccountList = updatedAccountsWithBalances.map(acc => {
+        finalAccountList = finalAccountList.map(acc => {
           if (acc.type === 'credit') {
             return { ...acc, initialBalance: acc.initialBalance || 0 };
           }
@@ -8711,16 +8702,16 @@ function MoreView({
           // => initialBalance = latestBal - recordSum
           return { ...acc, initialBalance: latestBal - recordSum };
         });
-
-        if (user) {
-          const accSyncBatch = writeBatch(db);
-          finalAccountList.forEach(acc => {
-            accSyncBatch.set(doc(db, 'users', user.uid, 'accounts', acc.id), cleanData(acc));
-          });
-          await accSyncBatch.commit();
-        }
-        setAccounts(finalAccountList);
       }
+
+      if (user && finalAccountList.length > 0) {
+        const accSyncBatch = writeBatch(db);
+        finalAccountList.forEach(acc => {
+          accSyncBatch.set(doc(db, 'users', user.uid, 'accounts', acc.id), cleanData(acc));
+        });
+        await accSyncBatch.commit();
+      }
+      setAccounts(finalAccountList);
       
       setImportPreview(null);
       alert(`匯入完成！\n已成功匯入 ${addedCount} 筆明細，並自動新增了 ${addedCategoriesCount} 個新分類。\n成功建立帳戶：${newAccountsToCreate.length} 個\n成功建立專案：${newProjectsToCreate.length} 個\n已跳過重複項：${skippedCount} 筆`);
