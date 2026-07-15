@@ -57,6 +57,7 @@ import {
   CloudUpload,
   Loader2,
   GripVertical,
+  RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { 
@@ -8202,6 +8203,124 @@ function MoreView({
     }
   };
 
+  const handleMergeDuplicateAccounts = async () => {
+    const confirm = window.confirm('確定要偵測並合併系統中名字重複的帳戶嗎？\n這將會把重複帳戶的交易明細與餘額合併到同一個帳戶中，並刪除重複的空帳戶。');
+    if (!confirm) return;
+
+    setIsSyncing(true);
+    try {
+      const normalizedGroups: Record<string, Account[]> = {};
+      accounts.forEach(acc => {
+        const key = acc.name.trim().toLowerCase().replace(/\s+/g, '');
+        if (!normalizedGroups[key]) {
+          normalizedGroups[key] = [];
+        }
+        normalizedGroups[key].push(acc);
+      });
+
+      const groupsToMerge = Object.values(normalizedGroups).filter(group => group.length > 1);
+
+      if (groupsToMerge.length === 0) {
+        alert('未偵測到任何名稱重複的帳戶。');
+        setIsSyncing(false);
+        return;
+      }
+
+      const updatedAccounts = [...accounts];
+      const updatedRecords = [...records];
+
+      const accountsToDelete: string[] = [];
+      const accountsToSave: Account[] = [];
+      const recordsToSave: Transaction[] = [];
+
+      for (const group of groupsToMerge) {
+        const txCounts = group.map(acc => {
+          const count = records.filter(r => r.accountId === acc.id || r.toAccountId === acc.id).length;
+          return { acc, count };
+        });
+
+        txCounts.sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          const aHasBal = a.acc.initialBalance ? 1 : 0;
+          const bHasBal = b.acc.initialBalance ? 1 : 0;
+          return bHasBal - aHasBal;
+        });
+
+        const master = txCounts[0].acc;
+        const duplicates = txCounts.slice(1).map(x => x.acc);
+
+        let mergedInitialBalance = master.initialBalance || 0;
+
+        duplicates.forEach(dup => {
+          mergedInitialBalance += dup.initialBalance || 0;
+          accountsToDelete.push(dup.id);
+
+          updatedRecords.forEach((r, idx) => {
+            let changed = false;
+            const updatedTx = { ...r };
+            if (updatedTx.accountId === dup.id) {
+              updatedTx.accountId = master.id;
+              changed = true;
+            }
+            if (updatedTx.toAccountId === dup.id) {
+              updatedTx.toAccountId = master.id;
+              changed = true;
+            }
+            if (changed) {
+              updatedRecords[idx] = updatedTx;
+              recordsToSave.push(updatedTx);
+            }
+          });
+        });
+
+        const masterIdx = updatedAccounts.findIndex(a => a.id === master.id);
+        if (masterIdx !== -1) {
+          updatedAccounts[masterIdx] = {
+            ...master,
+            initialBalance: mergedInitialBalance
+          };
+          accountsToSave.push(updatedAccounts[masterIdx]);
+        }
+      }
+
+      const finalAccounts = updatedAccounts.filter(a => !accountsToDelete.includes(a.id));
+
+      if (user) {
+        const batch = writeBatch(db);
+        
+        accountsToDelete.forEach(id => {
+          batch.delete(doc(db, 'users', user.uid, 'accounts', id));
+        });
+
+        accountsToSave.forEach(acc => {
+          batch.set(doc(db, 'users', user.uid, 'accounts', acc.id), cleanData(acc));
+        });
+
+        const batchSize = 400;
+        for (let i = 0; i < recordsToSave.length; i += batchSize) {
+          const currentBatch = recordsToSave.slice(i, i + batchSize);
+          const tBatch = writeBatch(db);
+          currentBatch.forEach(r => {
+            tBatch.set(doc(db, 'users', user.uid, 'transactions', r.id), cleanData(r));
+          });
+          await tBatch.commit();
+        }
+
+        await batch.commit();
+      }
+
+      setAccounts(finalAccounts);
+      setRecords(updatedRecords);
+
+      alert(`合併成功！\n共合併了 ${groupsToMerge.length} 組重複帳戶，刪除了 ${accountsToDelete.length} 個重複帳戶，並轉移了 ${recordsToSave.length} 筆交易明細。`);
+    } catch (err: any) {
+      console.error('Merge duplicates failed:', err);
+      alert(`合併失敗：\n${err.message || '未知錯誤'}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleConfirmImport = async () => {
     if (!importPreview) return;
     
@@ -9356,6 +9475,13 @@ function MoreView({
                   >
                     <Upload size={18} />
                     選取備份檔還原 (.json / .xlsx)
+                  </button>
+                  <button 
+                    onClick={handleMergeDuplicateAccounts}
+                    className="bg-amber-600 hover:bg-amber-700 text-white py-3.5 rounded-2xl font-bold text-[15px] flex items-center justify-center gap-3 active:scale-95 transition-all shadow-md"
+                  >
+                    <RefreshCw size={18} />
+                    偵測並合併重複帳戶
                   </button>
                   <input 
                     type="file" 
