@@ -9876,7 +9876,7 @@ function MoreView({
 
             {/* List */}
             <div className="h-[400px] overflow-y-auto px-6 py-4 space-y-3 flex-shrink-0">
-              <div className="flex items-center justify-between px-2 text-[10px] font-black text-stone-300 uppercase tracking-widest sticky top-0 bg-[#FFF9E3] py-2 z-10">
+              <div className="flex items-center justify-between px-2 text-[13px] font-black text-[#5D4037]/60 uppercase tracking-widest sticky top-0 bg-[#FFF9E3] py-2 z-10">
                 <span>
                   {activeImportTab === 'unique' 
                     ? `欲匯入項目 (${importClassification.unique.length} 筆)` 
