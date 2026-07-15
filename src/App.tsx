@@ -9533,7 +9533,7 @@ function MoreView({
                     className="bg-amber-600 hover:bg-amber-700 text-white py-3.5 rounded-2xl font-bold text-[15px] flex items-center justify-center gap-3 active:scale-95 transition-all shadow-md"
                   >
                     <RefreshCw size={18} />
-                    偵測並合併重複帳戶
+                    偵測合併帳戶與修正民國日期
                   </button>
                   <input 
                     type="file" 
