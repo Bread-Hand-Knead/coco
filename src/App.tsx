@@ -8210,9 +8210,9 @@ function MoreView({
       // 1. Identify all unique account names from the import
       const allAccountNames = new Set<string>();
       importPreview.transactions.forEach(t => {
-        if ((t as any)._importMainAccountName) allAccountNames.add((t as any)._importMainAccountName);
-        if (t._importSourceAccountName) allAccountNames.add(t._importSourceAccountName);
-        if (t._importDestAccountName && t._importDestAccountName !== '-') allAccountNames.add(t._importDestAccountName);
+        if ((t as any)._importMainAccountName) allAccountNames.add((t as any)._importMainAccountName.trim());
+        if (t._importSourceAccountName) allAccountNames.add(t._importSourceAccountName.trim());
+        if (t._importDestAccountName && t._importDestAccountName !== '-') allAccountNames.add(t._importDestAccountName.trim());
       });
 
       // 2. Identify missing accounts and create them (Strict Exact String matching)
@@ -8220,14 +8220,18 @@ function MoreView({
         return String(s).replace(/\s+/g, '').replace(/[-_@()（）]/g, '').trim().toLowerCase();
       };
 
+      const newAccountsToCreate: Account[] = [];
+
       const findExistingAccountId = (name: string) => {
         if (!name) return undefined;
         const trimmed = name.trim();
         // 1. Precise 100% exact full string match with ===
-        let found = accounts.find(a => a.name.trim() === trimmed);
+        let found = accounts.find(a => a.name.trim() === trimmed) || 
+                    newAccountsToCreate.find(a => a.name.trim() === trimmed);
         if (found) return found.id;
         // 2. Case-insensitive full string match (no substring) with ===
-        found = accounts.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
+        found = accounts.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase()) ||
+                newAccountsToCreate.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
         if (found) return found.id;
         return undefined;
       };
@@ -8238,8 +8242,6 @@ function MoreView({
         existingAccountNamesMap.set(a.name.trim(), a.id);
         existingAccountNamesMap.set(a.name.trim().toLowerCase(), a.id);
       });
-
-      const newAccountsToCreate: Account[] = [];
       
       Array.from(allAccountNames).forEach(name => {
         const trimmedName = name.trim();
@@ -8308,6 +8310,7 @@ function MoreView({
           newAccountsToCreate.push(newAccount);
           existingAccountNamesMap.set(lowercaseName, targetId);
           existingAccountNamesMap.set(cleanedName, targetId);
+          existingAccountNamesMap.set(trimmedName, targetId);
         }
       });
 
