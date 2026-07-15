@@ -8204,7 +8204,7 @@ function MoreView({
   };
 
   const handleMergeDuplicateAccounts = async () => {
-    const confirm = window.confirm('確定要偵測並合併系統中名字重複的帳戶嗎？\n這將會把重複帳戶的交易明細與餘額合併到同一個帳戶中，並刪除重複的空帳戶。');
+    const confirm = window.confirm('確定要偵測合併重複帳戶，並自動修正系統中的民國日期交易記錄嗎？\n這將會合併同名帳戶，並將類似「115-06-21」的民國日期修正為西元「2026-06-21」，使其正確顯示於往來明細中。');
     if (!confirm) return;
 
     setIsSyncing(true);
@@ -8219,13 +8219,7 @@ function MoreView({
       });
 
       const groupsToMerge = Object.values(normalizedGroups).filter(group => group.length > 1);
-
-      if (groupsToMerge.length === 0) {
-        alert('未偵測到任何名稱重複的帳戶。');
-        setIsSyncing(false);
-        return;
-      }
-
+      
       const updatedAccounts = [...accounts];
       const updatedRecords = [...records];
 
@@ -8233,6 +8227,7 @@ function MoreView({
       const accountsToSave: Account[] = [];
       const recordsToSave: Transaction[] = [];
 
+      // 1. Merge duplicate accounts
       for (const group of groupsToMerge) {
         const txCounts = group.map(acc => {
           const count = records.filter(r => r.accountId === acc.id || r.toAccountId === acc.id).length;
@@ -8268,7 +8263,9 @@ function MoreView({
             }
             if (changed) {
               updatedRecords[idx] = updatedTx;
-              recordsToSave.push(updatedTx);
+              if (!recordsToSave.some(x => x.id === updatedTx.id)) {
+                recordsToSave.push(updatedTx);
+              }
             }
           });
         });
@@ -8281,6 +8278,57 @@ function MoreView({
           };
           accountsToSave.push(updatedAccounts[masterIdx]);
         }
+      }
+
+      // 2. Fix Minguo dates (ROC Calendar Years) in transaction records
+      let dateFixCount = 0;
+      updatedRecords.forEach((r, idx) => {
+        let changed = false;
+        const updatedTx = { ...r };
+
+        // Check date
+        const dateStr = r.date || '';
+        const rocmatch = dateStr.replace(/\//g, '-').replace(/\./g, '-').match(/^(\d{2,3})-(\d{1,2})-(\d{1,2})$/);
+        if (rocmatch) {
+          const year = parseInt(rocmatch[1], 10);
+          if (year < 1000) {
+            const adYear = year + 1911;
+            const month = rocmatch[2].padStart(2, '0');
+            const day = rocmatch[3].padStart(2, '0');
+            updatedTx.date = `${adYear}-${month}-${day}`;
+            changed = true;
+          }
+        }
+
+        // Check postingDate
+        const pDateStr = r.postingDate || '';
+        if (pDateStr) {
+          const pRocmatch = pDateStr.replace(/\//g, '-').replace(/\./g, '-').match(/^(\d{2,3})-(\d{1,2})-(\d{1,2})$/);
+          if (pRocmatch) {
+            const year = parseInt(pRocmatch[1], 10);
+            if (year < 1000) {
+              const adYear = year + 1911;
+              const month = pRocmatch[2].padStart(2, '0');
+              const day = pRocmatch[3].padStart(2, '0');
+              updatedTx.postingDate = `${adYear}-${month}-${day}`;
+              changed = true;
+            }
+          }
+        }
+
+        if (changed) {
+          updatedRecords[idx] = updatedTx;
+          if (!recordsToSave.some(x => x.id === updatedTx.id)) {
+            recordsToSave.push(updatedTx);
+          }
+          dateFixCount++;
+        }
+      });
+
+      if (groupsToMerge.length === 0 && dateFixCount === 0) {
+        alert('未偵測到任何名稱重複的帳戶或需要修正的民國日期。');
+        setIsSyncing(false);
+        return;
       }
 
       const finalAccounts = updatedAccounts.filter(a => !accountsToDelete.includes(a.id));
@@ -8312,10 +8360,10 @@ function MoreView({
       setAccounts(finalAccounts);
       setRecords(updatedRecords);
 
-      alert(`合併成功！\n共合併了 ${groupsToMerge.length} 組重複帳戶，刪除了 ${accountsToDelete.length} 個重複帳戶，並轉移了 ${recordsToSave.length} 筆交易明細。`);
+      alert(`修復與合併成功！\n共合併了 ${groupsToMerge.length} 組重複帳戶，修正了 ${dateFixCount} 筆民國日期，並轉移了 ${recordsToSave.length} 筆交易明細。`);
     } catch (err: any) {
-      console.error('Merge duplicates failed:', err);
-      alert(`合併失敗：\n${err.message || '未知錯誤'}`);
+      console.error('Merge/Fix failed:', err);
+      alert(`修復與合併失敗：\n${err.message || '未知錯誤'}`);
     } finally {
       setIsSyncing(false);
     }
@@ -8875,7 +8923,20 @@ function MoreView({
                 const dateObj = new Date(Math.round((raw - 25569) * 86400 * 1000));
                 return formatLocalDate(dateObj);
               }
-              const dateStr = String(raw).trim().replace(/\//g, '-');
+              const dateStr = String(raw).trim().replace(/\//g, '-').replace(/\./g, '-');
+              
+              // ROC (Minguo) calendar year match (e.g. 115-06-21)
+              const rocmatch = dateStr.match(/^(\d{2,3})-(\d{1,2})-(\d{1,2})$/);
+              if (rocmatch) {
+                const year = parseInt(rocmatch[1], 10);
+                if (year < 1000) {
+                  const adYear = year + 1911;
+                  const month = rocmatch[2].padStart(2, '0');
+                  const day = rocmatch[3].padStart(2, '0');
+                  return `${adYear}-${month}-${day}`;
+                }
+              }
+
               if (dateStr.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
                 const parts = dateStr.split('-');
                 return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
