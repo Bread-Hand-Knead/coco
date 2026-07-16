@@ -420,11 +420,21 @@ const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: s
 };
 
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
+  const cleanedTxs = txs.map(t => {
+    if (t.type === 'transfer' && t.accountId && t.toAccountId && t.amount > 0) {
+      return {
+        ...t,
+        amount: -t.amount
+      };
+    }
+    return t;
+  });
+
   const result: Transaction[] = [];
   const matchedIds = new Set<string>();
 
-  for (let i = 0; i < txs.length; i++) {
-    const A = txs[i];
+  for (let i = 0; i < cleanedTxs.length; i++) {
+    const A = cleanedTxs[i];
     if (matchedIds.has(A.id)) {
       continue;
     }
@@ -9462,7 +9472,7 @@ function MoreView({
                 if (srcId && dstId) {
                   finalAccountId = srcId;
                   finalToAccountId = dstId;
-                  amountVal = rawAmount;
+                  amountVal = -Math.abs(rawAmount);
                 } else if (dstId) {
                   finalAccountId = dstId;
                   finalToAccountId = '';
