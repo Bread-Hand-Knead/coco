@@ -1595,7 +1595,7 @@ export default function App() {
   return (
     <div className="h-screen w-full bg-[#FFF9E3] font-sans text-[#5D4037] flex justify-center overflow-hidden select-none" style={getFontFamily()}>
       {/* Responsive Container for Desktop */}
-      <div className="w-full max-w-md h-full flex flex-col bg-[#FFF9E3] relative shadow-2xl md:border-x border-stone-100">
+      <div className="w-full max-w-md md:max-w-4xl h-full flex flex-col bg-[#FFF9E3] relative shadow-2xl md:border-x border-stone-100">
         {/* Header */}
         <header className="px-4 py-4 flex items-center justify-between bg-[#FFF9E3] z-30 flex-shrink-0 relative">
           {currentView === 'home' ? (
