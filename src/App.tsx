@@ -3189,9 +3189,6 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           bal += r.amount;
           if (r.fee) bal -= r.fee;
         }
-        if (r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) {
-          bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
-        }
       });
 
       return {
