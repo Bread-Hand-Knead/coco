@@ -2884,10 +2884,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                         {/* Credit card progress bar */}
                         {!isBrandGroup && acc.type === 'credit' && acc.creditLimit && (
                           <div className="w-full">
-                            {(() => {
-                              const calculatedBalance = calculateAccountBalance(acc as Account, accounts, records);
-                              return <CreditLimitBar account={acc as Account} balance={calculatedBalance} />;
-                            })()}
+                            <CreditLimitBar account={acc as Account} accounts={accounts} records={records} />
                           </div>
                         )}
                       </div>
@@ -2964,10 +2961,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                       {/* Credit card progress bar */}
                                       {l2acc.type === 'credit' && l2acc.creditLimit && (
                                         <div className="w-full">
-                                          {(() => {
-                                            const calculatedBalance = calculateAccountBalance(l2acc, accounts, records);
-                                            return <CreditLimitBar account={l2acc} balance={calculatedBalance} />;
-                                          })()}
+                                          <CreditLimitBar account={l2acc} accounts={accounts} records={records} />
                                         </div>
                                       )}
                                     </div>
@@ -3019,10 +3013,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                               {/* Credit card progress bar */}
                                               {l3acc.type === 'credit' && l3acc.creditLimit && (
                                                 <div className="w-full">
-                                                  {(() => {
-                                                    const calculatedBalance = calculateAccountBalance(l3acc, accounts, records);
-                                                    return <CreditLimitBar account={l3acc} balance={calculatedBalance} />;
-                                                  })()}
+                                                  <CreditLimitBar account={l3acc} accounts={accounts} records={records} />
                                                 </div>
                                               )}
                                             </div>
@@ -4372,14 +4363,19 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
   );
 }
 
-function CreditLimitBar({ account, balance }: { account: Account; balance: number }) {
+function CreditLimitBar({ account, accounts, records }: { account: Account; accounts: Account[]; records: Transaction[] }) {
   if (account.type !== 'credit' || !account.creditLimit) return null;
 
-  const b = balance || 0;
+  const sameBankCards = accounts.filter(a => a.type === 'credit' && (a.id === account.id || checkAreAccountsSameBank(account, a, accounts)));
+
+  let totalUtilized = 0;
+  sameBankCards.forEach(c => {
+    totalUtilized += Math.abs(calculateAccountBalance(c, accounts, records));
+  });
+
   const creditLimit = account.creditLimit;
-  const utilized = Math.abs(b);
-  const available = Math.max(0, creditLimit - utilized);
-  const percent = Math.min(100, Math.max(0, (utilized / creditLimit) * 100));
+  const available = Math.max(0, creditLimit - totalUtilized);
+  const percent = Math.min(100, Math.max(0, (totalUtilized / creditLimit) * 100));
   
   const isHighUsage = percent >= 70;
   const barColorClass = isHighUsage 
