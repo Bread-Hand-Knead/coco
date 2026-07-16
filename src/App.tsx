@@ -3160,20 +3160,27 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     };
 
     const groups: Record<string, { label: string; key: string; records: Transaction[]; balance: number }> = {};
+    const transferPayments: Transaction[] = [];
 
     raw.forEach(r => {
-      const dateStr = r.postingDate || r.date;
-      const { label, key } = getStatementLabelAndKey(dateStr, account.closingDay!);
+      const isTransferIn = r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!));
       
-      if (!groups[key]) {
-        groups[key] = {
-          label,
-          key,
-          records: [],
-          balance: 0
-        };
+      if (isTransferIn) {
+        transferPayments.push(r);
+      } else {
+        const dateStr = r.postingDate || r.date;
+        const { label, key } = getStatementLabelAndKey(dateStr, account.closingDay!);
+        
+        if (!groups[key]) {
+          groups[key] = {
+            label,
+            key,
+            records: [],
+            balance: 0
+          };
+        }
+        groups[key].records.push(r);
       }
-      groups[key].records.push(r);
     });
 
     const statementList = Object.values(groups).map(g => {
@@ -3198,7 +3205,29 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       };
     });
 
-    return statementList.sort((a, b) => b.key.localeCompare(a.key));
+    statementList.sort((a, b) => b.key.localeCompare(a.key));
+
+    if (transferPayments.length > 0) {
+      const sortedPayments = getMergedRecords(transferPayments, accounts).sort((a, b) => {
+        const dateDiff = b.date.localeCompare(a.date);
+        if (dateDiff !== 0) return dateDiff;
+        return b.amount - a.amount;
+      });
+
+      let paymentTotal = 0;
+      sortedPayments.forEach(r => {
+        paymentTotal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+      });
+
+      statementList.push({
+        label: '轉帳扣繳',
+        key: '9999-99-payments',
+        records: sortedPayments,
+        balance: paymentTotal
+      });
+    }
+
+    return statementList;
   }, [records, account, accounts, dateRangeStrings.filter]);
 
   const listBalance = useMemo(() => {
