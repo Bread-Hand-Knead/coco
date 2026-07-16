@@ -366,6 +366,59 @@ const getTwdEquivalentText = (records: Transaction[], accounts: Account[], recor
   return `(約 NT$ ${Math.round(twdAmt).toLocaleString()})`;
 };
 
+const getBankKeyword = (name: string, parentName?: string): string | null => {
+  const banks = [
+    '中國信託', '中信', '國泰世華', '國泰', '玉山', '台北富邦', '富邦', '台新', 
+    '聯邊', '聯邦', '永豐', '星展', 'DBS', '渣打', '匯豐', 'HSBC', '新光', '元大', '華南', 
+    '兆豐', '第一', '一銀', '合作金庫', '合庫', '彰化', '彰銀', '土地', '土銀', 
+    '臺灣銀行', '台銀', '上海', '凱基', '樂天'
+  ];
+  if (parentName) {
+    for (const b of banks) {
+      if (parentName.includes(b)) {
+        if (b === '中國信託' || b === '中信') return '中信';
+        if (b === '國泰世華' || b === '國泰') return '國泰';
+        if (b === '台北富邦' || b === '富邦') return '富邦';
+        if (b === '一銀' || b === '第一') return '第一';
+        if (b === '合作金庫' || b === '合庫') return '合庫';
+        if (b === '彰化' || b === '彰銀') return '彰銀';
+        if (b === '土地' || b === '土銀') return '土銀';
+        if (b === '臺灣銀行' || b === '台銀') return '台銀';
+        return b;
+      }
+    }
+  }
+  for (const b of banks) {
+    if (name.includes(b)) {
+      if (b === '中國信託' || b === '中信') return '中信';
+      if (b === '國泰世華' || b === '國泰') return '國泰';
+      if (b === '台北富邦' || b === '富邦') return '富邦';
+      if (b === '一銀' || b === '第一') return '第一';
+      if (b === '合作金庫' || b === '合庫') return '合庫';
+      if (b === '彰化' || b === '彰銀') return '彰銀';
+      if (b === '土地' || b === '土銀') return '土銀';
+      if (b === '臺灣銀行' || b === '台銀') return '台銀';
+      return b;
+    }
+  }
+  return null;
+};
+
+const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: string; type: string }, accB: { id: string; name: string; parentId?: string; type: string }, accountsList: Account[]): boolean => {
+  if (accA.id === accB.id) return false;
+  if (accA.type !== 'credit' || accB.type !== 'credit') return false;
+  
+  // 1. Same parentId (non-empty)
+  if (accA.parentId && accB.parentId && accA.parentId === accB.parentId) return true;
+  
+  // 2. Same bank keyword in their name or parent name
+  const getParentName = (a: { id: string; name: string; parentId?: string }) => a.parentId ? accountsList.find(x => x.id === a.parentId)?.name : undefined;
+  const keywordA = getBankKeyword(accA.name, getParentName(accA));
+  const keywordB = getBankKeyword(accB.name, getParentName(accB));
+  
+  return !!(keywordA && keywordB && keywordA === keywordB);
+};
+
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
   const result: Transaction[] = [];
   const matchedIds = new Set<string>();
@@ -1411,6 +1464,18 @@ export default function App() {
 
     if (user) {
       await syncToCloud('accounts', finalAccount, finalAccount.id);
+      
+      if (finalAccount.type === 'credit') {
+        const sameBankCards = accounts.filter(a => checkAreAccountsSameBank(finalAccount, a, accounts));
+        for (const card of sameBankCards) {
+          const updatedCard = {
+            ...card,
+            creditLimit: finalAccount.creditLimit,
+            closingDay: finalAccount.closingDay
+          };
+          await syncToCloud('accounts', updatedCard, card.id);
+        }
+      }
     } else {
       setAccounts(prev => {
         const exists = prev.find(a => a.id === finalAccount.id);
@@ -1420,10 +1485,21 @@ export default function App() {
         } else {
           newList = [...prev, finalAccount];
         }
+        
+        if (finalAccount.type === 'credit') {
+          const sameBankCards = newList.filter(a => checkAreAccountsSameBank(finalAccount, a, newList));
+          sameBankCards.forEach(card => {
+            newList = newList.map(a => a.id === card.id ? {
+              ...card,
+              creditLimit: finalAccount.creditLimit,
+              closingDay: finalAccount.closingDay
+            } : a);
+          });
+        }
+        
         return newList.sort((a, b) => (a.order || 0) - (b.order || 0));
       });
     }
-    
     if (initialAmount !== undefined) {
       const existingInit = records.find(r => r.accountId === finalAccount.id && r.category === '初始資金');
       const id = existingInit ? existingInit.id : `init_${finalAccount.id}_${Date.now()}`;
@@ -4087,6 +4163,44 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
 
   const currentTotal = (editedAcc.initialBalance || 0) + otherRecordsSum;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const prevParentId = useRef(editedAcc.parentId);
+  const prevBankKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (editedAcc.type !== 'credit') return;
+
+    const parentAcc = editedAcc.parentId ? accounts.find(a => a.id === editedAcc.parentId) : undefined;
+    const currentBankKey = getBankKeyword(editedAcc.name, parentAcc?.name);
+
+    if (prevBankKey.current === null && currentBankKey) {
+      prevBankKey.current = currentBankKey;
+    }
+
+    const parentIdChanged = editedAcc.parentId !== prevParentId.current;
+    const bankKeyChanged = currentBankKey !== prevBankKey.current;
+
+    if (isNew || parentIdChanged || bankKeyChanged) {
+      const sameBankCard = accounts.find(a => {
+        return checkAreAccountsSameBank(editedAcc, a, accounts);
+      });
+
+      if (sameBankCard) {
+        const updates: Partial<Account> = {};
+        if (sameBankCard.creditLimit !== undefined) {
+          updates.creditLimit = sameBankCard.creditLimit;
+        }
+        if (sameBankCard.closingDay !== undefined) {
+          updates.closingDay = sameBankCard.closingDay;
+        }
+        if (Object.keys(updates).length > 0) {
+          setEditedAcc(prev => ({ ...prev, ...updates }));
+        }
+      }
+    }
+
+    prevParentId.current = editedAcc.parentId;
+    prevBankKey.current = currentBankKey;
+  }, [editedAcc.parentId, editedAcc.name, editedAcc.type, accounts, isNew]);
 
   return (
     <motion.div 
