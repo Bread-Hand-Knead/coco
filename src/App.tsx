@@ -424,6 +424,8 @@ const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[
     if (t.type === 'transfer' && t.accountId && t.toAccountId && t.amount > 0) {
       return {
         ...t,
+        accountId: t.toAccountId,
+        toAccountId: t.accountId,
         amount: -t.amount
       };
     }
