@@ -3059,6 +3059,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
+  const [showDiagnostic, setShowDiagnostic] = useState(false);
 
   const balanceMap = useMemo(() => {
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
@@ -3087,6 +3088,57 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     });
     
     return map;
+  }, [records, account, accounts]);
+
+  const diagnosticInfo = useMemo(() => {
+    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
+    const targetIds = [account.id, ...childrenIds];
+    const merged = getMergedRecords(records, accounts);
+    
+    let bal = account.type === 'credit' ? 0 : (account.initialBalance || 0);
+    const log: Array<{ date: string; desc: string; amount: number; running: number; type: string }> = [];
+    
+    log.push({ date: '初始設定', desc: '初始金額', amount: account.type === 'credit' ? 0 : (account.initialBalance || 0), running: bal, type: 'init' });
+    
+    merged.forEach(r => {
+      if (r.category === '初始資金') return;
+      
+      let matched = false;
+      let change = 0;
+      let desc = '';
+      
+      if (targetIds.includes(r.accountId)) {
+        change += r.amount;
+        if (r.fee) change -= r.fee;
+        matched = true;
+        desc = `支出/轉出 (${getTransactionTitle(r)})`;
+      }
+      if (r.type === 'transfer' && r.toAccountId && targetIds.includes(r.toAccountId)) {
+        const toAmt = r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1));
+        change += toAmt;
+        matched = true;
+        desc = `收入/轉入 (${getTransactionTitle(r)})`;
+      }
+      
+      if (matched) {
+        bal += change;
+        log.push({
+          date: r.date,
+          desc,
+          amount: change,
+          running: bal,
+          type: r.type
+        });
+      }
+    });
+    
+    const children = accounts.filter(c => c.parentId === account.id);
+    const childrenBals = children.map(child => {
+      const childBal = calculateAccountBalance(child, accounts, records);
+      return { name: child.name, balance: childBal };
+    });
+    
+    return { log, childrenBals, initial: account.type === 'credit' ? 0 : (account.initialBalance || 0) };
   }, [records, account, accounts]);
 
   const dateRangeStrings = useMemo(() => {
@@ -3678,6 +3730,53 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-[#FFD54F]/10 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -left-4 -top-4 w-24 h-24 bg-[#5D4037]/5 rounded-full blur-2xl pointer-events-none" />
         </div>
+      </div>
+
+      {/* Diagnostic tool */}
+      <div className="px-4 mb-2">
+        <button
+          onClick={() => setShowDiagnostic(!showDiagnostic)}
+          className="w-full bg-[#EFEBE9] hover:bg-[#D7CCC8] text-[#5D4037] text-xs font-black py-2.5 px-4 rounded-2xl flex justify-between items-center transition-colors border border-stone-200 shadow-sm"
+          style={getFontFamily()}
+        >
+          <span>🔍 帳戶餘額診斷工具 (點選展開/收合)</span>
+          <span>{showDiagnostic ? '▲' : '▼'}</span>
+        </button>
+        {showDiagnostic && (
+          <div className="mt-2 bg-white rounded-3xl p-4 border border-stone-200 text-xs text-stone-600 font-bold space-y-2 max-h-[300px] overflow-y-auto shadow-inner" style={getFontFamily()}>
+            <div>帳戶名稱: {account.name} (ID: <span className="font-mono">{account.id}</span>)</div>
+            <div>初始金額: ${diagnosticInfo.initial.toLocaleString()}</div>
+            {diagnosticInfo.childrenBals.length > 0 && (
+              <div className="border-t pt-1 mt-1">
+                <div className="text-amber-800">子帳戶加總：</div>
+                {diagnosticInfo.childrenBals.map((c, idx) => (
+                  <div key={idx} className="pl-2">
+                    • {c.name}: ${c.balance.toLocaleString()}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="border-t pt-2 mt-2">
+              <div className="text-[#5D4037] font-black mb-1">歷史交易變動明細：</div>
+              <div className="space-y-1">
+                {diagnosticInfo.log.map((item, idx) => (
+                  <div key={idx} className="flex justify-between border-b border-stone-50 pb-1">
+                    <div>
+                      <span className="text-[10px] text-stone-300 mr-1.5">{item.date}</span>
+                      <span>{item.desc}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className={item.amount < 0 ? 'text-rose-500' : item.amount > 0 ? 'text-blue-500' : ''}>
+                        {item.amount > 0 ? '+' : ''}{item.amount.toLocaleString()}
+                      </span>
+                      <span className="text-[10px] text-stone-400 ml-1.5">(累計: ${item.running.toLocaleString()})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Transaction History Section */}
