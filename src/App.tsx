@@ -3129,14 +3129,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
     const targetIds = [account.id, ...childrenIds];
     const targetYearMonth = dateRangeStrings.filter; // e.g. "2026-07"
-    const selectedYear = targetYearMonth.split('-')[0];
 
+    // Filter transactions only for the selected calendar month
     const raw = records.filter(r => 
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
-      r.category !== '初始資金'
+      r.category !== '初始資金' &&
+      (r.postingDate || r.date).startsWith(targetYearMonth)
     );
 
-    const getStatementMonth = (dateStr: string, closingDay: number): { year: number; month: number; label: string; key: string } => {
+    const getStatementLabelAndKey = (dateStr: string, closingDay: number) => {
       const parts = dateStr.split('-');
       const y = parseInt(parts[0]);
       const m = parseInt(parts[1]);
@@ -3155,26 +3156,24 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
       const label = `${stmtMonth}月帳單`;
       const key = `${stmtYear}-${String(stmtMonth).padStart(2, '0')}`;
-      return { year: stmtYear, month: stmtMonth, label, key };
+      return { label, key };
     };
 
     const groups: Record<string, { label: string; key: string; records: Transaction[]; balance: number }> = {};
 
     raw.forEach(r => {
       const dateStr = r.postingDate || r.date;
-      const stmt = getStatementMonth(dateStr, account.closingDay!);
+      const { label, key } = getStatementLabelAndKey(dateStr, account.closingDay!);
       
-      if (stmt.key.startsWith(selectedYear) && stmt.key <= targetYearMonth) {
-        if (!groups[stmt.key]) {
-          groups[stmt.key] = {
-            label: stmt.label,
-            key: stmt.key,
-            records: [],
-            balance: 0
-          };
-        }
-        groups[stmt.key].records.push(r);
+      if (!groups[key]) {
+        groups[key] = {
+          label,
+          key,
+          records: [],
+          balance: 0
+        };
       }
+      groups[key].records.push(r);
     });
 
     const statementList = Object.values(groups).map(g => {
@@ -3207,8 +3206,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
   const listBalance = useMemo(() => {
     if (account.type === 'credit' && account.closingDay) {
-      const selectedStmt = creditCardStatements.find(s => s.key === dateRangeStrings.filter);
-      return selectedStmt ? selectedStmt.balance : 0;
+      let total = 0;
+      creditCardStatements.forEach(s => {
+        total += s.balance;
+      });
+      return total;
     }
 
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
