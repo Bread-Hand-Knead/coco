@@ -3123,7 +3123,94 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return calculateAccountBalance(account, accounts, records); 
   }, [account, accounts, records]);
 
+  const creditCardStatements = useMemo(() => {
+    if (account.type !== 'credit' || !account.closingDay) return [];
+
+    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
+    const targetIds = [account.id, ...childrenIds];
+    const targetYearMonth = dateRangeStrings.filter; // e.g. "2026-07"
+    const selectedYear = targetYearMonth.split('-')[0];
+
+    const raw = records.filter(r => 
+      (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
+      r.category !== '初始資金'
+    );
+
+    const getStatementMonth = (dateStr: string, closingDay: number): { year: number; month: number; label: string; key: string } => {
+      const parts = dateStr.split('-');
+      const y = parseInt(parts[0]);
+      const m = parseInt(parts[1]);
+      const d = parseInt(parts[2]);
+
+      let stmtYear = y;
+      let stmtMonth = m;
+
+      if (d > closingDay) {
+        stmtMonth += 1;
+        if (stmtMonth > 12) {
+          stmtMonth = 1;
+          stmtYear += 1;
+        }
+      }
+
+      const label = `${stmtMonth}月帳單`;
+      const key = `${stmtYear}-${String(stmtMonth).padStart(2, '0')}`;
+      return { year: stmtYear, month: stmtMonth, label, key };
+    };
+
+    const groups: Record<string, { label: string; key: string; records: Transaction[]; balance: number }> = {};
+
+    raw.forEach(r => {
+      const dateStr = r.postingDate || r.date;
+      const stmt = getStatementMonth(dateStr, account.closingDay!);
+      
+      if (stmt.key.startsWith(selectedYear) && stmt.key <= targetYearMonth) {
+        if (!groups[stmt.key]) {
+          groups[stmt.key] = {
+            label: stmt.label,
+            key: stmt.key,
+            records: [],
+            balance: 0
+          };
+        }
+        groups[stmt.key].records.push(r);
+      }
+    });
+
+    const statementList = Object.values(groups).map(g => {
+      const sortedRecords = getMergedRecords(g.records, accounts).sort((a, b) => {
+        const dateDiff = b.date.localeCompare(a.date);
+        if (dateDiff !== 0) return dateDiff;
+        return b.amount - a.amount;
+      });
+
+      let bal = 0;
+      sortedRecords.forEach(r => {
+        if (r.accountId === account.id || childrenIds.includes(r.accountId)) {
+          bal += r.amount;
+          if (r.fee) bal -= r.fee;
+        }
+        if (r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) {
+          bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+        }
+      });
+
+      return {
+        ...g,
+        records: sortedRecords,
+        balance: bal
+      };
+    });
+
+    return statementList.sort((a, b) => b.key.localeCompare(a.key));
+  }, [records, account, accounts, dateRangeStrings.filter]);
+
   const listBalance = useMemo(() => {
+    if (account.type === 'credit' && account.closingDay) {
+      const selectedStmt = creditCardStatements.find(s => s.key === dateRangeStrings.filter);
+      return selectedStmt ? selectedStmt.balance : 0;
+    }
+
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
     const targetIds = [account.id, ...childrenIds];
     const targetYearMonth = dateRangeStrings.filter;
@@ -3160,101 +3247,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     };
 
     return getRecursiveBalance(account.id);
-  }, [account, accounts, records, dateRangeStrings.filter]);
+  }, [account, accounts, records, dateRangeStrings.filter, creditCardStatements]);
 
-  return (
-    <motion.div 
-      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-      className="flex flex-col h-full bg-[#FFF9E3]"
-      style={getFontFamily()}
-    >
-      {/* Balance Section */}
-      <div className="px-4 py-6">
-        <div className="bg-white p-8 rounded-[40px] shadow-sm border-2 border-white flex justify-between items-center relative overflow-hidden">
-          <div className="flex flex-col gap-2 z-10">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-stone-50 rounded-lg flex items-center justify-center text-xs border border-white">
-                {account.icon}
-              </div>
-              <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]" style={getFontFamily()}>
-                {account.type === 'credit' ? '目前未繳金額' : '目前餘額'}
-              </span>
-            </div>
-            <div className="flex items-baseline gap-1 flex-wrap" style={getFontFamily()}>
-              <span className="text-sm font-black text-stone-300">$</span>
-              <span className={`text-4xl font-black tracking-tight ${calculatedBalance < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`} style={getFontFamily()}>
-                {calculatedBalance.toLocaleString()}
-              </span>
-              {account.currency && account.currency !== 'TWD' && (() => {
-                const rate = getLatestExchangeRate(records, accounts, account.currency);
-                const twdBal = Math.round(calculatedBalance * rate);
-                return (
-                  <span className="text-sm font-bold text-stone-400 ml-1.5" style={getFontFamily()}>
-                    (約 NT$ {twdBal.toLocaleString()})
-                  </span>
-                );
-              })()}
-            </div>
-          </div>
-          <button 
-            onClick={onEdit}
-            className="w-14 h-14 bg-[#FFD54F] rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-all z-10"
-          >
-            <Pencil size={24} className="text-[#5D4037]" />
-          </button>
-          
-          {/* Decorative background element */}
-          <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-[#FFD54F]/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -left-4 -top-4 w-24 h-24 bg-[#5D4037]/5 rounded-full blur-2xl pointer-events-none" />
-        </div>
-      </div>
-
-      {/* Transaction History Section */}
-      <div className="flex-1 px-4 flex flex-col gap-4 mt-2">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between px-2">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-[#5D4037] rounded-lg flex items-center justify-center">
-                <History size={14} className="text-white" />
-              </div>
-              <span className="font-black text-base text-[#5D4037]">往來明細</span>
-            </div>
-            <span className="text-[13px] font-black text-stone-400 bg-white px-5 py-2 rounded-full border border-stone-100 flex items-center gap-2 shadow-sm" style={getFontFamily()}>
-              <span>{accountRecords.length} 筆紀錄</span>
-              <span className="text-stone-200 font-normal">|</span>
-              <span>結餘：<span className={`font-black ${listBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                {listBalance < 0 ? '-' : ''}${Math.abs(listBalance).toLocaleString()}
-              </span></span>
-            </span>
-          </div>
-          
-          {/* Month Switcher Row */}
-          <div className="flex items-center justify-center gap-4 bg-white/40 py-2 rounded-2xl mx-1">
-            <button 
-              onClick={() => changeMonth(-1)}
-              className="w-8 h-8 flex items-center justify-center text-[#5D4037] hover:bg-white/60 rounded-full transition-colors"
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <button 
-              onClick={() => setIsDatePickerOpen(true)}
-              className="text-stone-500 font-bold text-sm tracking-tighter px-3 py-1 hover:bg-white/40 active:scale-95 rounded-xl transition-all"
-            >
-              {dateRangeStrings.range}
-            </button>
-            <button 
-              onClick={() => changeMonth(1)}
-              className="w-8 h-8 flex items-center justify-center text-[#5D4037] hover:bg-white/60 rounded-full transition-colors"
-            >
-              <ChevronRight size={20} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white overflow-hidden flex flex-col">
-          {accountRecords.length > 0 ? (
-            <div className="overflow-y-auto p-6 space-y-4">
-              {accountRecords.map(record => {
+  const renderRecord = (record: Transaction) => {
                 const isExpanded = expandedRecordId === record.id;
                 return (
                   <div key={record.id} className="flex flex-col border-b border-stone-50 last:border-0 py-1">
@@ -3590,23 +3585,158 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     </AnimatePresence>
                   </div>
                 );
-              })}
-              {/* Bottom Buffer inside scroll area */}
-              <div className="h-[40px] w-full" />
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+      className="flex flex-col h-full bg-[#FFF9E3]"
+      style={getFontFamily()}
+    >
+      {/* Balance Section */}
+      <div className="px-4 py-6">
+        <div className="bg-white p-8 rounded-[40px] shadow-sm border-2 border-white flex justify-between items-center relative overflow-hidden">
+          <div className="flex flex-col gap-2 z-10">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-stone-50 rounded-lg flex items-center justify-center text-xs border border-white">
+                {account.icon}
+              </div>
+              <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]" style={getFontFamily()}>
+                {account.type === 'credit' ? '目前未繳金額' : '目前餘額'}
+              </span>
             </div>
+            <div className="flex items-baseline gap-1 flex-wrap" style={getFontFamily()}>
+              <span className="text-sm font-black text-stone-300">$</span>
+              <span className={`text-4xl font-black tracking-tight ${calculatedBalance < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`} style={getFontFamily()}>
+                {calculatedBalance.toLocaleString()}
+              </span>
+              {account.currency && account.currency !== 'TWD' && (() => {
+                const rate = getLatestExchangeRate(records, accounts, account.currency);
+                const twdBal = Math.round(calculatedBalance * rate);
+                return (
+                  <span className="text-sm font-bold text-stone-400 ml-1.5" style={getFontFamily()}>
+                    (約 NT$ {twdBal.toLocaleString()})
+                  </span>
+                );
+              })()}
+            </div>
+          </div>
+          <button 
+            onClick={onEdit}
+            className="w-14 h-14 bg-[#FFD54F] rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-all z-10"
+          >
+            <Pencil size={24} className="text-[#5D4037]" />
+          </button>
+          
+          {/* Decorative background element */}
+          <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-[#FFD54F]/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -left-4 -top-4 w-24 h-24 bg-[#5D4037]/5 rounded-full blur-2xl pointer-events-none" />
+        </div>
+      </div>
+
+      {/* Transaction History Section */}
+      <div className="flex-1 px-4 flex flex-col gap-4 mt-2">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-[#5D4037] rounded-lg flex items-center justify-center">
+                <History size={14} className="text-white" />
+              </div>
+              <span className="font-black text-base text-[#5D4037]">往來明細</span>
+            </div>
+            <span className="text-[13px] font-black text-stone-400 bg-white px-5 py-2 rounded-full border border-stone-100 flex items-center gap-2 shadow-sm" style={getFontFamily()}>
+              <span>{accountRecords.length} 筆紀錄</span>
+              <span className="text-stone-200 font-normal">|</span>
+              <span>結餘：<span className={`font-black ${listBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                {listBalance < 0 ? '-' : ''}${Math.abs(listBalance).toLocaleString()}
+              </span></span>
+            </span>
+          </div>
+          
+          {/* Month Switcher Row */}
+          <div className="flex items-center justify-center gap-4 bg-white/40 py-2 rounded-2xl mx-1">
+            <button 
+              onClick={() => changeMonth(-1)}
+              className="w-8 h-8 flex items-center justify-center text-[#5D4037] hover:bg-white/60 rounded-full transition-colors"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <button 
+              onClick={() => setIsDatePickerOpen(true)}
+              className="text-stone-500 font-bold text-sm tracking-tighter px-3 py-1 hover:bg-white/40 active:scale-95 rounded-xl transition-all"
+            >
+              {dateRangeStrings.range}
+            </button>
+            <button 
+              onClick={() => changeMonth(1)}
+              className="w-8 h-8 flex items-center justify-center text-[#5D4037] hover:bg-white/60 rounded-full transition-colors"
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white overflow-hidden flex flex-col">
+          {account.type === 'credit' && account.closingDay ? (
+            creditCardStatements.length > 0 ? (
+              <div className="overflow-y-auto p-6 space-y-6">
+                {creditCardStatements.map(stmt => (
+                  <div key={stmt.key} className="space-y-3">
+                    {/* Statement Header */}
+                    <div className="flex justify-between items-center px-1" style={getFontFamily()}>
+                      <span className="font-black text-sm text-[#5D4037]">
+                        {stmt.label}
+                      </span>
+                      <span className="text-xs font-bold text-stone-400">
+                        金額: <span className="font-black text-sm text-[#5D4037]">${Math.abs(stmt.balance).toLocaleString()}</span>
+                      </span>
+                    </div>
+
+                    {/* Statement Transactions Container */}
+                    <div className="bg-white rounded-[32px] p-4 shadow-sm border-2 border-white flex flex-col gap-2">
+                      {stmt.records.length > 0 ? (
+                        stmt.records.map(renderRecord)
+                      ) : (
+                        <div className="text-center py-4 text-xs font-bold text-stone-300">
+                          本期無任何交易紀錄
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {/* Bottom Buffer inside scroll area */}
+                <div className="h-[40px] w-full" />
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-200">
+                <div className="w-24 h-24 bg-[#FFFDF5] rounded-full flex items-center justify-center border-4 border-white shadow-inner">
+                  <AlertCircle size={48} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="font-black text-lg text-stone-300">本月無任何帳單紀錄</span>
+                </div>
+              </div>
+            )
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-200">
-              <div className="w-24 h-24 bg-[#FFFDF5] rounded-full flex items-center justify-center border-4 border-white shadow-inner">
-                <AlertCircle size={48} />
+            accountRecords.length > 0 ? (
+              <div className="overflow-y-auto p-6 space-y-4">
+                {accountRecords.map(renderRecord)}
+                {/* Bottom Buffer inside scroll area */}
+                <div className="h-[40px] w-full" />
               </div>
-              <div className="flex flex-col items-center gap-1">
-                <span className="font-black text-lg text-stone-300">尚無明細紀錄</span>
-                <span className="text-xs font-bold text-stone-200">開始記帳來追蹤您的資產吧！</span>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-200">
+                <div className="w-24 h-24 bg-[#FFFDF5] rounded-full flex items-center justify-center border-4 border-white shadow-inner">
+                  <AlertCircle size={48} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="font-black text-lg text-stone-300">尚無明細紀錄</span>
+                  <span className="text-xs font-bold text-stone-200">開始記帳來追蹤您的資產吧！</span>
+                </div>
               </div>
-            </div>
+            )
           )}
         </div>
-        
         {/* Bottom Buffer outside scroll area if needed */}
         <div className="h-[40px] w-full" />
       </div>
