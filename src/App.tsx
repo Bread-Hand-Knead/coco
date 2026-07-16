@@ -3164,7 +3164,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     raw.forEach(r => {
       const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
-      const hasKeywords = noteText.includes('自動扣繳') || noteText.includes('自動繳款');
+      const hasKeywords = 
+        (noteText.includes('自動') && noteText.includes('扣繳')) || 
+        (noteText.includes('自動') && noteText.includes('繳款')) || 
+        (noteText.includes('自動') && noteText.includes('扣款')) ||
+        noteText.includes('轉帳扣繳') ||
+        noteText.includes('扣繳信用卡款');
       const isTransferIn = (r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) || hasKeywords;
       
       if (isTransferIn) {
