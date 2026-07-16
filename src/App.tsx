@@ -3163,7 +3163,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const transferPayments: Transaction[] = [];
 
     raw.forEach(r => {
-      const isTransferIn = r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!));
+      const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+      const hasKeywords = noteText.includes('自動扣繳') || noteText.includes('自動繳款');
+      const isTransferIn = (r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) || hasKeywords;
       
       if (isTransferIn) {
         transferPayments.push(r);
