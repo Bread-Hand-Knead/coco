@@ -3220,7 +3220,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       });
 
       statementList.unshift({
-        label: '轉帳扣繳',
+        label: '扣繳資訊',
         key: '9999-99-payments',
         records: sortedPayments,
         balance: paymentTotal
