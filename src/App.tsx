@@ -3219,7 +3219,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         paymentTotal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
       });
 
-      statementList.push({
+      statementList.unshift({
         label: '轉帳扣繳',
         key: '9999-99-payments',
         records: sortedPayments,
