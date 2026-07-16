@@ -2456,14 +2456,21 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
   const mergedRecords = getMergedRecords(records, accounts);
   const getBaseBalance = (acc: Account) => {
     let bal = acc.type === 'credit' ? 0 : (acc.initialBalance || 0);
+    console.log(`[DEBUG] getBaseBalance for ${acc.name} (${acc.id}): starting with initial ${acc.initialBalance || 0}`);
     mergedRecords.forEach(r => {
       if (r.category === '初始資金') return;
       if (r.accountId === acc.id) {
         bal += r.amount;
-        if (r.fee) bal -= r.fee;
+        console.log(`  - Subtracting spending/transfer-out: ${r.date} | ${r.note || r.category} | amount: ${r.amount} | type: ${r.type} | new bal: ${bal}`);
+        if (r.fee) {
+          bal -= r.fee;
+          console.log(`    - Fee: ${r.fee} | new bal: ${bal}`);
+        }
       }
       if (r.type === 'transfer' && r.toAccountId === acc.id) {
-        bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+        const toAmt = r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1));
+        bal += toAmt;
+        console.log(`  + Adding deposit/transfer-in: ${r.date} | ${r.note || r.category} | amount: ${toAmt} | new bal: ${bal}`);
       }
     });
     return bal;
@@ -2475,12 +2482,16 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
     let total = getBaseBalance(acc);
     const children = accounts.filter(a => a.parentId === id);
     children.forEach(child => {
-      total += getRecursiveBalance(child.id);
+      const childBal = getRecursiveBalance(child.id);
+      total += childBal;
+      console.log(`  + Adding child account ${child.name} (${child.id}) balance: ${childBal} | new total: ${total}`);
     });
     return total;
   };
 
-  return getRecursiveBalance(account.id);
+  const result = getRecursiveBalance(account.id);
+  console.log(`[DEBUG] Final recursive balance for ${account.name}: ${result}`);
+  return result;
 }
 
 function DynamicAccountBalance({ 
