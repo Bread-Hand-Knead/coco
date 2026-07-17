@@ -4800,35 +4800,6 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                   <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定結帳日以利後續計算帳單週期</p>
                 </div>
 
-                {/* Credit Card Bill Month Offset */}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳單月份命名基準</label>
-                  <div className="bg-stone-50 p-1.5 rounded-2xl flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setEditedAcc({ ...editedAcc, billMonthOffset: 0 })}
-                      className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all ${
-                        (editedAcc.billMonthOffset || 0) === 0
-                          ? 'bg-[#5D4037] text-white shadow-sm'
-                          : 'text-[#5D4037]/60 hover:bg-white/40'
-                      }`}
-                    >
-                      結帳當月 (如 1/28 結帳為 1月帳單)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditedAcc({ ...editedAcc, billMonthOffset: -1 })}
-                      className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all ${
-                        (editedAcc.billMonthOffset || 0) === -1
-                          ? 'bg-[#5D4037] text-white shadow-sm'
-                          : 'text-[#5D4037]/60 hover:bg-white/40'
-                      }`}
-                    >
-                      前一個月 (如 1/28 結帳為 12月帳單)
-                    </button>
-                  </div>
-                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>依您的發卡銀行帳單明細名稱調整月份顯示</p>
-                </div>
               </>
             )}
           </div>
