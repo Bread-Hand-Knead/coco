@@ -33,6 +33,7 @@ export interface Account {
   parentId?: string;
   currency: string;
   closingDay?: number;
+  billMonthOffset?: number; // 信用卡帳單月份偏移量 (如 -1 代表前一個月)
   order?: number;
 }
 

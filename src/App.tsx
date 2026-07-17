@@ -193,6 +193,7 @@ interface Account {
   parentId?: string;
   currency: string;    // 幣別 (如 "TWD", "USD", "JPY")
   closingDay?: number; // 信用卡結帳日 (1-31)
+  billMonthOffset?: number; // 信用卡帳單月份偏移量 (如 -1 代表前一個月)
   initialBalance?: number; // 初始金額
   order?: number;      // 排序權重
   creditLimit?: number; // 信用總額度
@@ -1483,7 +1484,8 @@ export default function App() {
           const updatedCard = {
             ...card,
             creditLimit: finalAccount.creditLimit,
-            closingDay: finalAccount.closingDay
+            closingDay: finalAccount.closingDay,
+            billMonthOffset: finalAccount.billMonthOffset
           };
           await syncToCloud('accounts', updatedCard, card.id);
         }
@@ -1504,7 +1506,8 @@ export default function App() {
             newList = newList.map(a => a.id === card.id ? {
               ...card,
               creditLimit: finalAccount.creditLimit,
-              closingDay: finalAccount.closingDay
+              closingDay: finalAccount.closingDay,
+              billMonthOffset: finalAccount.billMonthOffset
             } : a);
           });
         }
@@ -3214,6 +3217,22 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         }
       }
 
+      // Apply bill month offset (e.g. -1 for previous month)
+      const offset = account.billMonthOffset || 0;
+      if (offset !== 0) {
+        stmtMonth += offset;
+        if (stmtMonth <= 0) {
+          const absOffset = Math.abs(stmtMonth);
+          const yearDiff = Math.floor(absOffset / 12) + 1;
+          stmtYear -= yearDiff;
+          stmtMonth = 12 - (absOffset % 12);
+        } else if (stmtMonth > 12) {
+          const yearDiff = Math.floor((stmtMonth - 1) / 12);
+          stmtYear += yearDiff;
+          stmtMonth = ((stmtMonth - 1) % 12) + 1;
+        }
+      }
+
       const label = `${stmtMonth}月帳單`;
       const key = `${stmtYear}-${String(stmtMonth).padStart(2, '0')}`;
       return { label, key };
@@ -4481,6 +4500,9 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
         if (sameBankCard.closingDay !== undefined) {
           updates.closingDay = sameBankCard.closingDay;
         }
+        if (sameBankCard.billMonthOffset !== undefined) {
+          updates.billMonthOffset = sameBankCard.billMonthOffset;
+        }
         if (Object.keys(updates).length > 0) {
           setEditedAcc(prev => ({ ...prev, ...updates }));
         }
@@ -4695,6 +4717,36 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                     </div>
                   </div>
                   <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定結帳日以利後續計算帳單週期</p>
+                </div>
+
+                {/* Credit Card Bill Month Offset */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳單月份命名基準</label>
+                  <div className="bg-stone-50 p-1.5 rounded-2xl flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setEditedAcc({ ...editedAcc, billMonthOffset: 0 })}
+                      className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                        (editedAcc.billMonthOffset || 0) === 0
+                          ? 'bg-[#5D4037] text-white shadow-sm'
+                          : 'text-[#5D4037]/60 hover:bg-white/40'
+                      }`}
+                    >
+                      結帳當月 (如 1/28 結帳為 1月帳單)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditedAcc({ ...editedAcc, billMonthOffset: -1 })}
+                      className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                        (editedAcc.billMonthOffset || 0) === -1
+                          ? 'bg-[#5D4037] text-white shadow-sm'
+                          : 'text-[#5D4037]/60 hover:bg-white/40'
+                      }`}
+                    >
+                      前一個月 (如 1/28 結帳為 12月帳單)
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>依您的發卡銀行帳單明細名稱調整月份顯示</p>
                 </div>
               </>
             )}
