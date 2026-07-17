@@ -3238,16 +3238,17 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       return { label, key };
     };
 
-    // Filter all transactions for this card
-    const cardRecords = records.filter(r => 
+    // Filter transactions only for the selected calendar month
+    const raw = records.filter(r => 
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
-      r.category !== '初始資金'
+      r.category !== '初始資金' &&
+      (r.postingDate || r.date).startsWith(targetYearMonth)
     );
 
     const groups: Record<string, { label: string; key: string; records: Transaction[]; balance: number }> = {};
     const transferPayments: Transaction[] = [];
 
-    cardRecords.forEach(r => {
+    raw.forEach(r => {
       const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
       const hasKeywords = 
         (noteText.includes('自動') && noteText.includes('扣繳')) || 
@@ -3258,26 +3259,20 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       const isTransferIn = (r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) || hasKeywords;
       
       if (isTransferIn) {
-        // Payments are filtered by calendar month (when the payment actually occurred)
-        if ((r.postingDate || r.date).startsWith(targetYearMonth)) {
-          transferPayments.push(r);
-        }
+        transferPayments.push(r);
       } else {
         const dateStr = r.postingDate || r.date;
         const { label, key } = getStatementLabelAndKey(dateStr, account.closingDay!);
         
-        // Only include purchases that belong to the selected statement month!
-        if (key === targetYearMonth) {
-          if (!groups[key]) {
-            groups[key] = {
-              label,
-              key,
-              records: [],
-              balance: 0
-            };
-          }
-          groups[key].records.push(r);
+        if (!groups[key]) {
+          groups[key] = {
+            label,
+            key,
+            records: [],
+            balance: 0
+          };
         }
+        groups[key].records.push(r);
       }
     });
 
