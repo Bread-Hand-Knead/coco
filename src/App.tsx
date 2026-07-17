@@ -3303,6 +3303,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       (r.postingDate || r.date).startsWith(targetYearMonth)
     );
 
+    // Filter ALL history transactions for this card (to calculate the true statement totals)
+    const allHistoryCardRecords = records.filter(r => 
+      (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
+      r.category !== '初始資金'
+    );
+
     const groups: Record<string, { label: string; key: string; records: Transaction[]; balance: number }> = {};
     const transferPayments: Transaction[] = [];
 
@@ -3344,11 +3350,16 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         return b.amount - a.amount;
       });
 
+      // Calculate the true balance of this billing cycle across all history transactions
       let bal = 0;
-      sortedRecords.forEach(r => {
-        if (r.accountId === account.id || childrenIds.includes(r.accountId)) {
-          bal += r.amount;
-          if (r.fee) bal -= r.fee;
+      allHistoryCardRecords.forEach(r => {
+        const dateStr = r.postingDate || r.date;
+        const { key } = getStatementLabelAndKey(dateStr, account.closingDay!);
+        if (key === g.key) {
+          if (r.accountId === account.id || childrenIds.includes(r.accountId)) {
+            bal += r.amount;
+            if (r.fee) bal -= r.fee;
+          }
         }
       });
 
