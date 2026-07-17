@@ -34,6 +34,7 @@ export interface Account {
   currency: string;
   closingDay?: number;
   billMonthOffset?: number; // 信用卡帳單月份偏移量 (如 -1 代表前一個月)
+  customStatementLabels?: Record<string, string>; // 自訂帳單名稱對照表 (Key為 YYYY-MM)
   order?: number;
 }
 

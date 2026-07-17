@@ -194,6 +194,7 @@ interface Account {
   currency: string;    // 幣別 (如 "TWD", "USD", "JPY")
   closingDay?: number; // 信用卡結帳日 (1-31)
   billMonthOffset?: number; // 信用卡帳單月份偏移量 (如 -1 代表前一個月)
+  customStatementLabels?: Record<string, string>; // 自訂帳單名稱對照表 (Key為 YYYY-MM)
   initialBalance?: number; // 初始金額
   order?: number;      // 排序權重
   creditLimit?: number; // 信用總額度
@@ -1485,7 +1486,8 @@ export default function App() {
             ...card,
             creditLimit: finalAccount.creditLimit,
             closingDay: finalAccount.closingDay,
-            billMonthOffset: finalAccount.billMonthOffset
+            billMonthOffset: finalAccount.billMonthOffset,
+            customStatementLabels: finalAccount.customStatementLabels
           };
           await syncToCloud('accounts', updatedCard, card.id);
         }
@@ -1507,7 +1509,8 @@ export default function App() {
               ...card,
               creditLimit: finalAccount.creditLimit,
               closingDay: finalAccount.closingDay,
-              billMonthOffset: finalAccount.billMonthOffset
+              billMonthOffset: finalAccount.billMonthOffset,
+              customStatementLabels: finalAccount.customStatementLabels
             } : a);
           });
         }
@@ -1980,6 +1983,7 @@ export default function App() {
                 projects={projects}
                 balance={accountBalances[selectedAccountForDetail.id] || 0}
                 categories={categories}
+                onUpdateAccountsList={setAccounts}
               />
             )}
             {currentView === 'history' && (
@@ -3045,7 +3049,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
   );
 }
 
-function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, projects, balance, categories }: { 
+function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, projects, balance, categories, onUpdateAccountsList }: { 
   account: Account, 
   records: Transaction[],
   selectedDate: string,
@@ -3056,7 +3060,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   accounts: Account[],
   projects: Project[],
   balance: number,
-  categories: Category[]
+  categories: Category[],
+  onUpdateAccountsList?: React.Dispatch<React.SetStateAction<Account[]>>
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -3167,6 +3172,58 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   const changeMonth = (offset: number) => {
     setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
   };
+
+  const handleRenameStatement = async (stmtKey: string, currentLabel: string) => {
+    const newName = window.prompt(`請輸入新的帳單名稱（目前為：${currentLabel}）：`, currentLabel);
+    if (newName === null) return; // User cancelled
+    
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      alert('帳單名稱不能為空！');
+      return;
+    }
+
+    const updatedLabels = {
+      ...(account.customStatementLabels || {}),
+      [stmtKey]: trimmed
+    };
+
+    const updatedAccount: Account = {
+      ...account,
+      customStatementLabels: updatedLabels
+    };
+
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const docRef = doc(db, 'users', currentUser.uid, 'accounts', account.id);
+        await setDoc(docRef, cleanData(updatedAccount));
+        
+        const sameBankCards = accounts.filter(a => checkAreAccountsSameBank(updatedAccount, a, accounts));
+        for (const card of sameBankCards) {
+          const updatedCard = {
+            ...card,
+            customStatementLabels: updatedLabels
+          };
+          const cardDocRef = doc(db, 'users', currentUser.uid, 'accounts', card.id);
+          await setDoc(cardDocRef, cleanData(updatedCard));
+        }
+      }
+      
+      if (onUpdateAccountsList) {
+        onUpdateAccountsList(prev => prev.map(a => {
+          if (a.id === account.id) return updatedAccount;
+          if (checkAreAccountsSameBank(updatedAccount, a, accounts)) {
+            return { ...a, customStatementLabels: updatedLabels };
+          }
+          return a;
+        }));
+      }
+    } catch (err) {
+      console.error('Rename statement failed:', err);
+      alert('更新帳單名稱失敗，請重試。');
+    }
+  };
   
   const accountRecords = useMemo(() => {
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
@@ -3233,13 +3290,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         }
       }
 
-      const label = `${stmtMonth}月帳單`;
       const key = `${stmtYear}-${String(stmtMonth).padStart(2, '0')}`;
+      const calculatedLabel = `${stmtMonth}月帳單`;
+      const label = account.customStatementLabels?.[key] || calculatedLabel;
       return { label, key };
     };
 
-    // Filter transactions only for the selected calendar month
-    const raw = records.filter(r => 
+    // Filter transactions only for the selected calendar month (so users see them in the month they occurred)
+    const cardRecords = records.filter(r => 
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
       r.category !== '初始資金' &&
       (r.postingDate || r.date).startsWith(targetYearMonth)
@@ -3248,7 +3306,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const groups: Record<string, { label: string; key: string; records: Transaction[]; balance: number }> = {};
     const transferPayments: Transaction[] = [];
 
-    raw.forEach(r => {
+    cardRecords.forEach(r => {
       const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
       const hasKeywords = 
         (noteText.includes('自動') && noteText.includes('扣繳')) || 
@@ -3259,7 +3317,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       const isTransferIn = (r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) || hasKeywords;
       
       if (isTransferIn) {
-        transferPayments.push(r);
+        // Payments are filtered by calendar month (when the payment actually occurred)
+        if ((r.postingDate || r.date).startsWith(targetYearMonth)) {
+          transferPayments.push(r);
+        }
       } else {
         const dateStr = r.postingDate || r.date;
         const { label, key } = getStatementLabelAndKey(dateStr, account.closingDay!);
@@ -3852,9 +3913,20 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   <div key={stmt.key} className="space-y-3">
                     {/* Statement Header */}
                     <div className="flex justify-between items-center px-1" style={getFontFamily()}>
-                      <span className="font-black text-sm text-[#5D4037]">
-                        {stmt.label}
-                      </span>
+                      {stmt.key === '9999-99-payments' ? (
+                        <span className="font-black text-sm text-[#5D4037]">
+                          {stmt.label}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleRenameStatement(stmt.key, stmt.label)}
+                          className="font-black text-sm text-[#5D4037] hover:text-[#FBC02D] flex items-center gap-1 active:scale-95 transition-all text-left"
+                          title="點選自訂帳單名稱"
+                        >
+                          <span>{stmt.label}</span>
+                          <Pencil size={11} className="opacity-45 hover:opacity-100 transition-opacity" />
+                        </button>
+                      )}
                       <span className="text-xs font-bold text-stone-400">
                         金額: <span className="font-black text-sm text-[#5D4037]">${Math.abs(stmt.balance).toLocaleString()}</span>
                       </span>
@@ -4497,6 +4569,9 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
         }
         if (sameBankCard.billMonthOffset !== undefined) {
           updates.billMonthOffset = sameBankCard.billMonthOffset;
+        }
+        if (sameBankCard.customStatementLabels !== undefined) {
+          updates.customStatementLabels = sameBankCard.customStatementLabels;
         }
         if (Object.keys(updates).length > 0) {
           setEditedAcc(prev => ({ ...prev, ...updates }));
