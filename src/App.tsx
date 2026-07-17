@@ -3196,15 +3196,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const targetIds = [account.id, ...childrenIds];
     const targetYearMonth = dateRangeStrings.filter; // e.g. "2026-07"
 
-    // Filter transactions only for the selected calendar month
-    const raw = records.filter(r => 
-      (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
-      r.category !== '初始資金' &&
-      (r.postingDate || r.date).startsWith(targetYearMonth)
-    );
-
     const getStatementLabelAndKey = (dateStr: string, closingDay: number) => {
       const parts = dateStr.split('-');
+      if (parts.length < 3) return { label: '未分類帳單', key: '9999-12' };
       const y = parseInt(parts[0]);
       const m = parseInt(parts[1]);
       const d = parseInt(parts[2]);
@@ -3225,10 +3219,16 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       return { label, key };
     };
 
+    // Filter all transactions for this card
+    const cardRecords = records.filter(r => 
+      (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
+      r.category !== '初始資金'
+    );
+
     const groups: Record<string, { label: string; key: string; records: Transaction[]; balance: number }> = {};
     const transferPayments: Transaction[] = [];
 
-    raw.forEach(r => {
+    cardRecords.forEach(r => {
       const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
       const hasKeywords = 
         (noteText.includes('自動') && noteText.includes('扣繳')) || 
@@ -3239,20 +3239,26 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       const isTransferIn = (r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) || hasKeywords;
       
       if (isTransferIn) {
-        transferPayments.push(r);
+        // Payments are filtered by calendar month (when the payment actually occurred)
+        if ((r.postingDate || r.date).startsWith(targetYearMonth)) {
+          transferPayments.push(r);
+        }
       } else {
         const dateStr = r.postingDate || r.date;
         const { label, key } = getStatementLabelAndKey(dateStr, account.closingDay!);
         
-        if (!groups[key]) {
-          groups[key] = {
-            label,
-            key,
-            records: [],
-            balance: 0
-          };
+        // Only include purchases that belong to the selected statement month!
+        if (key === targetYearMonth) {
+          if (!groups[key]) {
+            groups[key] = {
+              label,
+              key,
+              records: [],
+              balance: 0
+            };
+          }
+          groups[key].records.push(r);
         }
-        groups[key].records.push(r);
       }
     });
 
