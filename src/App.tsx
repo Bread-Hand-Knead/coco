@@ -10654,7 +10654,41 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         });
       }
 
-      const result = await (window as any).Tesseract.recognize(file, 'chi_tra+eng');
+      // Preprocess image on canvas: 2x upscale + grayscale + contrast enhancement
+      const preprocessedImageSrc = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const scale = 2; // 2x upscale for crisp text
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              resolve(ev.target?.result as string);
+              return;
+            }
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+              const avg = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+              const v = avg > 170 ? 255 : (avg < 85 ? 0 : avg);
+              d[i] = v;
+              d[i + 1] = v;
+              d[i + 2] = v;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+          };
+          img.onerror = () => resolve(ev.target?.result as string);
+          img.src = ev.target?.result as string;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      const result = await (window as any).Tesseract.recognize(preprocessedImageSrc, 'chi_tra+eng');
       const rawText = result.data.text || '';
       console.log('Raw OCR Output:\n', rawText);
 
@@ -10671,11 +10705,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
       // 1. Amount Extraction
       let foundAmount = 0;
-      
-      // Look for numbers associated with NT$, NTS, $, 元, 實付, 價格, 金額
       const amountRegexes = [
         /(?:NT\$|NTS|NT\s*\$|\$|金額|實付|價格|小計|總計|合計)[\s:]*([0-9,]+(?:\.[0-9]{1,2})?)/gi,
-        /(?:實際支付金額|商品價格|付款金額)[\s\S]{0,25}?([0-9,]+(?:\.[0-9]{1,2})?)/gi,
+        /(?:實際支付金額|商品價格|付款金額)[\s\S]{0,35}?([0-9,]+(?:\.[0-9]{1,2})?)/gi,
         /([0-9,]+)\s*(?:元|TWD|NTD)/gi
       ];
 
@@ -10692,7 +10724,6 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         if (foundAmount > 0) break;
       }
 
-      // Standalone number search fallback
       if (!foundAmount) {
         for (const line of lines) {
           const m = line.match(/(?:NT\$|NTS|\$)?\s*([0-9]{1,6})/i);
@@ -10706,32 +10737,38 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         }
       }
 
-      // 2. Date Extraction
+      // 2. Date Extraction (Prioritize date right after 付款日期 / 請款日期 / 交易日期 / 消費日期 / 日期)
       let foundDate = '';
-      const dateMatch = rawText.match(/(202[0-9])[/\-.年](0?[1-9]|1[0-2])[/\-.月](0?[1-9]|[12][0-9]|3[01])/);
-      if (dateMatch) {
-        const y = dateMatch[1];
-        const m = dateMatch[2].padStart(2, '0');
-        const d = dateMatch[3].padStart(2, '0');
+      const dateLabeledMatch = rawText.match(/(?:付款日期|請款日期|交易日期|消費日期|日期)[\s\S]{0,15}?([0-9]{4})[/\-.年](0?[1-9]|1[0-2])[/\-.月](0?[1-9]|[12][0-9]|3[01])/i);
+      if (dateLabeledMatch) {
+        const y = dateLabeledMatch[1];
+        const m = dateLabeledMatch[2].padStart(2, '0');
+        const d = dateLabeledMatch[3].padStart(2, '0');
         foundDate = `${y}-${m}-${d}`;
       } else {
-        const minguoMatch = rawText.match(/(1[0-2][0-9])[/\-.年](0?[1-9]|1[0-2])[/\-.月](0?[1-9]|[12][0-9]|3[01])/);
-        if (minguoMatch) {
-          const y = String(parseInt(minguoMatch[1]) + 1911);
-          const m = minguoMatch[2].padStart(2, '0');
-          const d = minguoMatch[3].padStart(2, '0');
+        const generalDateMatch = rawText.match(/(202[0-9])[/\-.年](0?[1-9]|1[0-2])[/\-.月](0?[1-9]|[12][0-9]|3[01])/);
+        if (generalDateMatch) {
+          const y = generalDateMatch[1];
+          const m = generalDateMatch[2].padStart(2, '0');
+          const d = generalDateMatch[3].padStart(2, '0');
           foundDate = `${y}-${m}-${d}`;
+        } else {
+          const minguoMatch = rawText.match(/(1[0-2][0-9])[/\-.年](0?[1-9]|1[0-2])[/\-.月](0?[1-9]|[12][0-9]|3[01])/);
+          if (minguoMatch) {
+            const y = String(parseInt(minguoMatch[1]) + 1911);
+            const m = minguoMatch[2].padStart(2, '0');
+            const d = minguoMatch[3].padStart(2, '0');
+            foundDate = `${y}-${m}-${d}`;
+          }
         }
       }
 
       // 3. Store Name / Note Extraction
       let foundNote = '';
-
-      // Check for Line Pay store format: line containing store name or product
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('公司') || line.includes('咔啾') || line.includes('Kaju')) {
-          foundNote = line.replace(/\(product\)/gi, '').trim();
+        if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('公司') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾')) {
+          foundNote = line;
           break;
         }
       }
@@ -10741,7 +10778,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         for (const line of lines) {
           for (const kw of merchantKeywords) {
             if (line.toLowerCase().includes(kw.toLowerCase())) {
-              foundNote = line.replace(/\(product\)/gi, '').trim();
+              foundNote = line;
               break;
             }
           }
@@ -10753,18 +10790,28 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         for (const line of lines) {
           if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額)$/.test(line)) continue;
           if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 35 && !line.includes('202') && !line.includes('NT$')) {
-            foundNote = line.replace(/\(product\)/gi, '').trim();
+            foundNote = line;
             break;
           }
         }
       }
 
-      // 4. Auto-detect Account (e.g. 中國信託 / JCB / 3457)
+      // Clean up note text: collapse spaces between Chinese characters & strip (product)
+      if (foundNote) {
+        foundNote = foundNote
+          .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
+          .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
+          .replace(/\(product\)/gi, '')
+          .replace(/味\s*啾/g, '咔啾') // Fix common OCR typo for 咔啾
+          .trim();
+      }
+
+      // 4. Auto-detect Account (e.g. 中國信託 / JCB / 3457 / line pay)
       let foundAccountName = '';
       if (accounts && accounts.length > 0) {
         for (const acc of accounts) {
           const accName = acc.name.toLowerCase();
-          if (rawText.includes(acc.name) || (accName.includes('中信') && (rawText.includes('中國信託') || rawText.includes('中信'))) || (accName.includes('台新') && rawText.includes('台新')) || (accName.includes('玉山') && rawText.includes('玉山')) || (accName.includes('國泰') && rawText.includes('國泰'))) {
+          if (rawText.includes(acc.name) || (accName.includes('中信') && (rawText.includes('中國信託') || rawText.includes('中信') || rawText.includes('JCB') || rawText.includes('3457'))) || (accName.includes('台新') && rawText.includes('台新')) || (accName.includes('玉山') && rawText.includes('玉山')) || (accName.includes('國泰') && rawText.includes('國泰'))) {
             setSelectedAccountId(acc.id);
             foundAccountName = acc.name;
             break;
