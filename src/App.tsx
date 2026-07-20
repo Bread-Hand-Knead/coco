@@ -10645,15 +10645,15 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
   }, [isCreditCard]);
 
+  const currentAccount = accounts.find(a => a.id === selectedAccountId);
+  const currentToAccount = accounts.find(a => a.id === toAccountId);
+
   // Synchronize transaction currency with the selected account's currency
   useEffect(() => {
     if (currentAccount) {
       setCurrency(currentAccount.currency || 'TWD');
     }
   }, [selectedAccountId, currentAccount]);
-
-  const currentAccount = accounts.find(a => a.id === selectedAccountId);
-  const currentToAccount = accounts.find(a => a.id === toAccountId);
 
   const rateLabel = useMemo(() => {
     const srcCur = currentAccount?.currency || 'TWD';
