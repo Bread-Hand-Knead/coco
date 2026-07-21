@@ -11029,6 +11029,10 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setToAmount('0');
     setNote('');
     setFee('0');
+    setMainCategory(null);
+    setSubCategory(null);
+    setIsInstallment(false);
+    setTotalInstallments(1);
   };
 
   const handleKey = (key: string) => {
