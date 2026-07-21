@@ -10769,12 +10769,26 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         return /蝦皮|電商|新加坡|公司|公句|統編|條碼|分公司|地址|代表人|營業人|娛樂/i.test(l);
       };
 
+      // Helper to identify and reject advertisement & footer garbage lines
+      const isAdOrGarbage = (l: string) => {
+        return /亞培|安素|HMB|體力|免費試用|年過|鎖住|GEL|Clinical|STUDY|Shield|試用包|贊助|廣告|優惠/i.test(l);
+      };
+
       // 3. Product / Note Extraction (Target Shopee 購買品項, E-Invoice 品名, or Line Pay Item)
       let foundNote = '';
 
-      // Strategy 0: E-commerce Product Line with brackets (【...】) or product keywords (e.g. Shopee items)
+      // Strategy 0: Product Line with brackets (【...】, [...], (...)) or product spec keywords (cm, ml, kg, 鋼, 樂)
       for (const line of lines) {
-        if ((line.includes('【') || line.includes('】') || line.includes('客製') || line.includes('理想牌') || line.includes('不鏽鋼')) && line.length > 5 && !isCompanyHeader(line)) {
+        if (isCompanyHeader(line) || isAdOrGarbage(line)) continue;
+
+        // Bracket check (matches 【...】, [...], (...))
+        if (/[【\[\(\{].+?[】\]\)\}]/.test(line) && line.length > 5) {
+          foundNote = line;
+          break;
+        }
+
+        // Product spec keywords
+        if (/(?:cm|mm|ml|g|kg|不鏽鋼|鋼|雙層|隔熱|雷刻|理想牌|台灣製|優酪乳|客製|無加糖)/i.test(line) && line.length > 5) {
           foundNote = line;
           break;
         }
@@ -10782,11 +10796,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
       // Strategy A: Shopee Invoice ("購買品項")
       if (!foundNote) {
-        const shopeeIdx = lines.findIndex(l => l.includes('購買品項'));
+        const shopeeIdx = lines.findIndex(l => l.includes('購買品項') || l.includes('品項'));
         if (shopeeIdx !== -1) {
           for (let k = shopeeIdx + 1; k < Math.min(shopeeIdx + 4, lines.length); k++) {
             const l = lines[k];
-            if (!isCompanyHeader(l) && !l.includes('總金額') && l.length > 3) {
+            if (!isCompanyHeader(l) && !isAdOrGarbage(l) && !l.includes('總金額') && l.length > 3) {
               foundNote = l;
               break;
             }
@@ -10800,7 +10814,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         if (itemHeaderIdx !== -1) {
           for (let j = itemHeaderIdx + 1; j < Math.min(itemHeaderIdx + 4, lines.length); j++) {
             const l = lines[j];
-            if (!l.includes('共') && !l.includes('合計') && !isCompanyHeader(l) && l.length > 2) {
+            if (!l.includes('共') && !l.includes('合計') && !isCompanyHeader(l) && !isAdOrGarbage(l) && l.length > 2) {
               foundNote = l;
               break;
             }
@@ -10813,7 +10827,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
           if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾') || line.includes('噴啾')) {
-            if (!isCompanyHeader(line)) {
+            if (!isCompanyHeader(line) && !isAdOrGarbage(line)) {
               foundNote = line;
               break;
             }
@@ -10825,7 +10839,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         const merchantKeywords = ['LINE Pay', '7-ELEVEN', '7-11', '全家', '萊爾富', 'OK超商', '麥當勞', '摩斯', '肯德基', '星巴克', '蝦皮', 'Uber', 'Foodpanda', '中油', '家樂福', '全聯', '寶雅', '屈臣氏', '康是美', '大潤發', '美廉社'];
         for (const line of lines) {
           for (const kw of merchantKeywords) {
-            if (line.toLowerCase().includes(kw.toLowerCase()) && !isCompanyHeader(line)) {
+            if (line.toLowerCase().includes(kw.toLowerCase()) && !isCompanyHeader(line) && !isAdOrGarbage(line)) {
               foundNote = line;
               break;
             }
@@ -10834,11 +10848,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         }
       }
 
-      // Fallback: exclude company headers, tax IDs, invoice numbers
+      // Fallback: exclude company headers, tax IDs, invoice numbers, ad garbage
       if (!foundNote) {
         for (const line of lines) {
           if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額|未開獎|發票明細|捐贈發票|購買品項|總金額|備註)$/.test(line)) continue;
-          if (isCompanyHeader(line) || line.includes('CW18') || line.includes('DN-') || line.includes('5680')) continue;
+          if (isCompanyHeader(line) || isAdOrGarbage(line) || line.includes('CW18') || line.includes('DN-') || line.includes('5680')) continue;
           if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 60 && !line.includes('202') && !line.includes('NT$')) {
             foundNote = line;
             break;
