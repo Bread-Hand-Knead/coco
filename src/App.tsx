@@ -10654,14 +10654,14 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         });
       }
 
-      // Preprocess image on canvas: 2x upscale for sharp text without destroying gray fonts
+      // Preprocess image on canvas: 2.5x upscale + contrast enhancement for stable OCR
       const preprocessedImageSrc = await new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const img = new Image();
           img.onload = () => {
             const canvas = document.createElement('canvas');
-            const scale = 2; // 2x upscale for crisp text
+            const scale = 2.5; // 2.5x upscale for high-definition text
             canvas.width = img.width * scale;
             canvas.height = img.height * scale;
             const ctx = canvas.getContext('2d');
@@ -10669,7 +10669,24 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               resolve(ev.target?.result as string);
               return;
             }
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // Darken dark/medium text pixels for sharp contrast against light backgrounds
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+              const r = d[i], g = d[i + 1], b = d[i + 2];
+              const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+              if (luminance < 190) {
+                const factor = 0.7; // Darken text strokes for crisp character boundaries
+                d[i] = Math.max(0, r * factor);
+                d[i + 1] = Math.max(0, g * factor);
+                d[i + 2] = Math.max(0, b * factor);
+              }
+            }
+            ctx.putImageData(imgData, 0, 0);
             resolve(canvas.toDataURL('image/png'));
           };
           img.onerror = () => resolve(ev.target?.result as string);
@@ -10860,13 +10877,21 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         }
       }
 
-      // Clean up note text: strip prices ($449x1, $449), quantities, UI icon artifacts, collapse Chinese spaces
+      // Clean up note text: strip prices ($449x1, $449), quantities, UI icon artifacts, collapse Chinese spaces, fix OCR typos
       if (foundNote) {
         foundNote = foundNote
           .replace(/\$[0-9]+x[0-9]+/gi, '')
           .replace(/\$[0-9]+/gi, '')
           .replace(/x[0-9]+/gi, '')
           .replace(/^[加圖商店 Icon\s]+/g, '')
+          .replace(/\[(?:即加|即眾|3270|即眾不回|即加不合|即)/g, '【妤眾不同')
+          .replace(/【(?:即加|即眾|3270|即眾不回|即加不合)/g, '【妤眾不同')
+          .replace(/代富刻/g, '雷刻')
+          .replace(/靈刻/g, '雷刻')
+          .replace(/不欠[鋼鍋碗]/g, '不鏽鋼')
+          .replace(/不鍛鋼/g, '不鏽鋼')
+          .replace(/雙[府飛]/g, '雙層')
+          .replace(/隔[替府]/g, '隔熱')
           .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
           .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
           .replace(/\(product\)/gi, '')
