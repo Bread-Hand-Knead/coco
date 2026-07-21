@@ -10693,25 +10693,34 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
           return true;
         });
 
-      // 1. Amount Extraction
+      // 1. Amount Extraction (Prioritize red-boxed total labels: 實際支付金額, 總金額, 合計)
       let foundAmount = 0;
-      const amountRegexes = [
-        /(?:NT\$|NTS|NT\s*\$|\$|金額|實付|價格|小計|總計|合計)[\s:]*([0-9,]+(?:\.[0-9]{1,2})?)/gi,
-        /(?:實際支付金額|商品價格|付款金額)[\s\S]{0,35}?([0-9,]+(?:\.[0-9]{1,2})?)/gi,
-        /([0-9,]+)\s*(?:元|TWD|NTD)/gi
-      ];
-
-      for (const rx of amountRegexes) {
-        let match;
-        while ((match = rx.exec(rawText)) !== null) {
-          const numStr = match[1].replace(/,/g, '');
-          const val = parseFloat(numStr);
-          if (val > 0 && val < 1000000) {
-            foundAmount = val;
-            break;
-          }
+      const priorityAmountMatch = rawText.match(/(?:實際支付金額|總金額|合計)[\s:$]*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+      if (priorityAmountMatch) {
+        const val = parseFloat(priorityAmountMatch[1].replace(/,/g, ''));
+        if (val > 0 && val < 1000000) {
+          foundAmount = val;
         }
-        if (foundAmount > 0) break;
+      }
+
+      if (!foundAmount) {
+        const amountRegexes = [
+          /(?:NT\$|NTS|NT\s*\$|\$|金額|實付|價格|小計)[\s:]*([0-9,]+(?:\.[0-9]{1,2})?)/gi,
+          /([0-9,]+)\s*(?:元|TWD|NTD)/gi
+        ];
+
+        for (const rx of amountRegexes) {
+          let match;
+          while ((match = rx.exec(rawText)) !== null) {
+            const numStr = match[1].replace(/,/g, '');
+            const val = parseFloat(numStr);
+            if (val > 0 && val < 1000000) {
+              foundAmount = val;
+              break;
+            }
+          }
+          if (foundAmount > 0) break;
+        }
       }
 
       if (!foundAmount) {
@@ -10727,23 +10736,25 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         }
       }
 
-      // 2. Date Extraction (Prioritize two-digit day like 18 before single-digit 1)
+      // 2. Date Extraction (Prioritize "付款日期" for Line Pay or full timestamp 202X/M/D)
       let foundDate = '';
-      const dateLabeledMatch = rawText.match(/(?:付款日期|請款日期|交易日期|消費日期|日期)[\s\S]{0,25}?([0-9]{4})[/\-.年\s]+(0[1-9]|1[0-2]|[1-9])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/i);
-      if (dateLabeledMatch) {
-        const y = dateLabeledMatch[1];
-        const m = dateLabeledMatch[2].padStart(2, '0');
-        const d = dateLabeledMatch[3].padStart(2, '0');
+      const payDateMatch = rawText.match(/付款日期[\s\S]{0,25}?([0-9]{4})[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/i);
+      if (payDateMatch) {
+        const y = payDateMatch[1];
+        const m = payDateMatch[2].padStart(2, '0');
+        const d = payDateMatch[3].padStart(2, '0');
         foundDate = `${y}-${m}-${d}`;
-      } else {
-        const generalDateMatch = rawText.match(/(202[0-9])[/\-.年\s]+(0[1-9]|1[0-2]|[1-9])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
-        if (generalDateMatch) {
-          const y = generalDateMatch[1];
-          const m = generalDateMatch[2].padStart(2, '0');
-          const d = generalDateMatch[3].padStart(2, '0');
+      }
+
+      if (!foundDate) {
+        const timestampMatch = rawText.match(/(202[0-9])[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
+        if (timestampMatch) {
+          const y = timestampMatch[1];
+          const m = timestampMatch[2].padStart(2, '0');
+          const d = timestampMatch[3].padStart(2, '0');
           foundDate = `${y}-${m}-${d}`;
         } else {
-          const minguoMatch = rawText.match(/(1[0-2][0-9])[/\-.年\s]+(0[1-9]|1[0-2]|[1-9])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
+          const minguoMatch = rawText.match(/(1[0-2][0-9])[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
           if (minguoMatch) {
             const y = String(parseInt(minguoMatch[1]) + 1911);
             const m = minguoMatch[2].padStart(2, '0');
@@ -10753,13 +10764,34 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         }
       }
 
-      // 3. Store Name / Note Extraction
+      // 3. Product / Note Extraction (Target Shopee 購買品項, E-Invoice 品名, or Line Pay Item)
       let foundNote = '';
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('公司') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾') || line.includes('噴啾')) {
-          foundNote = line;
-          break;
+
+      // Strategy A: Shopee Invoice ("購買品項")
+      const shopeeIdx = lines.findIndex(l => l.includes('購買品項'));
+      if (shopeeIdx !== -1 && lines[shopeeIdx + 1]) {
+        foundNote = lines[shopeeIdx + 1];
+      }
+
+      // Strategy B: E-Invoice ("品名")
+      if (!foundNote) {
+        const itemHeaderIdx = lines.findIndex(l => l.includes('品名') || l.includes('數量') || l.includes('小計'));
+        if (itemHeaderIdx !== -1 && lines[itemHeaderIdx + 1]) {
+          const candidate = lines[itemHeaderIdx + 1];
+          if (!candidate.includes('共') && !candidate.includes('合計') && candidate.length > 2) {
+            foundNote = candidate;
+          }
+        }
+      }
+
+      // Strategy C: Line Pay Store / Product Name
+      if (!foundNote) {
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('公司') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾') || line.includes('噴啾')) {
+            foundNote = line;
+            break;
+          }
         }
       }
 
@@ -10776,24 +10808,29 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         }
       }
 
+      // Fallback: exclude company headers, tax IDs, invoice numbers
       if (!foundNote) {
         for (const line of lines) {
-          if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額)$/.test(line)) continue;
-          if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 35 && !line.includes('202') && !line.includes('NT$')) {
+          if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額|未開獎|發票明細|捐贈發票|購買品項|總金額)$/.test(line)) continue;
+          if (line.includes('有限公司') || line.includes('分公司') || line.includes('統編') || line.includes('地址') || line.includes('CW18') || line.includes('DN-')) continue;
+          if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 50 && !line.includes('202') && !line.includes('NT$')) {
             foundNote = line;
             break;
           }
         }
       }
 
-      // Clean up note text: strip avatar/badge OCR artifacts ("加", "圖"), collapse Chinese spaces & fix typos
+      // Clean up note text: strip prices ($449x1), quantities, UI icon artifacts, collapse Chinese spaces
       if (foundNote) {
         foundNote = foundNote
-          .replace(/^[加圖商店 Icon\s]+/g, '') // Remove leading "加", "圖", "商店" generated by shop badge icon
+          .replace(/\$[0-9]+x[0-9]+/gi, '')
+          .replace(/\$[0-9]+/gi, '')
+          .replace(/x[0-9]+/gi, '')
+          .replace(/^[加圖商店 Icon\s]+/g, '')
           .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
           .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
           .replace(/\(product\)/gi, '')
-          .replace(/(?:噴|嘖|味|咖|口卡)\s*啾/g, '咔啾') // Fix OCR typos for 咔啾
+          .replace(/(?:噴|嘖|味|咖|口卡)\s*啾/g, '咔啾')
           .trim();
       }
 
