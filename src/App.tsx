@@ -10693,9 +10693,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
           return true;
         });
 
-      // 1. Amount Extraction (Prioritize red-boxed total labels: 實際支付金額, 總金額, 合計)
+      // 1. Amount Extraction (Prioritize total labels: 實際支付金額, 總金額, 合計 across line breaks)
       let foundAmount = 0;
-      const priorityAmountMatch = rawText.match(/(?:實際支付金額|總金額|合計)[\s:$]*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+      const priorityAmountMatch = rawText.match(/(?:實際支付金額|總金額|合計|小計)[\s\S]{0,35}?\$?\s*([0-9,]{2,7}(?:\.[0-9]{1,2})?)/i);
       if (priorityAmountMatch) {
         const val = parseFloat(priorityAmountMatch[1].replace(/,/g, ''));
         if (val > 0 && val < 1000000) {
@@ -10764,22 +10764,46 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         }
       }
 
+      // Helper to identify and reject company header / tax ID lines
+      const isCompanyHeader = (l: string) => {
+        return /蝦皮|電商|新加坡|公司|公句|統編|條碼|分公司|地址|代表人|營業人|娛樂/i.test(l);
+      };
+
       // 3. Product / Note Extraction (Target Shopee 購買品項, E-Invoice 品名, or Line Pay Item)
       let foundNote = '';
 
+      // Strategy 0: E-commerce Product Line with brackets (【...】) or product keywords (e.g. Shopee items)
+      for (const line of lines) {
+        if ((line.includes('【') || line.includes('】') || line.includes('客製') || line.includes('理想牌') || line.includes('不鏽鋼')) && line.length > 5 && !isCompanyHeader(line)) {
+          foundNote = line;
+          break;
+        }
+      }
+
       // Strategy A: Shopee Invoice ("購買品項")
-      const shopeeIdx = lines.findIndex(l => l.includes('購買品項'));
-      if (shopeeIdx !== -1 && lines[shopeeIdx + 1]) {
-        foundNote = lines[shopeeIdx + 1];
+      if (!foundNote) {
+        const shopeeIdx = lines.findIndex(l => l.includes('購買品項'));
+        if (shopeeIdx !== -1) {
+          for (let k = shopeeIdx + 1; k < Math.min(shopeeIdx + 4, lines.length); k++) {
+            const l = lines[k];
+            if (!isCompanyHeader(l) && !l.includes('總金額') && l.length > 3) {
+              foundNote = l;
+              break;
+            }
+          }
+        }
       }
 
       // Strategy B: E-Invoice ("品名")
       if (!foundNote) {
         const itemHeaderIdx = lines.findIndex(l => l.includes('品名') || l.includes('數量') || l.includes('小計'));
-        if (itemHeaderIdx !== -1 && lines[itemHeaderIdx + 1]) {
-          const candidate = lines[itemHeaderIdx + 1];
-          if (!candidate.includes('共') && !candidate.includes('合計') && candidate.length > 2) {
-            foundNote = candidate;
+        if (itemHeaderIdx !== -1) {
+          for (let j = itemHeaderIdx + 1; j < Math.min(itemHeaderIdx + 4, lines.length); j++) {
+            const l = lines[j];
+            if (!l.includes('共') && !l.includes('合計') && !isCompanyHeader(l) && l.length > 2) {
+              foundNote = l;
+              break;
+            }
           }
         }
       }
@@ -10788,9 +10812,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       if (!foundNote) {
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
-          if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('公司') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾') || line.includes('噴啾')) {
-            foundNote = line;
-            break;
+          if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾') || line.includes('噴啾')) {
+            if (!isCompanyHeader(line)) {
+              foundNote = line;
+              break;
+            }
           }
         }
       }
@@ -10799,7 +10825,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         const merchantKeywords = ['LINE Pay', '7-ELEVEN', '7-11', '全家', '萊爾富', 'OK超商', '麥當勞', '摩斯', '肯德基', '星巴克', '蝦皮', 'Uber', 'Foodpanda', '中油', '家樂福', '全聯', '寶雅', '屈臣氏', '康是美', '大潤發', '美廉社'];
         for (const line of lines) {
           for (const kw of merchantKeywords) {
-            if (line.toLowerCase().includes(kw.toLowerCase())) {
+            if (line.toLowerCase().includes(kw.toLowerCase()) && !isCompanyHeader(line)) {
               foundNote = line;
               break;
             }
@@ -10811,16 +10837,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       // Fallback: exclude company headers, tax IDs, invoice numbers
       if (!foundNote) {
         for (const line of lines) {
-          if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額|未開獎|發票明細|捐贈發票|購買品項|總金額)$/.test(line)) continue;
-          if (line.includes('有限公司') || line.includes('分公司') || line.includes('統編') || line.includes('地址') || line.includes('CW18') || line.includes('DN-')) continue;
-          if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 50 && !line.includes('202') && !line.includes('NT$')) {
+          if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額|未開獎|發票明細|捐贈發票|購買品項|總金額|備註)$/.test(line)) continue;
+          if (isCompanyHeader(line) || line.includes('CW18') || line.includes('DN-') || line.includes('5680')) continue;
+          if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 60 && !line.includes('202') && !line.includes('NT$')) {
             foundNote = line;
             break;
           }
         }
       }
 
-      // Clean up note text: strip prices ($449x1), quantities, UI icon artifacts, collapse Chinese spaces
+      // Clean up note text: strip prices ($449x1, $449), quantities, UI icon artifacts, collapse Chinese spaces
       if (foundNote) {
         foundNote = foundNote
           .replace(/\$[0-9]+x[0-9]+/gi, '')
