@@ -11033,6 +11033,10 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setSubCategory(null);
     setIsInstallment(false);
     setTotalInstallments(1);
+    setConsumptionDate(selectedDate);
+    setPostingDate(selectedDate);
+    setIsPending(false);
+    setSelectedProjectId(initialProjectId || 'p1');
   };
 
   const handleKey = (key: string) => {
