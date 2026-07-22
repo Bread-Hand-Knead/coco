@@ -10717,8 +10717,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               const isSelected = !!activeSub;
               const isExpanded = !!expandedState[group.bankName];
               
-              const displayIcon = activeSub ? activeSub.icon : '🏦';
-              const displayName = activeSub ? activeSub.name : `${group.bankName}`;
+              const displayIcon = '🏦';
+              const displayName = group.bankName;
 
               return (
                 <button 
