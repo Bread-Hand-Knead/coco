@@ -341,6 +341,25 @@ const getLatestExchangeRate = (records: Transaction[], accounts: Account[], targ
   return 1;
 };
 
+const convertCurrency = (amount: number, fromCurrency: string, toCurrency: string, records: Transaction[], accounts: Account[]): number => {
+  if (fromCurrency === toCurrency) return amount;
+  
+  // Convert to TWD first
+  let twdAmount = amount;
+  if (fromCurrency !== 'TWD') {
+    const rate = getLatestExchangeRate(records, accounts, fromCurrency);
+    twdAmount = amount * rate;
+  }
+  
+  // Convert TWD to target currency
+  if (toCurrency === 'TWD') {
+    return twdAmount;
+  } else {
+    const rate = getLatestExchangeRate(records, accounts, toCurrency);
+    return rate > 0 ? twdAmount / rate : twdAmount;
+  }
+};
+
 const getTwdEquivalentText = (records: Transaction[], accounts: Account[], record: Transaction): string | null => {
   const recordCurrency = record.currency || accounts.find(a => a.id === record.accountId)?.currency || 'TWD';
   if (recordCurrency === 'TWD') return null;
@@ -411,11 +430,6 @@ const getBankKeyword = (name: string, parentName?: string): string | null => {
 const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: string; type: string }, accB: { id: string; name: string; parentId?: string; type: string }, accountsList: Account[]): boolean => {
   if (accA.id === accB.id) return false;
   if (accA.type !== 'credit' || accB.type !== 'credit') return false;
-
-  // Exception: SinoPac Dual Currency Card (幣倍卡) does not share limit with other cards
-  const isBiBeiA = accA.name.includes('幣倍');
-  const isBiBeiB = accB.name.includes('幣倍');
-  if (isBiBeiA !== isBiBeiB) return false;
   
   // 1. Same parentId (non-empty)
   if (accA.parentId && accB.parentId && accA.parentId === accB.parentId) return true;
@@ -1491,7 +1505,7 @@ export default function App() {
         for (const card of sameBankCards) {
           const updatedCard = {
             ...card,
-            creditLimit: finalAccount.creditLimit,
+            creditLimit: convertCurrency(finalAccount.creditLimit || 0, finalAccount.currency || 'TWD', card.currency || 'TWD', records, accounts),
             closingDay: finalAccount.closingDay,
             billMonthOffset: finalAccount.billMonthOffset,
             customStatementLabels: finalAccount.customStatementLabels
@@ -1514,7 +1528,7 @@ export default function App() {
           sameBankCards.forEach(card => {
             newList = newList.map(a => a.id === card.id ? {
               ...card,
-              creditLimit: finalAccount.creditLimit,
+              creditLimit: convertCurrency(finalAccount.creditLimit || 0, finalAccount.currency || 'TWD', card.currency || 'TWD', records, newList),
               closingDay: finalAccount.closingDay,
               billMonthOffset: finalAccount.billMonthOffset,
               customStatementLabels: finalAccount.customStatementLabels
@@ -4480,7 +4494,9 @@ function CreditLimitBar({ account, accounts, records }: { account: Account; acco
 
   let totalUtilized = 0;
   sameBankCards.forEach(c => {
-    totalUtilized += Math.abs(calculateAccountBalance(c, accounts, records));
+    const bal = Math.abs(calculateAccountBalance(c, accounts, records));
+    const convertedBal = convertCurrency(bal, c.currency || 'TWD', account.currency || 'TWD', records, accounts);
+    totalUtilized += convertedBal;
   });
 
   const creditLimit = account.creditLimit;
@@ -4580,7 +4596,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
       if (sameBankCard) {
         const updates: Partial<Account> = {};
         if (sameBankCard.creditLimit !== undefined) {
-          updates.creditLimit = sameBankCard.creditLimit;
+          updates.creditLimit = convertCurrency(sameBankCard.creditLimit, sameBankCard.currency || 'TWD', editedAcc.currency || 'TWD', records, accounts);
         }
         if (sameBankCard.closingDay !== undefined) {
           updates.closingDay = sameBankCard.closingDay;
