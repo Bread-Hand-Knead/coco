@@ -10580,7 +10580,7 @@ function HorizontalScrollArea({
 
       <AnimatePresence>
         {(showRight || onRightClick) && (
-          <motion.button
+              <motion.button
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 10 }}
@@ -10636,6 +10636,63 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
   // For Receipt Image Scanning (OCR)
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
+
+  const parseTaiwanEInvoiceQR = (qrText: string) => {
+    try {
+      // Taiwan E-invoice QR code format:
+      // CW18757179115072112340000002a0000002a0000000056801904XXXXXXXX...**品名:數量:金額
+      const match = qrText.match(/^([A-Z]{2}[0-9]{8})([0-9]{7})([0-9]{4})([0-9a-fA-F]{8})([0-9a-fA-F]{8})([0-9]{8})([0-9]{8})/);
+      if (!match) return null;
+
+      const invNum = match[1];
+      const rocDateStr = match[2];
+      const rocYear = parseInt(rocDateStr.substring(0, 3));
+      const month = rocDateStr.substring(3, 5);
+      const day = rocDateStr.substring(5, 7);
+      const year = rocYear + 1911;
+      const date = `${year}-${month}-${day}`;
+
+      const totalHex = match[5];
+      const amount = parseInt(totalHex, 16);
+
+      let note = '';
+      const parts = qrText.split('**');
+      if (parts.length > 1) {
+        const prodPart = parts[1].trim();
+        const tokens = prodPart.split(':');
+        const items: { name: string; qty: number; price: number }[] = [];
+        
+        for (let i = 0; i < tokens.length; i += 3) {
+          if (tokens[i] && tokens[i+1] && tokens[i+2]) {
+            items.push({
+              name: tokens[i].trim(),
+              qty: parseInt(tokens[i+1]) || 1,
+              price: parseFloat(tokens[i+2]) || 0
+            });
+          }
+        }
+
+        if (items.length > 0) {
+          if (items.length === 1) {
+            note = items[0].name;
+          } else {
+            note = `${items[0].name} 等 ${items.length} 項商品`;
+          }
+        }
+      }
+
+      if (!note) {
+        note = `電子發票 ${invNum}`;
+      }
+
+      return { date, amount, note };
+    } catch (err) {
+      console.error("QR Parse error", err);
+      return null;
+    }
+  };
+
+
 
   // States for bank groups expanded status
   const [expandedBanks, setExpandedBanks] = useState<{ [key: string]: boolean }>({});
@@ -10808,37 +10865,61 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setIsScanningReceipt(true);
 
     try {
-      if (!(window as any).Tesseract) {
+      // 1. Load jsQR dynamically if not present
+      if (!(window as any).jsQR) {
         await new Promise((resolve, reject) => {
           const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
           script.onload = resolve;
           script.onerror = reject;
           document.head.appendChild(script);
         });
       }
 
-      // Preprocess image on canvas: 2.5x upscale + contrast enhancement for stable OCR
-      const preprocessedImageSrc = await new Promise<string>((resolve) => {
+      // 2. Preprocess image: detect QR code first, then fallback to OCR preprocessing
+      const scanResult = await new Promise<{ qrParsed: any; preprocessedSrc: string }>((resolve) => {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const img = new Image();
           img.onload = () => {
-            const canvas = document.createElement('canvas');
+            // First attempt to detect QR Code from raw/original image dimensions
+            const qrCanvas = document.createElement('canvas');
+            qrCanvas.width = img.width;
+            qrCanvas.height = img.height;
+            const qrCtx = qrCanvas.getContext('2d');
+            let qrParsed = null;
+
+            if (qrCtx) {
+              qrCtx.drawImage(img, 0, 0);
+              const qrImgData = qrCtx.getImageData(0, 0, img.width, img.height);
+              try {
+                const code = (window as any).jsQR(qrImgData.data, qrImgData.width, qrImgData.height, {
+                  inversionAttempts: "dontInvert"
+                });
+                if (code && code.data) {
+                  console.log("QR Code detected:", code.data);
+                  qrParsed = parseTaiwanEInvoiceQR(code.data) || { note: code.data };
+                }
+              } catch (err) {
+                console.error("jsQR error:", err);
+              }
+            }
+
+            // Next, prepare preprocessed source for Tesseract OCR
+            const ocrCanvas = document.createElement('canvas');
             const scale = 2.5; // 2.5x upscale for high-definition text
-            canvas.width = img.width * scale;
-            canvas.height = img.height * scale;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-              resolve(ev.target?.result as string);
+            ocrCanvas.width = img.width * scale;
+            ocrCanvas.height = img.height * scale;
+            const ocrCtx = ocrCanvas.getContext('2d');
+            if (!ocrCtx) {
+              resolve({ qrParsed, preprocessedSrc: ev.target?.result as string });
               return;
             }
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            ocrCtx.imageSmoothingEnabled = true;
+            ocrCtx.imageSmoothingQuality = 'high';
+            ocrCtx.drawImage(img, 0, 0, ocrCanvas.width, ocrCanvas.height);
 
-            // Darken dark/medium text pixels for sharp contrast against light backgrounds
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const imgData = ocrCtx.getImageData(0, 0, ocrCanvas.width, ocrCanvas.height);
             const d = imgData.data;
             for (let i = 0; i < d.length; i += 4) {
               const r = d[i], g = d[i + 1], b = d[i + 2];
@@ -10850,228 +10931,248 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 d[i + 2] = Math.max(0, b * factor);
               }
             }
-            ctx.putImageData(imgData, 0, 0);
-            resolve(canvas.toDataURL('image/png'));
+            ocrCtx.putImageData(imgData, 0, 0);
+            resolve({ qrParsed, preprocessedSrc: ocrCanvas.toDataURL('image/png') });
           };
-          img.onerror = () => resolve(ev.target?.result as string);
+          img.onerror = () => resolve({ qrParsed: null, preprocessedSrc: ev.target?.result as string });
           img.src = ev.target?.result as string;
         };
         reader.readAsDataURL(file);
       });
 
-      const result = await (window as any).Tesseract.recognize(preprocessedImageSrc, 'chi_tra+eng');
-      const rawText = result.data.text || '';
-      console.log('Raw OCR Output:\n', rawText);
-
-      // Clean lines and filter out mobile status bar / system UI garbage
-      const lines = rawText
-        .split('\n')
-        .map((l: string) => l.trim())
-        .filter((l: string) => {
-          if (!l || l.length < 2) return false;
-          if (/^(?:[0-2]?[0-9]:[0-5][0-9]|5G|4G|LTE|WiFi|100%|[0-9]{1,2}%|付款詳細資訊|交易資訊|交易來源|商店資訊)$/i.test(l)) return false;
-          if (/^[0-2]?[0-9]:[0-5][0-9]\s*[@\u4e00-\u9fa5]/i.test(l)) return false; // e.g. "20:45 @ 三"
-          return true;
-        });
-
-      // 1. Amount Extraction (Prioritize total labels: 實際支付金額, 總金額, 合計 across line breaks)
       let foundAmount = 0;
-      const priorityAmountMatch = rawText.match(/(?:實際支付金額|總金額|合計|小計)[\s\S]{0,35}?\$?\s*([0-9,]{2,7}(?:\.[0-9]{1,2})?)/i);
-      if (priorityAmountMatch) {
-        const val = parseFloat(priorityAmountMatch[1].replace(/,/g, ''));
-        if (val > 0 && val < 1000000) {
-          foundAmount = val;
-        }
-      }
-
-      if (!foundAmount) {
-        const amountRegexes = [
-          /(?:NT\$|NTS|NT\s*\$|\$|金額|實付|價格|小計)[\s:]*([0-9,]+(?:\.[0-9]{1,2})?)/gi,
-          /([0-9,]+)\s*(?:元|TWD|NTD)/gi
-        ];
-
-        for (const rx of amountRegexes) {
-          let match;
-          while ((match = rx.exec(rawText)) !== null) {
-            const numStr = match[1].replace(/,/g, '');
-            const val = parseFloat(numStr);
-            if (val > 0 && val < 1000000) {
-              foundAmount = val;
-              break;
-            }
-          }
-          if (foundAmount > 0) break;
-        }
-      }
-
-      if (!foundAmount) {
-        for (const line of lines) {
-          const m = line.match(/(?:NT\$|NTS|\$)?\s*([0-9]{1,6})/i);
-          if (m && (line.includes('NT') || line.includes('$') || line.includes('元'))) {
-            const val = parseFloat(m[1]);
-            if (val > 0 && val < 500000) {
-              foundAmount = val;
-              break;
-            }
-          }
-        }
-      }
-
-      // 2. Date Extraction (Prioritize "付款日期" for Line Pay or full timestamp 202X/M/D)
       let foundDate = '';
-      const payDateMatch = rawText.match(/付款日期[\s\S]{0,25}?([0-9]{4})[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/i);
-      if (payDateMatch) {
-        const y = payDateMatch[1];
-        const m = payDateMatch[2].padStart(2, '0');
-        const d = payDateMatch[3].padStart(2, '0');
-        foundDate = `${y}-${m}-${d}`;
-      }
-
-      if (!foundDate) {
-        const timestampMatch = rawText.match(/(202[0-9])[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
-        if (timestampMatch) {
-          const y = timestampMatch[1];
-          const m = timestampMatch[2].padStart(2, '0');
-          const d = timestampMatch[3].padStart(2, '0');
-          foundDate = `${y}-${m}-${d}`;
-        } else {
-          const minguoMatch = rawText.match(/(1[0-2][0-9])[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
-          if (minguoMatch) {
-            const y = String(parseInt(minguoMatch[1]) + 1911);
-            const m = minguoMatch[2].padStart(2, '0');
-            const d = minguoMatch[3].padStart(2, '0');
-            foundDate = `${y}-${m}-${d}`;
-          }
-        }
-      }
-
-      // Helper to identify and reject company header / tax ID lines
-      const isCompanyHeader = (l: string) => {
-        return /蝦皮|電商|新加坡|公司|公句|統編|條碼|分公司|地址|代表人|營業人|娛樂/i.test(l);
-      };
-
-      // Helper to identify and reject advertisement & footer garbage lines
-      const isAdOrGarbage = (l: string) => {
-        return /亞培|安素|HMB|體力|免費試用|年過|鎖住|GEL|Clinical|STUDY|Shield|試用包|贊助|廣告|優惠/i.test(l);
-      };
-
-      // 3. Product / Note Extraction (Target Shopee 購買品項, E-Invoice 品名, or Line Pay Item)
       let foundNote = '';
+      let foundAccountName = '';
+      let isQRCodeScan = false;
 
-      // Strategy 0: Product Line with brackets (【...】, [...], (...)) or product spec keywords (cm, ml, kg, 鋼, 樂)
-      for (const line of lines) {
-        if (isCompanyHeader(line) || isAdOrGarbage(line)) continue;
-
-        // Bracket check (matches 【...】, [...], (...))
-        if (/[【\[\(\{].+?[】\]\)\}]/.test(line) && line.length > 5) {
-          foundNote = line;
-          break;
+      if (scanResult.qrParsed) {
+        isQRCodeScan = true;
+        const qp = scanResult.qrParsed;
+        if (qp.amount) foundAmount = qp.amount;
+        if (qp.date) foundDate = qp.date;
+        if (qp.note) foundNote = qp.note;
+      } else {
+        // Fall back to Tesseract OCR
+        if (!(window as any).Tesseract) {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
         }
 
-        // Product spec keywords
-        if (/(?:cm|mm|ml|g|kg|不鏽鋼|鋼|雙層|隔熱|雷刻|理想牌|台灣製|優酪乳|客製|無加糖)/i.test(line) && line.length > 5) {
-          foundNote = line;
-          break;
-        }
-      }
+        const result = await (window as any).Tesseract.recognize(scanResult.preprocessedSrc, 'chi_tra+eng');
+        const rawText = result.data.text || '';
+        console.log('Raw OCR Output:\n', rawText);
 
-      // Strategy A: Shopee Invoice ("購買品項")
-      if (!foundNote) {
-        const shopeeIdx = lines.findIndex(l => l.includes('購買品項') || l.includes('品項'));
-        if (shopeeIdx !== -1) {
-          for (let k = shopeeIdx + 1; k < Math.min(shopeeIdx + 4, lines.length); k++) {
-            const l = lines[k];
-            if (!isCompanyHeader(l) && !isAdOrGarbage(l) && !l.includes('總金額') && l.length > 3) {
-              foundNote = l;
-              break;
+        // Clean lines and filter out mobile status bar / system UI garbage
+        const lines = rawText
+          .split('\n')
+          .map((l: string) => l.trim())
+          .filter((l: string) => {
+            if (!l || l.length < 2) return false;
+            if (/^(?:[0-2]?[0-9]:[0-5][0-9]|5G|4G|LTE|WiFi|100%|[0-9]{1,2}%|付款詳細資訊|交易資訊|交易來源|商店資訊)$/i.test(l)) return false;
+            if (/^[0-2]?[0-9]:[0-5][0-9]\s*[@\u4e00-\u9fa5]/i.test(l)) return false; // e.g. "20:45 @ 三"
+            return true;
+          });
+
+        // 1. Amount Extraction (Prioritize total labels: 實際支付金額, 總金額, 合計 across line breaks)
+        const priorityAmountMatch = rawText.match(/(?:實際支付金額|總金額|合計|小計)[\s\S]{0,35}?\$?\s*([0-9,]{2,7}(?:\.[0-9]{1,2})?)/i);
+        if (priorityAmountMatch) {
+          const val = parseFloat(priorityAmountMatch[1].replace(/,/g, ''));
+          if (val > 0 && val < 1000000) {
+            foundAmount = val;
+          }
+        }
+
+        if (!foundAmount) {
+          const amountRegexes = [
+            /(?:NT\$|NTS|NT\s*\$|\$|金額|實付|價格|小計)[\s:]*([0-9,]+(?:\.[0-9]{1,2})?)/gi,
+            /([0-9,]+)\s*(?:元|TWD|NTD)/gi
+          ];
+
+          for (const rx of amountRegexes) {
+            let match;
+            while ((match = rx.exec(rawText)) !== null) {
+              const numStr = match[1].replace(/,/g, '');
+              const val = parseFloat(numStr);
+              if (val > 0 && val < 1000000) {
+                foundAmount = val;
+                break;
+              }
+            }
+            if (foundAmount > 0) break;
+          }
+        }
+
+        if (!foundAmount) {
+          for (const line of lines) {
+            const m = line.match(/(?:NT\$|NTS|\$)?\s*([0-9]{1,6})/i);
+            if (m && (line.includes('NT') || line.includes('$') || line.includes('元'))) {
+              const val = parseFloat(m[1]);
+              if (val > 0 && val < 500000) {
+                foundAmount = val;
+                break;
+              }
             }
           }
         }
-      }
 
-      // Strategy B: E-Invoice ("品名")
-      if (!foundNote) {
-        const itemHeaderIdx = lines.findIndex(l => l.includes('品名') || l.includes('數量') || l.includes('小計'));
-        if (itemHeaderIdx !== -1) {
-          for (let j = itemHeaderIdx + 1; j < Math.min(itemHeaderIdx + 4, lines.length); j++) {
-            const l = lines[j];
-            if (!l.includes('共') && !l.includes('合計') && !isCompanyHeader(l) && !isAdOrGarbage(l) && l.length > 2) {
-              foundNote = l;
-              break;
+        // 2. Date Extraction (Prioritize "付款日期" for Line Pay or full timestamp 202X/M/D)
+        const payDateMatch = rawText.match(/付款日期[\s\S]{0,25}?([0-9]{4})[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/i);
+        if (payDateMatch) {
+          const y = payDateMatch[1];
+          const m = payDateMatch[2].padStart(2, '0');
+          const d = payDateMatch[3].padStart(2, '0');
+          foundDate = `${y}-${m}-${d}`;
+        }
+
+        if (!foundDate) {
+          const timestampMatch = rawText.match(/(202[0-9])[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
+          if (timestampMatch) {
+            const y = timestampMatch[1];
+            const m = timestampMatch[2].padStart(2, '0');
+            const d = timestampMatch[3].padStart(2, '0');
+            foundDate = `${y}-${m}-${d}`;
+          } else {
+            const minguoMatch = rawText.match(/(1[0-2][0-9])[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
+            if (minguoMatch) {
+              const y = String(parseInt(minguoMatch[1]) + 1911);
+              const m = minguoMatch[2].padStart(2, '0');
+              const d = minguoMatch[3].padStart(2, '0');
+              foundDate = `${y}-${m}-${d}`;
             }
           }
         }
-      }
 
-      // Strategy C: Line Pay Store / Product Name
-      if (!foundNote) {
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾') || line.includes('噴啾')) {
-            if (!isCompanyHeader(line) && !isAdOrGarbage(line)) {
-              foundNote = line;
-              break;
-            }
-          }
-        }
-      }
+        // Helper to identify and reject company header / tax ID lines
+        const isCompanyHeader = (l: string) => {
+          return /蝦皮|電商|新加坡|公司|公句|統編|條碼|分公司|地址|代表人|營業人|娛樂/i.test(l);
+        };
 
-      if (!foundNote) {
-        const merchantKeywords = ['LINE Pay', '7-ELEVEN', '7-11', '全家', '萊爾富', 'OK超商', '麥當勞', '摩斯', '肯德基', '星巴克', '蝦皮', 'Uber', 'Foodpanda', '中油', '家樂福', '全聯', '寶雅', '屈臣氏', '康是美', '大潤發', '美廉社'];
+        // Helper to identify and reject advertisement & footer garbage lines
+        const isAdOrGarbage = (l: string) => {
+          return /亞培|安素|HMB|體力|免費試用|年過|鎖住|GEL|Clinical|STUDY|Shield|試用包|贊助|廣告|優惠/i.test(l);
+        };
+
+        // 3. Product / Note Extraction (Target Shopee 購買品項, E-Invoice 品名, or Line Pay Item)
+        // Strategy 0: Product Line with brackets (【...】, [...], (...)) or product spec keywords (cm, ml, kg, 鋼, 樂)
         for (const line of lines) {
-          for (const kw of merchantKeywords) {
-            if (line.toLowerCase().includes(kw.toLowerCase()) && !isCompanyHeader(line) && !isAdOrGarbage(line)) {
-              foundNote = line;
-              break;
-            }
-          }
-          if (foundNote) break;
-        }
-      }
+          if (isCompanyHeader(line) || isAdOrGarbage(line)) continue;
 
-      // Fallback: exclude company headers, tax IDs, invoice numbers, ad garbage
-      if (!foundNote) {
-        for (const line of lines) {
-          if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額|未開獎|發票明細|捐贈發票|購買品項|總金額|備註)$/.test(line)) continue;
-          if (isCompanyHeader(line) || isAdOrGarbage(line) || line.includes('CW18') || line.includes('DN-') || line.includes('5680')) continue;
-          if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 60 && !line.includes('202') && !line.includes('NT$')) {
+          // Bracket check (matches 【...】, [...], (...))
+          if (/[【\[\(\{].+?[】\]\)\}]/.test(line) && line.length > 5) {
+            foundNote = line;
+            break;
+          }
+
+          // Product spec keywords
+          if (/(?:cm|mm|ml|g|kg|不鏽鋼|鋼|雙層|隔熱|雷刻|理想牌|台灣製|優酪乳|客製|無加糖)/i.test(line) && line.length > 5) {
             foundNote = line;
             break;
           }
         }
-      }
 
-      // Clean up note text: strip prices ($449x1, $449), quantities, UI icon artifacts, collapse Chinese spaces, fix OCR typos
-      if (foundNote) {
-        foundNote = foundNote
-          .replace(/\$[0-9]+x[0-9]+/gi, '')
-          .replace(/\$[0-9]+/gi, '')
-          .replace(/x[0-9]+/gi, '')
-          .replace(/^[加圖商店 Icon\s]+/g, '')
-          .replace(/\[(?:即加|即眾|3270|即眾不回|即加不合|即)/g, '【妤眾不同')
-          .replace(/【(?:即加|即眾|3270|即眾不回|即加不合)/g, '【妤眾不同')
-          .replace(/代富刻/g, '雷刻')
-          .replace(/靈刻/g, '雷刻')
-          .replace(/不欠[鋼鍋碗]/g, '不鏽鋼')
-          .replace(/不鍛鋼/g, '不鏽鋼')
-          .replace(/雙[府飛]/g, '雙層')
-          .replace(/隔[替府]/g, '隔熱')
-          .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
-          .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
-          .replace(/\(product\)/gi, '')
-          .replace(/(?:噴|嘖|味|咖|口卡)\s*啾/g, '咔啾')
-          .trim();
-      }
+        // Strategy A: Shopee Invoice ("購買品項")
+        if (!foundNote) {
+          const shopeeIdx = lines.findIndex(l => l.includes('購買品項') || l.includes('品項'));
+          if (shopeeIdx !== -1) {
+            for (let k = shopeeIdx + 1; k < Math.min(shopeeIdx + 4, lines.length); k++) {
+              const l = lines[k];
+              if (!isCompanyHeader(l) && !isAdOrGarbage(l) && !l.includes('總金額') && l.length > 3) {
+                foundNote = l;
+                break;
+              }
+            }
+          }
+        }
 
-      // 4. Auto-detect Account (e.g. 中國信託 / JCB / 3457 / line pay)
-      let foundAccountName = '';
-      if (accounts && accounts.length > 0) {
-        for (const acc of accounts) {
-          const accName = acc.name.toLowerCase();
-          if (rawText.includes(acc.name) || (accName.includes('中信') && (rawText.includes('中國信託') || rawText.includes('中信') || rawText.includes('JCB') || rawText.includes('3457'))) || (accName.includes('台新') && rawText.includes('台新')) || (accName.includes('玉山') && rawText.includes('玉山')) || (accName.includes('國泰') && rawText.includes('國泰'))) {
-            setSelectedAccountId(acc.id);
-            foundAccountName = acc.name;
-            break;
+        // Strategy B: E-Invoice ("品名")
+        if (!foundNote) {
+          const itemHeaderIdx = lines.findIndex(l => l.includes('品名') || l.includes('數量') || l.includes('小計'));
+          if (itemHeaderIdx !== -1) {
+            for (let j = itemHeaderIdx + 1; j < Math.min(itemHeaderIdx + 4, lines.length); j++) {
+              const l = lines[j];
+              if (!l.includes('共') && !l.includes('合計') && !isCompanyHeader(l) && !isAdOrGarbage(l) && l.length > 2) {
+                foundNote = l;
+                break;
+              }
+            }
+          }
+        }
+
+        // Strategy C: Line Pay Store / Product Name
+        if (!foundNote) {
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾') || line.includes('噴啾')) {
+              if (!isCompanyHeader(line) && !isAdOrGarbage(line)) {
+                foundNote = line;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!foundNote) {
+          const merchantKeywords = ['LINE Pay', '7-ELEVEN', '7-11', '全家', '萊爾富', 'OK超商', '麥當勞', '摩斯', '肯德基', '星巴克', '蝦皮', 'Uber', 'Foodpanda', '中油', '家樂福', '全聯', '寶雅', '屈臣氏', '康是美', '大潤發', '美廉社'];
+          for (const line of lines) {
+            for (const kw of merchantKeywords) {
+              if (line.toLowerCase().includes(kw.toLowerCase()) && !isCompanyHeader(line) && !isAdOrGarbage(line)) {
+                foundNote = line;
+                break;
+              }
+            }
+            if (foundNote) break;
+          }
+        }
+
+        // Fallback: exclude company headers, tax IDs, invoice numbers, ad garbage
+        if (!foundNote) {
+          for (const line of lines) {
+            if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額|未開獎|發票明細|捐贈發票|購買品項|總金額|備註)$/.test(line)) continue;
+            if (isCompanyHeader(line) || isAdOrGarbage(line) || line.includes('CW18') || line.includes('DN-') || line.includes('5680')) continue;
+            if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 60 && !line.includes('202') && !line.includes('NT$')) {
+              foundNote = line;
+              break;
+            }
+          }
+        }
+
+        // Clean up note text: strip prices ($449x1, $449), quantities, UI icon artifacts, collapse Chinese spaces, fix OCR typos
+        if (foundNote) {
+          foundNote = foundNote
+            .replace(/\$[0-9]+x[0-9]+/gi, '')
+            .replace(/\$[0-9]+/gi, '')
+            .replace(/x[0-9]+/gi, '')
+            .replace(/^[加圖商店 Icon\s]+/g, '')
+            .replace(/\[(?:即加|即眾|3270|即眾不回|即加不合|即)/g, '【妤眾不同')
+            .replace(/【(?:即加|即眾|3270|即眾不回|即加不合)/g, '【妤眾不同')
+            .replace(/代富刻/g, '雷刻')
+            .replace(/靈刻/g, '雷刻')
+            .replace(/不欠[鋼鍋碗]/g, '不鏽鋼')
+            .replace(/不鍛鋼/g, '不鏽鋼')
+            .replace(/雙[府飛]/g, '雙層')
+            .replace(/隔[替府]/g, '隔熱')
+            .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
+            .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
+            .replace(/\(product\)/gi, '')
+            .replace(/(?:噴|嘖|味|咖|口卡)\s*啾/g, '咔啾')
+            .trim();
+        }
+
+        // 4. Auto-detect Account (e.g. 中國信託 / JCB / 3457 / line pay)
+        if (accounts && accounts.length > 0) {
+          for (const acc of accounts) {
+            const accName = acc.name.toLowerCase();
+            if (rawText.includes(acc.name) || (accName.includes('中信') && (rawText.includes('中國信託') || rawText.includes('中信') || rawText.includes('JCB') || rawText.includes('3457'))) || (accName.includes('台新') && rawText.includes('台新')) || (accName.includes('玉山') && rawText.includes('玉山')) || (accName.includes('國泰') && rawText.includes('國泰'))) {
+              setSelectedAccountId(acc.id);
+              foundAccountName = acc.name;
+              break;
+            }
           }
         }
       }
@@ -11095,13 +11196,13 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       }
 
       if (summaryStr.length > 0) {
-        alert(`✨ 成功辨識交易明細！\n\n${summaryStr.join('\n')}`);
+        alert(isQRCodeScan ? `✨ 成功讀取發票 QR Code！\n\n${summaryStr.join('\n')}` : `✨ 成功辨識交易明細！\n\n${summaryStr.join('\n')}`);
       } else {
-        alert("📷 已讀取截圖，未能自動解析出清楚的數字或日期，請手動輸入。");
+        alert("📷 已讀取發票/截圖，未能自動解析出清楚的數字或日期，請手動輸入。");
       }
 
     } catch (err) {
-      console.error("OCR Error:", err);
+      console.error("Scan Error:", err);
       alert("辨識圖片時發生錯誤，請重試一次。");
     } finally {
       setIsScanningReceipt(false);
