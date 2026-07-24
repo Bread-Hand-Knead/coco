@@ -12202,7 +12202,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 {/* Basic Info */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-stone-300 uppercase">範本名稱</label>
+                    <label className="text-[14px] font-bold text-stone-600 uppercase px-1">範本名稱</label>
                     <input 
                       value={editingTemplate.name} 
                       onChange={e => setEditingTemplate({...editingTemplate, name: e.target.value})}
@@ -12210,7 +12210,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-stone-300 uppercase">預設金額</label>
+                    <label className="text-[14px] font-bold text-stone-600 uppercase px-1">預設金額</label>
                     <input 
                       type="number"
                       value={editingTemplate.amount} 
@@ -12222,7 +12222,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
                 {/* Note Info */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-stone-300 uppercase">預設備註 (買了什麼？)</label>
+                  <label className="text-[14px] font-bold text-stone-600 uppercase px-1">預設備註 (買了什麼？)</label>
                   <input 
                     value={editingTemplate.note || ''} 
                     onChange={e => setEditingTemplate({...editingTemplate, note: e.target.value})}
@@ -12233,7 +12233,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
                 {/* Type Selection */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-stone-300 uppercase">收支類型</label>
+                  <label className="text-[14px] font-bold text-stone-600 uppercase px-1">收支類型</label>
                   <div className="flex gap-2">
                     {['expense', 'income', 'transfer'].map(type => (
                       <button
@@ -12249,7 +12249,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
                 {/* Account Selection */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-stone-300 uppercase px-2">
+                  <label className="text-[14px] font-bold text-stone-600 uppercase px-2">
                     {editingTemplate.type === 'transfer' ? '來源帳戶' : '預設帳戶'}
                   </label>
                   {renderAccountSelector(
@@ -12264,7 +12264,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 {/* Destination Account (Transfer Only) */}
                 {editingTemplate.type === 'transfer' && (
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-stone-300 uppercase px-2">目的帳戶</label>
+                    <label className="text-[14px] font-bold text-stone-600 uppercase px-2">目的帳戶</label>
                     {renderAccountSelector(
                       editingTemplate.toAccountId || '',
                       (id) => setEditingTemplate({ ...editingTemplate, toAccountId: id }),
@@ -12279,7 +12279,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 {editingTemplate.type !== 'transfer' && (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-stone-300 uppercase">主分類</label>
+                      <label className="text-[14px] font-bold text-stone-600 uppercase px-1">主分類</label>
                       <HorizontalScrollArea>
                         {categories.map(cat => (
                           <button 
@@ -12296,7 +12296,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
                     {/* Sub Category */}
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">子分類</label>
+                      <label className="text-[14px] font-bold text-stone-600 uppercase px-1">子分類</label>
                       <div className="grid grid-cols-3 gap-2">
                         {categories.find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub.map(sub => (
                           <button 
