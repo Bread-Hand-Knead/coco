@@ -411,6 +411,11 @@ const getBankKeyword = (name: string, parentName?: string): string | null => {
 const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: string; type: string }, accB: { id: string; name: string; parentId?: string; type: string }, accountsList: Account[]): boolean => {
   if (accA.id === accB.id) return false;
   if (accA.type !== 'credit' || accB.type !== 'credit') return false;
+
+  // Exception: SinoPac Dual Currency Card (幣倍卡) does not share limit with other cards
+  const isBiBeiA = accA.name.includes('幣倍');
+  const isBiBeiB = accB.name.includes('幣倍');
+  if (isBiBeiA !== isBiBeiB) return false;
   
   // 1. Same parentId (non-empty)
   if (accA.parentId && accB.parentId && accA.parentId === accB.parentId) return true;
