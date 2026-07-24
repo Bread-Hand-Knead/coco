@@ -10702,6 +10702,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const [expandedBanks, setExpandedBanks] = useState<{ [key: string]: boolean }>({});
   const [expandedSourceBanks, setExpandedSourceBanks] = useState<{ [key: string]: boolean }>({});
   const [expandedDestBanks, setExpandedDestBanks] = useState<{ [key: string]: boolean }>({});
+  const [expandedTemplateFromBanks, setExpandedTemplateFromBanks] = useState<{ [key: string]: boolean }>({});
+  const [expandedTemplateToBanks, setExpandedTemplateToBanks] = useState<{ [key: string]: boolean }>({});
 
   // Helper to group accounts/cards of same bank
   const getGroupedAndUngrouped = (accountsList: Account[]) => {
@@ -12247,37 +12249,29 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
                 {/* Account Selection */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-stone-300 uppercase">
+                  <label className="text-[10px] font-bold text-stone-300 uppercase px-2">
                     {editingTemplate.type === 'transfer' ? '來源帳戶' : '預設帳戶'}
                   </label>
-                  <HorizontalScrollArea>
-                    {accounts.map(acc => (
-                      <button 
-                        key={acc.id}
-                        onClick={() => setEditingTemplate({...editingTemplate, fromAccountId: acc.id})}
-                        className={`flex-shrink-0 px-4 py-2 rounded-xl border-2 transition-all text-[10px] font-bold ${editingTemplate.fromAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] text-[#5D4037]' : 'bg-white border-white text-stone-400'}`}
-                      >
-                        {acc.icon} {acc.name}
-                      </button>
-                    ))}
-                  </HorizontalScrollArea>
+                  {renderAccountSelector(
+                    editingTemplate.fromAccountId,
+                    (id) => setEditingTemplate({ ...editingTemplate, fromAccountId: id }),
+                    expandedTemplateFromBanks,
+                    setExpandedTemplateFromBanks,
+                    'template-from'
+                  )}
                 </div>
 
                 {/* Destination Account (Transfer Only) */}
                 {editingTemplate.type === 'transfer' && (
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-stone-300 uppercase">目的帳戶</label>
-                    <HorizontalScrollArea>
-                      {accounts.map(acc => (
-                        <button 
-                          key={acc.id}
-                          onClick={() => setEditingTemplate({...editingTemplate, toAccountId: acc.id})}
-                          className={`flex-shrink-0 px-4 py-2 rounded-xl border-2 transition-all text-[10px] font-bold ${editingTemplate.toAccountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] text-[#5D4037]' : 'bg-white border-white text-stone-400'}`}
-                        >
-                          {acc.icon} {acc.name}
-                        </button>
-                      ))}
-                    </HorizontalScrollArea>
+                    <label className="text-[10px] font-bold text-stone-300 uppercase px-2">目的帳戶</label>
+                    {renderAccountSelector(
+                      editingTemplate.toAccountId || '',
+                      (id) => setEditingTemplate({ ...editingTemplate, toAccountId: id }),
+                      expandedTemplateToBanks,
+                      setExpandedTemplateToBanks,
+                      'template-to'
+                    )}
                   </div>
                 )}
 
