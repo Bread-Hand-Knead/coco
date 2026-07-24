@@ -12285,10 +12285,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           <button 
                             key={cat.id}
                             onClick={() => setEditingTemplate({...editingTemplate, category: cat.name})}
-                            className={`flex-shrink-0 px-4 py-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${editingTemplate.category.split(' > ')[0] === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037]' : 'bg-white border-white text-stone-400'}`}
+                            className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                              editingTemplate.category.split(' > ')[0] === cat.name 
+                                ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' 
+                                : 'bg-white text-stone-400 border-white shadow-sm'
+                            }`}
                           >
-                            <span className="text-sm">{cat.icon}</span>
-                            <span className="text-[8px] font-bold">{cat.name}</span>
+                            <div className={`w-10 h-10 ${editingTemplate.category.split(' > ')[0] === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl`}>
+                              {cat.icon}
+                            </div>
+                            <span className={`text-[14px] font-bold text-center px-1 leading-tight ${editingTemplate.category.split(' > ')[0] === cat.name ? 'text-white' : 'text-[#000000]'}`}>{cat.name}</span>
                           </button>
                         ))}
                       </HorizontalScrollArea>
@@ -12302,7 +12308,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           <button 
                             key={sub}
                             onClick={() => setEditingTemplate({...editingTemplate, category: `${editingTemplate.category.split(' > ')[0]} > ${sub}`})}
-                            className={`py-2 rounded-xl border-2 transition-all text-[9px] font-bold ${editingTemplate.category.includes(sub) ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F]' : 'bg-white border-white text-stone-400'}`}
+                            className={`py-3.5 px-3 rounded-xl border-2 transition-all text-[15px] font-bold ${
+                              editingTemplate.category.includes(sub) 
+                                ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F] font-black shadow-sm' 
+                                : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-50 hover:bg-stone-50/50'
+                            }`}
                           >
                             {sub}
                           </button>
