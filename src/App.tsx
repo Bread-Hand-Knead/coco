@@ -6201,8 +6201,12 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
               value={edited.icon}
               onChange={e => {
                 const val = e.target.value;
-                // Simple logic to take the last character if it's an emoji-like input
-                setEdited({ ...edited, icon: val.slice(-2).trim() || edited.icon });
+                if (val === '') {
+                  setEdited({ ...edited, icon: '' });
+                } else {
+                  // Simple logic to take the last character if it's an emoji-like input
+                  setEdited({ ...edited, icon: val.slice(-2).trim() });
+                }
               }}
               className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
               maxLength={2}
@@ -6214,7 +6218,7 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
             <div className="grid grid-cols-5 gap-2">
               {['📝', '✈️', '📱', '👗', '🏠', '💼', '🍱', '🍔', '🎨', '🎬', '🚆', '🚲', '🍕', '🍰', '☕', '🎸', '🎮', '💡', '🧼', '💊'].map(icon => (
                 <button 
-                  key={icon}
+                   key={icon}
                   onClick={() => setEdited({ ...edited, icon })}
                   className={`w-12 h-12 rounded-2xl text-xl flex items-center justify-center transition-all ${edited.icon === icon ? 'bg-[#FFD54F] shadow-md scale-110' : 'bg-white border-2 border-stone-50 hover:bg-stone-50'}`}
                 >
@@ -6225,7 +6229,7 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
           </div>
 
           <button 
-            onClick={() => onSave(edited)}
+            onClick={() => onSave({ ...edited, icon: edited.icon.trim() || '📝' })}
             className="w-full py-5 bg-[#5D4037] text-white rounded-[24px] font-black text-[20px] flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all mt-4 sticky bottom-0"
           >
             <Check size={28} /> 儲存設定
