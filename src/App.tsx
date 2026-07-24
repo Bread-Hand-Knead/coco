@@ -11533,11 +11533,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     e.preventDefault();
     if (!editingTemplate) return;
     
-    const exists = templates.find(t => t.id === editingTemplate.id);
+    const finalTemplate = {
+      ...editingTemplate,
+      amount: parseFloat(editingTemplate.amount as any) || 0
+    };
+
+    const exists = templates.find(t => t.id === finalTemplate.id);
     if (exists) {
-      onUpdateTemplates(templates.map(t => t.id === editingTemplate.id ? editingTemplate : t));
+      onUpdateTemplates(templates.map(t => t.id === finalTemplate.id ? finalTemplate : t));
     } else {
-      onUpdateTemplates([...templates, editingTemplate]);
+      onUpdateTemplates([...templates, finalTemplate]);
     }
     setEditingTemplate(null);
   };
@@ -12203,7 +12208,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     <input 
                       type="number"
                       value={editingTemplate.amount} 
-                      onChange={e => setEditingTemplate({...editingTemplate, amount: parseFloat(e.target.value) || 0})}
+                      onChange={e => setEditingTemplate({...editingTemplate, amount: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) as any})}
                       className="w-full p-3 bg-white border border-stone-100 rounded-xl outline-none font-bold text-sm shadow-sm"
                     />
                   </div>
