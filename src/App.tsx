@@ -396,6 +396,19 @@ const getBankKeyword = (name: string, parentName?: string): string | null => {
     '兆豐', '第一', '一銀', '合作金庫', '合庫', '彰化', '彰銀', '土地', '土銀', 
     '臺灣銀行', '台銀', '上海', '凱基', '樂天'
   ];
+  for (const b of banks) {
+    if (name.includes(b)) {
+      if (b === '中國信託' || b === '中信') return '中信';
+      if (b === '國泰世華' || b === '國泰') return '國泰';
+      if (b === '台北富邦' || b === '富邦') return '富邦';
+      if (b === '一銀' || b === '第一') return '第一';
+      if (b === '合作金庫' || b === '合庫') return '合庫';
+      if (b === '彰化' || b === '彰銀') return '彰銀';
+      if (b === '土地' || b === '土銀') return '土銀';
+      if (b === '臺灣銀行' || b === '台銀') return '台銀';
+      return b;
+    }
+  }
   if (parentName) {
     for (const b of banks) {
       if (parentName.includes(b)) {
@@ -409,19 +422,6 @@ const getBankKeyword = (name: string, parentName?: string): string | null => {
         if (b === '臺灣銀行' || b === '台銀') return '台銀';
         return b;
       }
-    }
-  }
-  for (const b of banks) {
-    if (name.includes(b)) {
-      if (b === '中國信託' || b === '中信') return '中信';
-      if (b === '國泰世華' || b === '國泰') return '國泰';
-      if (b === '台北富邦' || b === '富邦') return '富邦';
-      if (b === '一銀' || b === '第一') return '第一';
-      if (b === '合作金庫' || b === '合庫') return '合庫';
-      if (b === '彰化' || b === '彰銀') return '彰銀';
-      if (b === '土地' || b === '土銀') return '土銀';
-      if (b === '臺灣銀行' || b === '台銀') return '台銀';
-      return b;
     }
   }
   return null;
