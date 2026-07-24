@@ -4508,6 +4508,14 @@ function CreditLimitBar({ account, accounts, records }: { account: Account; acco
     ? 'bg-gradient-to-r from-[#FF7043] to-[#E64A19]' // Warning orange-red
     : 'bg-gradient-to-r from-[#4CAF50] to-[#2196F3]';  // Elegant blue-green
 
+  const cur = account.currency || 'TWD';
+  const showTwdEquiv = cur !== 'TWD';
+  let availableTwdText = '';
+  if (showTwdEquiv) {
+    const availableTwd = convertCurrency(available, cur, 'TWD', records, accounts);
+    availableTwdText = ` (約 NT$ ${Math.round(availableTwd).toLocaleString()})`;
+  }
+
   return (
     <div 
       className="mt-3 p-3 bg-[#FFFDF5] rounded-2xl border border-[#FFD54F]/20 flex flex-col gap-1.5 w-full shadow-inner"
@@ -4515,10 +4523,10 @@ function CreditLimitBar({ account, accounts, records }: { account: Account; acco
     >
       <div className="flex flex-row justify-between items-center text-[11px] font-bold text-[#5D4037]/80 flex-wrap gap-1">
         <span style={getFontFamily()}>
-          可用額度：<span className={isHighUsage ? "text-rose-500 font-extrabold" : "text-emerald-700 font-extrabold"} style={getFontFamily()}>${available.toLocaleString()}</span>
+          可用額度：<span className={isHighUsage ? "text-rose-500 font-extrabold" : "text-emerald-700 font-extrabold"} style={getFontFamily()}>${available.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>{availableTwdText}
         </span>
         <span style={getFontFamily()}>
-          總額度：<span className="font-extrabold" style={getFontFamily()}>${creditLimit.toLocaleString()}</span> ({percent.toFixed(1)}%)
+          總額度：<span className="font-extrabold" style={getFontFamily()}>${creditLimit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> ({percent.toFixed(1)}%)
         </span>
       </div>
       
