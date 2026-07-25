@@ -2208,6 +2208,7 @@ export default function App() {
               onClose={() => setIsRecordModalOpen(false)}
               onSave={handleSaveRecord}
               selectedDate={selectedDate}
+              records={records}
             />
           )}
         </AnimatePresence>
@@ -10628,7 +10629,7 @@ function HorizontalScrollArea({
   );
 }
 
-function RecordModal({ accounts, categories, templates, projects, initialProjectId, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate }: { 
+function RecordModal({ accounts, categories, templates, projects, initialProjectId, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate, records }: { 
   accounts: Account[], 
   categories: Category[],
   templates: Template[], 
@@ -10638,7 +10639,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   onUpdateCategories: (c: Category[]) => void,
   onClose: () => void, 
   onSave: (r: any, keepOpen?: boolean) => void,
-  selectedDate: string
+  selectedDate: string,
+  records: Transaction[]
 }) {
   const [tab, setTab] = useState<'template' | 'expense' | 'income' | 'transfer'>('template');
   const [amount, setAmount] = useState('0');
