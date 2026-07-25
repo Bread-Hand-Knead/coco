@@ -10774,6 +10774,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   ) => {
     const { groupedList, singleList } = getGroupedAndUngrouped(accounts);
 
+    const selectedAcc = currentSelectedId ? accounts.find(a => a.id === currentSelectedId) : null;
+    const selectedAccBalance = selectedAcc ? calculateAccountBalance(selectedAcc, accounts, records) : 0;
+
     // Merge lists to render: singles first, then groups
     const items: (
       | { type: 'single'; account: Account }
@@ -10793,7 +10796,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               return (
                 <button 
                   key={`${keyPrefix}-${acc.id}`}
-                  onClick={() => onSelect(acc.id)}
+                  onClick={() => onSelect(isSelected ? '' : acc.id)}
                   type="button"
                   className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
                     isSelected ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
@@ -10816,11 +10819,18 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 <button 
                   key={`${keyPrefix}-group-${group.bankName}`}
                   onClick={() => {
-                    // Toggle expansion
-                    setExpandedState(prev => ({ ...prev, [group.bankName]: !prev[group.bankName] }));
-                    // If none of the sub-accounts are selected, auto-select the first one
-                    if (!activeSub) {
-                      onSelect(group.accounts[0].id);
+                    const isNextExpanded = !isExpanded;
+                    setExpandedState(prev => ({ ...prev, [group.bankName]: isNextExpanded }));
+                    if (!isNextExpanded) {
+                      // If collapsing, deselect any sub-account from this group
+                      if (activeSub) {
+                        onSelect('');
+                      }
+                    } else {
+                      // If expanding, select the first sub-account if none is selected
+                      if (!activeSub) {
+                        onSelect(group.accounts[0].id);
+                      }
                     }
                   }}
                   type="button"
@@ -10850,6 +10860,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         {groupedList.map(group => {
           const isExpanded = !!expandedState[group.bankName];
           if (!isExpanded) return null;
+          const activeSub = group.accounts.find(a => a.id === currentSelectedId);
 
           return (
             <div 
@@ -10859,7 +10870,12 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               <div className="text-[12px] font-bold text-stone-400 px-2 flex items-center justify-between">
                 <span>🏦 {group.bankName} 卡片與帳戶</span>
                 <button 
-                  onClick={() => setExpandedState(prev => ({ ...prev, [group.bankName]: false }))}
+                  onClick={() => {
+                    setExpandedState(prev => ({ ...prev, [group.bankName]: false }));
+                    if (activeSub) {
+                      onSelect('');
+                    }
+                  }}
                   type="button"
                   className="text-[11px] text-stone-400 hover:text-[#5D4037] font-bold"
                 >
@@ -10869,10 +10885,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               <div className="flex flex-wrap gap-2">
                 {group.accounts.map(subAcc => {
                   const isSubSelected = currentSelectedId === subAcc.id;
+                  const subBal = calculateAccountBalance(subAcc, accounts, records);
                   return (
                     <button
                       key={`${keyPrefix}-sub-${subAcc.id}`}
-                      onClick={() => onSelect(subAcc.id)}
+                      onClick={() => onSelect(isSubSelected ? '' : subAcc.id)}
                       type="button"
                       className={`px-3 py-2 rounded-xl text-[14px] font-bold shadow-sm transition-all border flex items-center gap-1.5 ${
                         isSubSelected 
@@ -10881,7 +10898,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                       }`}
                     >
                       <span className="text-lg">{subAcc.icon}</span>
-                      <span>{subAcc.name}</span>
+                      <span>
+                        {subAcc.name} {subBal < 0 ? '-' : ''}${Math.abs(subBal).toLocaleString()}
+                      </span>
                     </button>
                   );
                 })}
@@ -10889,6 +10908,21 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
             </div>
           );
         })}
+
+        {/* Selected Account Info Popup */}
+        {selectedAcc && (
+          <div className="mx-8 mt-2 p-3.5 bg-[#FFFDF5] border border-[#FBC02D]/20 rounded-2xl flex items-center justify-between text-[#5D4037] shadow-inner animate-fade-in" style={getFontFamily()}>
+            <span className="text-xs font-bold opacity-60">目前選擇帳戶</span>
+            <span className="text-sm font-black flex items-center gap-1.5">
+              <span>{selectedAcc.icon}</span>
+              <span>{selectedAcc.name}</span>
+              <span className="opacity-30 font-bold">|</span>
+              <span className={selectedAccBalance < 0 ? 'text-red-500 font-black' : 'text-blue-600 font-black'}>
+                {selectedAccBalance < 0 ? '-' : ''}${Math.abs(selectedAccBalance).toLocaleString()}
+              </span>
+            </span>
+          </div>
+        )}
       </div>
     );
   };
