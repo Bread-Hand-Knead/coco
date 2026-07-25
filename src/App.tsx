@@ -2317,6 +2317,21 @@ export default function App() {
   );
 }
 
+function AccountIcon({ icon, className = "", sizeClassName = "w-6 h-6" }: { icon: string, className?: string, sizeClassName?: string }) {
+  if (!icon) return null;
+  const isImage = icon.startsWith('http') || icon.startsWith('data:image/') || icon.startsWith('/');
+  if (isImage) {
+    return (
+      <img 
+        src={icon} 
+        className={`${sizeClassName} object-contain rounded-md select-none pointer-events-none ${className}`} 
+        alt="icon" 
+      />
+    );
+  }
+  return <span className={className}>{icon}</span>;
+}
+
 function NavButton({ active, icon, label, onClick }: { active: boolean, icon: React.ReactNode, label: string, onClick: () => void }) {
   return (
     <button onClick={onClick} className={`flex flex-col items-center gap-1 transition-all ${active ? 'text-[#5D4037]' : 'text-stone-300'}`}>
@@ -2876,7 +2891,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                       >
                         <div className="flex flex-row items-center gap-3 sm:gap-4 w-full">
                           <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl sm:text-3xl shadow-sm border border-white">
-                            {acc.icon}
+                            <AccountIcon icon={acc.icon} sizeClassName="w-8 h-8 sm:w-10 sm:h-10" />
                           </div>
                           <div className="flex flex-col flex-1 min-w-0">
                             <span className="text-[10px] sm:text-xs font-bold text-stone-300 uppercase tracking-widest mb-1 leading-none truncate" style={getFontFamily()}>
@@ -2948,7 +2963,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                     >
                                       <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
                                         <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-lg sm:text-xl shadow-inner">
-                                          {l2acc.icon}
+                                          <AccountIcon icon={l2acc.icon} sizeClassName="w-5 h-5 sm:w-6 sm:h-6" />
                                         </div>
                                         <div className="flex flex-col flex-1 min-w-0 justify-center">
                                           {l2acc.type === 'credit' ? (
@@ -3017,7 +3032,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                             >
                                               <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
                                                 <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white/80 rounded-lg flex-shrink-0 flex items-center justify-center text-base sm:text-lg shadow-sm">
-                                                  {l3acc.icon}
+                                                  <AccountIcon icon={l3acc.icon} sizeClassName="w-4 h-4 sm:w-5 sm:h-5" />
                                                 </div>
                                                 <div className="flex flex-col flex-1 min-w-0 justify-center">
                                                   {l3acc.type === 'credit' ? (
@@ -3814,7 +3829,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           <div className="flex flex-col gap-2 z-10">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 bg-stone-50 rounded-lg flex items-center justify-center text-xs border border-white">
-                {account.icon}
+                <AccountIcon icon={account.icon} sizeClassName="w-4 h-4" />
               </div>
               <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]" style={getFontFamily()}>
                 {account.type === 'credit' ? '目前未繳金額' : '目前餘額'}
@@ -4626,6 +4641,45 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
     prevBankKey.current = currentBankKey;
   }, [editedAcc.parentId, editedAcc.name, editedAcc.type, accounts, isNew]);
 
+  const handleUploadIconImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSize = 128;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxSize) {
+            height = Math.round((height * maxSize) / width);
+            width = maxSize;
+          }
+        } else {
+          if (height > maxSize) {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/png');
+          setEditedAcc(prev => ({ ...prev, icon: dataUrl }));
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -4734,6 +4788,34 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">選擇圖示</label>
               <HorizontalScrollArea className="px-1">
                 <div className="flex gap-2">
+                  {/* Upload Custom Image Icon */}
+                  <div className="relative flex-shrink-0">
+                    <label className="w-12 h-12 rounded-xl border-2 border-dashed bg-white border-stone-300 shadow-sm flex flex-col items-center justify-center cursor-pointer hover:bg-stone-50 transition-all active:scale-95">
+                      <Upload size={16} className="text-stone-400" />
+                      <span className="text-[8px] font-black text-stone-400 mt-0.5" style={getFontFamily()}>上傳</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleUploadIconImage} 
+                        className="hidden" 
+                      />
+                    </label>
+                  </div>
+
+                  {/* Render Custom Image Icon Preview if active */}
+                  {editedAcc.icon && (editedAcc.icon.startsWith('data:image/') || editedAcc.icon.startsWith('http') || editedAcc.icon.startsWith('/')) && (
+                    <div className="relative flex-shrink-0 w-12 h-12 rounded-xl border-2 border-[#FFD54F] bg-white shadow-md flex items-center justify-center overflow-hidden">
+                      <img src={editedAcc.icon} className="w-full h-full object-contain p-1 select-none pointer-events-none" alt="custom-icon" />
+                      <button 
+                        type="button"
+                        onClick={() => setEditedAcc({ ...editedAcc, icon: '💰' })}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black shadow-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+
                   {/* Custom Emoji Input */}
                   <div className="relative flex-shrink-0">
                     <input 
@@ -5492,7 +5574,7 @@ function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, o
                       edited.accountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
                     }`}
                   >
-                    <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
+                    <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl"><AccountIcon icon={acc.icon} sizeClassName="w-6 h-6" /></div>
                     <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
                   </button>
                 ))}
@@ -5861,7 +5943,7 @@ function AccountSortModal({ accounts, onClose, onSave }: {
                               key={acc.id}
                               className={`flex items-center gap-3 p-3 bg-white/70 rounded-2xl border border-stone-100 shadow-sm transition-all group ${isChild ? 'ml-6 bg-white/40 scale-95' : ''}`}
                             >
-                              <span className="text-xl">{acc.icon}</span>
+                              <AccountIcon icon={acc.icon} sizeClassName="w-5 h-5" className="text-xl flex items-center justify-center" />
                               <div className="flex-1 min-w-0">
                                 <span className="font-bold text-[#5D4037] text-sm truncate block">{acc.name}</span>
                               </div>
@@ -10247,7 +10329,7 @@ function MoreView({
                     <option value="">-- 請選擇帳戶 --</option>
                     {accounts.map(acc => (
                       <option key={acc.id} value={acc.id}>
-                        {acc.icon} {acc.name} ({acc.currency || 'TWD'})
+                        {acc.icon && !(acc.icon.startsWith('http') || acc.icon.startsWith('data:image/') || acc.icon.startsWith('/')) ? acc.icon : '💳'} {acc.name} ({acc.currency || 'TWD'})
                       </option>
                     ))}
                   </select>
@@ -10804,7 +10886,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     isSelected ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
                   }`}
                 >
-                  <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{acc.icon}</div>
+                  <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl"><AccountIcon icon={acc.icon} sizeClassName="w-6 h-6" /></div>
                   <span className="text-[14px] font-bold text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{acc.name}</span>
                 </button>
               );
@@ -10899,7 +10981,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-100'
                       }`}
                     >
-                      <span className="text-lg">{subAcc.icon}</span>
+                      <AccountIcon icon={subAcc.icon} sizeClassName="w-5 h-5" className="text-lg flex items-center justify-center" />
                       <span>
                         {subAcc.name} {subBal < 0 ? '-' : ''}${Math.abs(subBal).toLocaleString()}
                       </span>
@@ -10916,7 +10998,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
           <div className="mx-8 mt-2 p-3.5 bg-[#FFFDF5] border border-[#FBC02D]/20 rounded-2xl flex items-center justify-between text-[#5D4037] shadow-inner animate-fade-in" style={getFontFamily()}>
             <span className="text-xs font-bold opacity-60">目前選擇帳戶</span>
             <span className="text-sm font-black flex items-center gap-1.5">
-              <span>{selectedAcc.icon}</span>
+              <AccountIcon icon={selectedAcc.icon} sizeClassName="w-5 h-5" />
               <span>{selectedAcc.name}</span>
               <span className="opacity-30 font-bold">|</span>
               <span className={selectedAccBalance < 0 ? 'text-red-500 font-black' : 'text-blue-600 font-black'}>
