@@ -4174,7 +4174,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                           }}
                           className={`w-full p-4 rounded-3xl flex items-center gap-3 transition-all ${(edited.projectId || 'p1') === p.id ? 'bg-[#FFD54F] shadow-md scale-[1.02]' : 'bg-white hover:bg-[#FFFDF5] shadow-sm border border-stone-50'}`}
                         >
-                          <span className="text-xl">{p.icon}</span>
+                          <AccountIcon icon={p.icon} sizeClassName="w-5 h-5" className="text-xl flex items-center justify-center" />
                           <span className="font-black text-[#5D4037]">{p.name}</span>
                           {(edited.projectId || 'p1') === p.id && <Check size={18} className="ml-auto text-[#5D4037]" />}
                         </button>
@@ -4188,7 +4188,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                             }}
                             className={`w-[90%] ml-auto p-3 rounded-2xl flex items-center gap-3 transition-all ${(edited.projectId || 'p1') === c.id ? 'bg-[#FFEDAE] shadow-md scale-[1.02]' : 'bg-stone-50/50 hover:bg-stone-100 shadow-sm border border-stone-50/50'}`}
                           >
-                            <span className="text-lg">{c.icon}</span>
+                            <AccountIcon icon={c.icon} sizeClassName="w-4 h-4" className="text-lg flex items-center justify-center" />
                             <span className="font-bold text-[#5D4037] text-sm">{c.name}</span>
                             {(edited.projectId || 'p1') === c.id && <Check size={16} className="ml-auto text-[#5D4037]" />}
                           </button>
@@ -4293,8 +4293,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                   <Layers size={14} className="text-[#FFD54F]" />
                 </div>
                 <div className="flex-1">
-                  <span className="text-[15px] font-black text-[#5D4037]">
-                    {projects.find(p => p.id === (edited.projectId || 'p1'))?.icon} {projects.find(p => p.id === (edited.projectId || 'p1'))?.name || '無特別專案'}
+                  <span className="text-[15px] font-black text-[#5D4037] flex items-center gap-1.5">
+                    <AccountIcon icon={projects.find(p => p.id === (edited.projectId || 'p1'))?.icon || ''} sizeClassName="w-5 h-5" />
+                    <span>{projects.find(p => p.id === (edited.projectId || 'p1'))?.name || '無特別專案'}</span>
                   </span>
                 </div>
                 <ChevronRight size={18} className="text-stone-300" />
@@ -6091,7 +6092,7 @@ function ProjectSortModal({ projects, onClose, onSave }: {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl border border-stone-50 shadow-sm bg-[#FFFDF5]">
-                      {project.icon || '📂'}
+                      <AccountIcon icon={project.icon || '📂'} sizeClassName="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <span className="text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none block mb-1">
@@ -6119,7 +6120,7 @@ function ProjectSortModal({ projects, onClose, onSave }: {
                             className="flex items-center gap-3 p-3 bg-stone-50/70 rounded-2xl border border-stone-100/50 relative"
                           >
                             <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base border border-stone-50 shadow-sm bg-white">
-                              {child.icon || '📄'}
+                              <AccountIcon icon={child.icon || '📄'} sizeClassName="w-4 h-4" />
                             </div>
                             <div className="flex-1 min-w-0">
                               <span className="text-[8px] font-bold text-stone-300 uppercase tracking-widest leading-none block mb-0.5">
@@ -6247,6 +6248,45 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
   // or just not the current project. The prompt suggests a 2-level structure ("主專案" and "子專案").
   const eligibleParents = projects.filter(p => p.id !== project.id && !p.parentId && p.id !== 'p1');
 
+  const handleUploadIconImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSize = 128;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxSize) {
+            height = Math.round((height * maxSize) / width);
+            width = maxSize;
+          }
+        } else {
+          if (height > maxSize) {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/png');
+          setEdited(prev => ({ ...prev, icon: dataUrl }));
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -6307,9 +6347,12 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
               className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all appearance-none cursor-pointer"
             >
               <option value="">(無主專案)</option>
-              {eligibleParents.map(p => (
-                <option key={p.id} value={p.id}>{p.icon} {p.name}</option>
-              ))}
+              {eligibleParents.map(p => {
+                const displayIcon = p.icon && !(p.icon.startsWith('http') || p.icon.startsWith('data:image/') || p.icon.startsWith('/')) ? p.icon : '📂';
+                return (
+                  <option key={p.id} value={p.id}>{displayIcon} {p.name}</option>
+                );
+              })}
             </select>
           </div>
 
@@ -6318,7 +6361,7 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
             <input 
               type="text"
               placeholder="輸入 Emoji..."
-              value={edited.icon}
+              value={edited.icon && !(edited.icon.startsWith('http') || edited.icon.startsWith('data:image/') || edited.icon.startsWith('/')) ? edited.icon : ''}
               onChange={e => {
                 const val = e.target.value;
                 if (val === '') {
@@ -6336,6 +6379,34 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
           <div className="space-y-2">
             <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">專案圖示</label>
             <div className="grid grid-cols-5 gap-2">
+              {/* Upload Custom Image Icon */}
+              <div className="relative">
+                <label className="w-12 h-12 rounded-2xl border-2 border-dashed bg-white border-stone-300 shadow-sm flex flex-col items-center justify-center cursor-pointer hover:bg-stone-50 transition-all active:scale-95">
+                  <Upload size={16} className="text-stone-400" />
+                  <span className="text-[8px] font-black text-stone-400 mt-0.5" style={getFontFamily()}>上傳</span>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={handleUploadIconImage} 
+                    className="hidden" 
+                  />
+                </label>
+              </div>
+
+              {/* Render Custom Image Icon Preview if active */}
+              {edited.icon && (edited.icon.startsWith('data:image/') || edited.icon.startsWith('http') || edited.icon.startsWith('/')) && (
+                <div className="relative w-12 h-12 rounded-2xl border-2 border-[#FFD54F] bg-white shadow-md flex items-center justify-center overflow-hidden">
+                  <img src={edited.icon} className="w-full h-full object-contain p-1 select-none pointer-events-none" alt="custom-icon" />
+                  <button 
+                    type="button"
+                    onClick={() => setEdited({ ...edited, icon: '📝' })}
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black shadow-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
               {['📝', '✈️', '📱', '👗', '🏠', '💼', '🍱', '🍔', '🎨', '🎬', '🚆', '🚲', '🍕', '🍰', '☕', '🎸', '🎮', '💡', '🧼', '💊'].map(icon => (
                 <button 
                    key={icon}
@@ -7303,7 +7374,7 @@ function ProjectItem({ project, stats, onProjectClick, onEditProject, isChild }:
         project.name === '弟弟' ? 'bg-orange-400' :
         project.name === '利息' ? 'bg-green-400' : 'bg-blue-400'
       } text-white transition-transform group-active:scale-95`}>
-        {project.icon}
+        <AccountIcon icon={project.icon} sizeClassName="w-7 h-7" />
       </div>
       <div className="flex-1 flex flex-col">
         <span className={`font-bold text-[#5D4037] ${isChild ? 'text-[15px]' : 'text-[17px]'}`}>{project.name}</span>
@@ -8519,7 +8590,7 @@ function ReportsView({ records, projects, categories }: {
               onClick={() => setSelectedProjectId(p.id)}
               className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-2 ${selectedProjectId === p.id ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F]' : 'bg-white text-stone-500 border-stone-100'}`}
             >
-              <span>{p.icon}</span>
+              <AccountIcon icon={p.icon} sizeClassName="w-4 h-4" />
               <span>{p.name}</span>
             </button>
           ))}
@@ -12301,7 +12372,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                         }}
                         className={`w-full p-4 rounded-3xl flex items-center gap-3 transition-all ${selectedProjectId === p.id ? 'bg-[#FFD54F] shadow-md scale-[1.02]' : 'bg-white hover:bg-[#FFFDF5] shadow-sm border border-stone-50'}`}
                       >
-                        <span className="text-xl">{p.icon}</span>
+                        <AccountIcon icon={p.icon} sizeClassName="w-5 h-5" className="text-xl flex items-center justify-center" />
                         <span className="font-black text-[#5D4037]">{p.name}</span>
                         {selectedProjectId === p.id && <Check size={18} className="ml-auto text-[#5D4037]" />}
                       </button>
@@ -12315,7 +12386,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           }}
                           className={`w-[90%] ml-auto p-3 rounded-2xl flex items-center gap-3 transition-all ${selectedProjectId === c.id ? 'bg-[#FFEDAE] shadow-md scale-[1.02]' : 'bg-stone-50/50 hover:bg-stone-100 shadow-sm border border-stone-50/50'}`}
                         >
-                          <span className="text-lg">{c.icon}</span>
+                          <AccountIcon icon={c.icon} sizeClassName="w-4 h-4" className="text-lg flex items-center justify-center" />
                           <span className="font-bold text-[#5D4037] text-sm">{c.name}</span>
                           {selectedProjectId === c.id && <Check size={16} className="ml-auto text-[#5D4037]" />}
                         </button>
