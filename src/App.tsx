@@ -427,6 +427,35 @@ const getBankKeyword = (name: string, parentName?: string): string | null => {
   return null;
 };
 
+export const getGroupedAndUngrouped = (accountsList: Account[]) => {
+  const groups: { [key: string]: Account[] } = {};
+  const ungrouped: Account[] = [];
+
+  accountsList.forEach(acc => {
+    const parentName = acc.parentId ? accountsList.find(x => x.id === acc.parentId)?.name : undefined;
+    const bankKey = getBankKeyword(acc.name, parentName);
+    if (bankKey) {
+      if (!groups[bankKey]) groups[bankKey] = [];
+      groups[bankKey].push(acc);
+    } else {
+      ungrouped.push(acc);
+    }
+  });
+
+  const grouped: { bankName: string; accounts: Account[] }[] = [];
+  const single: Account[] = [...ungrouped];
+
+  Object.keys(groups).forEach(key => {
+    if (groups[key].length > 1) {
+      grouped.push({ bankName: key, accounts: groups[key] });
+    } else {
+      single.push(...groups[key]);
+    }
+  });
+
+  return { groupedList: grouped, singleList: single };
+};
+
 const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: string; type: string }, accB: { id: string; name: string; parentId?: string; type: string }, accountsList: Account[]): boolean => {
   if (accA.id === accB.id) return false;
   if (accA.type !== 'credit' || accB.type !== 'credit') return false;
@@ -2026,6 +2055,7 @@ export default function App() {
                 fixedRecords={fixedRecords} 
                 accounts={accounts}
                 categories={categories}
+                records={records}
                 onBack={() => setCurrentView('home')}
                 onSave={async (fr) => {
                   if (user) {
@@ -2330,6 +2360,182 @@ function AccountIcon({ icon, className = "", sizeClassName = "w-6 h-6" }: { icon
     );
   }
   return <span className={className}>{icon}</span>;
+}
+
+interface AccountSelectorProps {
+  accounts: Account[];
+  records: Transaction[];
+  currentSelectedId: string;
+  onSelect: (id: string) => void;
+  expandedState: { [key: string]: boolean };
+  setExpandedState: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>;
+  keyPrefix: string;
+}
+
+function AccountSelector({
+  accounts,
+  records,
+  currentSelectedId,
+  onSelect,
+  expandedState,
+  setExpandedState,
+  keyPrefix
+}: AccountSelectorProps) {
+  const { groupedList, singleList } = getGroupedAndUngrouped(accounts);
+
+  const selectedAcc = currentSelectedId ? accounts.find(a => a.id === currentSelectedId) : null;
+  const selectedAccBalance = selectedAcc ? calculateAccountBalance(selectedAcc, accounts, records) : 0;
+
+  // Merge lists to render: singles first, then groups
+  const items: (
+    | { type: 'single'; account: Account }
+    | { type: 'group'; bankName: string; accounts: Account[] }
+  )[] = [];
+
+  singleList.forEach(acc => items.push({ type: 'single', account: acc }));
+  groupedList.forEach(g => items.push({ type: 'group', bankName: g.bankName, accounts: g.accounts }));
+
+  return (
+    <div className="space-y-2">
+      <HorizontalScrollArea className="px-8">
+        {items.map((item) => {
+          if (item.type === 'single') {
+            const acc = item.account;
+            const isSelected = currentSelectedId === acc.id;
+            return (
+              <button 
+                key={`${keyPrefix}-${acc.id}`}
+                onClick={() => onSelect(isSelected ? '' : acc.id)}
+                type="button"
+                className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                  isSelected ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
+                }`}
+              >
+                <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">
+                  <AccountIcon icon={acc.icon} sizeClassName="w-6 h-6" />
+                </div>
+                <span className="text-[14px] font-bold text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{acc.name}</span>
+              </button>
+            );
+          } else {
+            const group = item;
+            const activeSub = group.accounts.find(a => a.id === currentSelectedId);
+            const isSelected = !!activeSub;
+            const isExpanded = !!expandedState[group.bankName];
+
+            // Display the selected sub-account icon/name if chosen, else parent/first sub-account icon
+            const displayIcon = activeSub ? activeSub.icon : group.accounts[0].icon;
+            const displayName = group.bankName;
+
+            return (
+              <button
+                key={`${keyPrefix}-group-${group.bankName}`}
+                onClick={() => {
+                  setExpandedState(prev => {
+                    const next = { ...prev };
+                    // Toggle expanded
+                    next[group.bankName] = !prev[group.bankName];
+                    // Collapse all other groups
+                    Object.keys(next).forEach(k => {
+                      if (k !== group.bankName) next[k] = false;
+                    });
+                    return next;
+                  });
+                }}
+                type="button"
+                className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all relative ${
+                  isSelected ? 'bg-[#FFEDAE] border-[#FFD54F] shadow-md' : 'bg-stone-50 border-stone-200/40 shadow-sm'
+                }`}
+              >
+                {/* Badge for number of sub-accounts */}
+                <span className="absolute top-1 right-2 bg-[#5D4037] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full scale-90">
+                  {group.accounts.length}
+                </span>
+                
+                <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">
+                  <AccountIcon icon={displayIcon} sizeClassName="w-6 h-6" />
+                </div>
+                <span className="text-[14px] font-black text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{displayName}</span>
+                
+                {/* Expansion indicator */}
+                <span className="text-[10px] text-stone-500 font-black absolute bottom-1">
+                  {isExpanded ? '▲' : '▼'}
+                </span>
+              </button>
+            );
+          }
+        })}
+      </HorizontalScrollArea>
+
+      {/* Expanded Sub-Accounts Row */}
+      {groupedList.map(group => {
+        const isExpanded = !!expandedState[group.bankName];
+        if (!isExpanded) return null;
+        const activeSub = group.accounts.find(a => a.id === currentSelectedId);
+
+        return (
+          <div 
+            key={`${keyPrefix}-drawer-${group.bankName}`}
+            className="mt-2 mx-8 p-3.5 bg-stone-50 border border-stone-200/50 rounded-2xl space-y-2 shadow-inner"
+          >
+            <div className="text-[12px] font-bold text-stone-400 px-2 flex items-center justify-between">
+              <span>🏦 {group.bankName} 卡片與帳戶</span>
+              <button 
+                onClick={() => {
+                  setExpandedState(prev => ({ ...prev, [group.bankName]: false }));
+                  if (activeSub) {
+                    onSelect('');
+                  }
+                }}
+                type="button"
+                className="text-[11px] text-stone-400 hover:text-[#5D4037] font-bold"
+              >
+                收起 ▲
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {group.accounts.map(subAcc => {
+                const isSubSelected = currentSelectedId === subAcc.id;
+                const subBal = calculateAccountBalance(subAcc, accounts, records);
+                return (
+                  <button
+                    key={`${keyPrefix}-sub-${subAcc.id}`}
+                    onClick={() => onSelect(isSubSelected ? '' : subAcc.id)}
+                    type="button"
+                    className={`px-3 py-2 rounded-xl text-[14px] font-bold shadow-sm transition-all border flex items-center gap-1.5 ${
+                      isSubSelected 
+                        ? 'bg-[#FFD54F] border-[#FFD54F] text-[#5D4037]' 
+                        : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-100'
+                    }`}
+                  >
+                    <AccountIcon icon={subAcc.icon} sizeClassName="w-5 h-5" className="text-lg flex items-center justify-center" />
+                    <span>
+                      {subAcc.name} {subBal < 0 ? '-' : ''}${Math.abs(subBal).toLocaleString()}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Selected Account Info Popup */}
+      {selectedAcc && (
+        <div className="mx-8 mt-2 p-3.5 bg-[#FFFDF5] border border-[#FBC02D]/20 rounded-2xl flex items-center justify-between text-[#5D4037] shadow-inner animate-fade-in" style={getFontFamily()}>
+          <span className="text-xs font-bold opacity-60">目前選擇帳戶</span>
+          <span className="text-sm font-black flex items-center gap-1.5">
+            <AccountIcon icon={selectedAcc.icon} sizeClassName="w-5 h-5" />
+            <span>{selectedAcc.name}</span>
+            <span className="opacity-30 font-bold">|</span>
+            <span className={selectedAccBalance < 0 ? 'text-red-500 font-black' : 'text-blue-600 font-black'}>
+              {selectedAccBalance < 0 ? '-' : ''}${Math.abs(selectedAccBalance).toLocaleString()}
+            </span>
+          </span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function NavButton({ active, icon, label, onClick }: { active: boolean, icon: React.ReactNode, label: string, onClick: () => void }) {
@@ -5362,10 +5568,11 @@ function DrawerItem({ icon, label, onClick }: { icon: React.ReactNode, label: st
   );
 }
 
-function FixedRecordsView({ fixedRecords, accounts, categories, onBack, onSave, onDelete }: { 
+function FixedRecordsView({ fixedRecords, accounts, categories, records, onBack, onSave, onDelete }: { 
   fixedRecords: FixedRecord[], 
   accounts: Account[], 
   categories: Category[],
+  records: Transaction[],
   onBack: () => void,
   onSave: (fr: FixedRecord) => void,
   onDelete: (id: string) => void
@@ -5444,6 +5651,7 @@ function FixedRecordsView({ fixedRecords, accounts, categories, onBack, onSave, 
             record={editingRecord}
             accounts={accounts}
             categories={categories}
+            records={records}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onSave(updated);
@@ -5460,15 +5668,17 @@ function FixedRecordsView({ fixedRecords, accounts, categories, onBack, onSave, 
   );
 }
 
-function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, onDelete }: { 
+function FixedRecordEditModal({ record, accounts, categories, records, onClose, onSave, onDelete }: { 
   record: FixedRecord, 
   accounts: Account[], 
   categories: Category[],
+  records: Transaction[],
   onClose: () => void, 
   onSave: (fr: FixedRecord) => void,
   onDelete: () => void
 }) {
   const [edited, setEdited] = useState<FixedRecord>({ ...record });
+  const [expandedBanks, setExpandedBanks] = useState<Record<string, boolean>>({});
 
   return (
     <motion.div 
@@ -5573,21 +5783,16 @@ function FixedRecordEditModal({ record, accounts, categories, onClose, onSave, o
             </div>
 
             <div className="space-y-2">
-              <label className="text-[18px] font-bold text-[#000000] uppercase">扣款帳戶</label>
-              <HorizontalScrollArea className="px-8">
-                {accounts.map(acc => (
-                  <button 
-                    key={acc.id}
-                    onClick={() => setEdited({ ...edited, accountId: acc.id })}
-                    className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                      edited.accountId === acc.id ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
-                    }`}
-                  >
-                    <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl"><AccountIcon icon={acc.icon} sizeClassName="w-6 h-6" /></div>
-                    <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{acc.name}</span>
-                  </button>
-                ))}
-              </HorizontalScrollArea>
+              <label className="text-[18px] font-bold text-[#000000] uppercase px-8">扣款帳戶</label>
+              <AccountSelector 
+                accounts={accounts}
+                records={records}
+                currentSelectedId={edited.accountId}
+                onSelect={(id) => setEdited({ ...edited, accountId: id })}
+                expandedState={expandedBanks}
+                setExpandedState={setExpandedBanks}
+                keyPrefix="fixed-record"
+              />
             </div>
 
             <div className="space-y-2">
@@ -10897,35 +11102,6 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const [expandedTemplateFromBanks, setExpandedTemplateFromBanks] = useState<{ [key: string]: boolean }>({});
   const [expandedTemplateToBanks, setExpandedTemplateToBanks] = useState<{ [key: string]: boolean }>({});
 
-  // Helper to group accounts/cards of same bank
-  const getGroupedAndUngrouped = (accountsList: Account[]) => {
-    const groups: { [key: string]: Account[] } = {};
-    const ungrouped: Account[] = [];
-
-    accountsList.forEach(acc => {
-      const parentName = acc.parentId ? accountsList.find(x => x.id === acc.parentId)?.name : undefined;
-      const bankKey = getBankKeyword(acc.name, parentName);
-      if (bankKey) {
-        if (!groups[bankKey]) groups[bankKey] = [];
-        groups[bankKey].push(acc);
-      } else {
-        ungrouped.push(acc);
-      }
-    });
-
-    const grouped: { bankName: string; accounts: Account[] }[] = [];
-    const single: Account[] = [...ungrouped];
-
-    Object.keys(groups).forEach(key => {
-      if (groups[key].length > 1) {
-        grouped.push({ bankName: key, accounts: groups[key] });
-      } else {
-        single.push(...groups[key]);
-      }
-    });
-
-    return { groupedList: grouped, singleList: single };
-  };
 
   // Helper to render grouped/expandable account selector
   const renderAccountSelector = (
@@ -10935,160 +11111,20 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setExpandedState: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>,
     keyPrefix: string
   ) => {
-    const { groupedList, singleList } = getGroupedAndUngrouped(accounts);
-
-    const selectedAcc = currentSelectedId ? accounts.find(a => a.id === currentSelectedId) : null;
-    const selectedAccBalance = selectedAcc ? calculateAccountBalance(selectedAcc, accounts, records) : 0;
-
-    // Merge lists to render: singles first, then groups
-    const items: (
-      | { type: 'single'; account: Account }
-      | { type: 'group'; bankName: string; accounts: Account[] }
-    )[] = [];
-
-    singleList.forEach(acc => items.push({ type: 'single', account: acc }));
-    groupedList.forEach(g => items.push({ type: 'group', bankName: g.bankName, accounts: g.accounts }));
-
     return (
-      <div className="space-y-2">
-        <HorizontalScrollArea className="px-8">
-          {items.map((item) => {
-            if (item.type === 'single') {
-              const acc = item.account;
-              const isSelected = currentSelectedId === acc.id;
-              return (
-                <button 
-                  key={`${keyPrefix}-${acc.id}`}
-                  onClick={() => onSelect(isSelected ? '' : acc.id)}
-                  type="button"
-                  className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                    isSelected ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
-                  }`}
-                >
-                  <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl"><AccountIcon icon={acc.icon} sizeClassName="w-6 h-6" /></div>
-                  <span className="text-[14px] font-bold text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{acc.name}</span>
-                </button>
-              );
-            } else {
-              const group = item;
-              const activeSub = group.accounts.find(a => a.id === currentSelectedId);
-              const isSelected = !!activeSub;
-              const isExpanded = !!expandedState[group.bankName];
-              
-              const displayIcon = '🏦';
-              const displayName = group.bankName;
-
-              return (
-                <button 
-                  key={`${keyPrefix}-group-${group.bankName}`}
-                  onClick={() => {
-                    const isNextExpanded = !isExpanded;
-                    setExpandedState(prev => ({ ...prev, [group.bankName]: isNextExpanded }));
-                    if (!isNextExpanded) {
-                      // If collapsing, deselect any sub-account from this group
-                      if (activeSub) {
-                        onSelect('');
-                      }
-                    } else {
-                      // If expanding, select the first sub-account if none is selected
-                      if (!activeSub) {
-                        onSelect(group.accounts[0].id);
-                      }
-                    }
-                  }}
-                  type="button"
-                  className={`relative flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                    isSelected ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
-                  }`}
-                >
-                  {/* Badge showing card count */}
-                  <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#5D4037] text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-sm">
-                    {group.accounts.length}
-                  </span>
-                  
-                  <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">{displayIcon}</div>
-                  <span className="text-[14px] font-black text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{displayName}</span>
-                  
-                  {/* Expansion indicator */}
-                  <span className="text-[10px] text-stone-500 font-black absolute bottom-1">
-                    {isExpanded ? '▲' : '▼'}
-                  </span>
-                </button>
-              );
-            }
-          })}
-        </HorizontalScrollArea>
-
-        {/* Expanded Sub-Accounts Row */}
-        {groupedList.map(group => {
-          const isExpanded = !!expandedState[group.bankName];
-          if (!isExpanded) return null;
-          const activeSub = group.accounts.find(a => a.id === currentSelectedId);
-
-          return (
-            <div 
-              key={`${keyPrefix}-drawer-${group.bankName}`}
-              className="mt-2 mx-8 p-3.5 bg-stone-50 border border-stone-200/50 rounded-2xl space-y-2 shadow-inner"
-            >
-              <div className="text-[12px] font-bold text-stone-400 px-2 flex items-center justify-between">
-                <span>🏦 {group.bankName} 卡片與帳戶</span>
-                <button 
-                  onClick={() => {
-                    setExpandedState(prev => ({ ...prev, [group.bankName]: false }));
-                    if (activeSub) {
-                      onSelect('');
-                    }
-                  }}
-                  type="button"
-                  className="text-[11px] text-stone-400 hover:text-[#5D4037] font-bold"
-                >
-                  收起 ▲
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {group.accounts.map(subAcc => {
-                  const isSubSelected = currentSelectedId === subAcc.id;
-                  const subBal = calculateAccountBalance(subAcc, accounts, records);
-                  return (
-                    <button
-                      key={`${keyPrefix}-sub-${subAcc.id}`}
-                      onClick={() => onSelect(isSubSelected ? '' : subAcc.id)}
-                      type="button"
-                      className={`px-3 py-2 rounded-xl text-[14px] font-bold shadow-sm transition-all border flex items-center gap-1.5 ${
-                        isSubSelected 
-                          ? 'bg-[#FFD54F] border-[#FFD54F] text-[#5D4037]' 
-                          : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-100'
-                      }`}
-                    >
-                      <AccountIcon icon={subAcc.icon} sizeClassName="w-5 h-5" className="text-lg flex items-center justify-center" />
-                      <span>
-                        {subAcc.name} {subBal < 0 ? '-' : ''}${Math.abs(subBal).toLocaleString()}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Selected Account Info Popup */}
-        {selectedAcc && (
-          <div className="mx-8 mt-2 p-3.5 bg-[#FFFDF5] border border-[#FBC02D]/20 rounded-2xl flex items-center justify-between text-[#5D4037] shadow-inner animate-fade-in" style={getFontFamily()}>
-            <span className="text-xs font-bold opacity-60">目前選擇帳戶</span>
-            <span className="text-sm font-black flex items-center gap-1.5">
-              <AccountIcon icon={selectedAcc.icon} sizeClassName="w-5 h-5" />
-              <span>{selectedAcc.name}</span>
-              <span className="opacity-30 font-bold">|</span>
-              <span className={selectedAccBalance < 0 ? 'text-red-500 font-black' : 'text-blue-600 font-black'}>
-                {selectedAccBalance < 0 ? '-' : ''}${Math.abs(selectedAccBalance).toLocaleString()}
-              </span>
-            </span>
-          </div>
-        )}
-      </div>
+      <AccountSelector 
+        accounts={accounts}
+        records={records}
+        currentSelectedId={currentSelectedId}
+        onSelect={onSelect}
+        expandedState={expandedState}
+        setExpandedState={setExpandedState}
+        keyPrefix={keyPrefix}
+      />
     );
   };
+
+
 
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
