@@ -4304,6 +4304,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
+  const [amountStr, setAmountStr] = useState<string>(
+    record.amount === 0 ? '' : Math.abs(record.amount).toString()
+  );
 
   const fromAcc = accounts.find(a => a.id === edited.accountId);
   const toAcc = accounts.find(a => a.id === edited.toAccountId);
@@ -4461,8 +4464,17 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
                 <input 
                   type="number"
-                  value={edited.amount}
-                  onChange={e => setEdited({ ...edited, amount: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  value={amountStr}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setAmountStr(val);
+                    const rawAmt = val === '' ? 0 : parseFloat(val) || 0;
+                    setEdited({ 
+                      ...edited, 
+                      amount: edited.type === 'expense' || edited.type === 'transfer' ? -rawAmt : rawAmt 
+                    });
+                  }}
                   className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                 />
               </div>
@@ -4792,6 +4804,11 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
     const legacyInit = initRec ? (initRec.type === 'income' ? initRec.amount : -initRec.amount) : 0;
     return { ...account, initialBalance: legacyInit };
   });
+  const [initialBalanceStr, setInitialBalanceStr] = useState<string>(
+    (account.initialBalance !== undefined ? account.initialBalance : (records.find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)) === 0 
+      ? '' 
+      : (account.initialBalance !== undefined ? account.initialBalance : (records.find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)).toString()
+  );
 
   const otherRecordsSum = useMemo(() => {
     const mergedRecords = getMergedRecords(records, accounts);
@@ -4940,8 +4957,13 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
                 <input 
                   type="number"
-                  value={editedAcc.initialBalance || 0}
-                  onChange={e => setEditedAcc({ ...editedAcc, initialBalance: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  value={initialBalanceStr}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setInitialBalanceStr(val);
+                    setEditedAcc({ ...editedAcc, initialBalance: val === '' ? 0 : parseFloat(val) || 0 });
+                  }}
                   className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                   style={getFontFamily()}
                 />
@@ -5679,6 +5701,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
 }) {
   const [edited, setEdited] = useState<FixedRecord>({ ...record });
   const [expandedBanks, setExpandedBanks] = useState<Record<string, boolean>>({});
+  const [amountStr, setAmountStr] = useState<string>(record.amount === 0 ? '' : record.amount.toString());
 
   return (
     <motion.div 
@@ -5718,8 +5741,13 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                 <label className="text-[10px] font-bold text-stone-300 uppercase">金額</label>
                 <input 
                   type="number"
-                  value={edited.amount}
-                  onChange={e => setEdited({ ...edited, amount: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  value={amountStr}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setAmountStr(val);
+                    setEdited({ ...edited, amount: val === '' ? 0 : parseFloat(val) || 0 });
+                  }}
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                 />
               </div>
