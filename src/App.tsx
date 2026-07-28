@@ -3506,26 +3506,36 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     let ntCount = 0;
     let ntSum = 0;
     
+    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
+    const targetIds = [account.id, ...childrenIds];
+
     accountRecords.forEach(r => {
       const isTransferPayment = r.type === 'transfer';
+      let isTransferIn = false;
       let isAutoPay = false;
       
       if (isTransferPayment) {
-        const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
-        isAutoPay = 
-          (noteText.includes('自動') && noteText.includes('扣繳')) || 
-          (noteText.includes('自動') && noteText.includes('繳款')) || 
-          (noteText.includes('自動') && noteText.includes('扣款')) ||
-          noteText.includes('轉帳扣繳') ||
-          noteText.includes('扣繳信用卡款') ||
-          noteText.includes('自動扣繳');
+        // Only count as repayment transfer if it's transferring money INTO the credit card account/sub-accounts
+        isTransferIn = r.toAccountId && targetIds.includes(r.toAccountId);
+        
+        if (isTransferIn) {
+          const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+          isAutoPay = 
+            (noteText.includes('自動') && noteText.includes('扣繳')) || 
+            (noteText.includes('自動') && noteText.includes('繳款')) || 
+            (noteText.includes('自動') && noteText.includes('扣款')) ||
+            noteText.includes('轉帳扣繳') ||
+            noteText.includes('扣繳信用卡款') ||
+            noteText.includes('自動扣繳');
+        }
       }
 
       if (isAutoPay) {
         return; // skip auto-pay
       }
 
-      const isTransferred = r.transferredDate || isTransferPayment;
+      // Counts as transferred if manually marked or if it is an incoming transfer payment (repayment)
+      const isTransferred = r.transferredDate || (isTransferPayment && isTransferIn);
 
       if (isTransferred) {
         tCount++;
@@ -3542,7 +3552,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       notTransferredCount: ntCount,
       notTransferredSum: ntSum
     };
-  }, [accountRecords]);
+  }, [accountRecords, accounts, account.id]);
 
   const creditCardStatements = useMemo(() => {
     if (account.type !== 'credit' || !account.closingDay) return [];
