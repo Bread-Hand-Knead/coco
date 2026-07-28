@@ -3500,6 +3500,30 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return calculateAccountBalance(account, accounts, records); 
   }, [account, accounts, records]);
 
+  const creditCardStats = useMemo(() => {
+    let tCount = 0;
+    let tSum = 0;
+    let ntCount = 0;
+    let ntSum = 0;
+    
+    accountRecords.forEach(r => {
+      if (r.type === 'transfer') {
+        tCount++;
+        tSum += Math.abs(r.amount);
+      } else {
+        ntCount++;
+        ntSum += r.amount;
+      }
+    });
+    
+    return {
+      transferredCount: tCount,
+      transferredSum: tSum,
+      notTransferredCount: ntCount,
+      notTransferredSum: ntSum
+    };
+  }, [accountRecords]);
+
   const creditCardStatements = useMemo(() => {
     if (account.type !== 'credit' || !account.closingDay) return [];
 
@@ -4135,12 +4159,20 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               </div>
               <span className="font-black text-base text-[#5D4037]">往來明細</span>
             </div>
-            <span className="text-[13px] font-black text-stone-400 bg-white px-5 py-2 rounded-full border border-stone-100 flex items-center gap-2 shadow-sm" style={getFontFamily()}>
+            <span className={`text-[13px] font-black text-stone-400 bg-white px-5 py-2 ${account.type === 'credit' ? 'rounded-2xl sm:rounded-full' : 'rounded-full'} border border-stone-100 flex items-center gap-2 shadow-sm flex-wrap`} style={getFontFamily()}>
               <span>{accountRecords.length} 筆紀錄</span>
               <span className="text-stone-200 font-normal">|</span>
-              <span>結餘：<span className={`font-black ${listBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                {listBalance < 0 ? '-' : ''}${Math.abs(listBalance).toLocaleString()}
-              </span></span>
+              {account.type === 'credit' ? (
+                <span className="flex items-center gap-2 flex-wrap">
+                  <span>已轉帳 <span className="font-black text-emerald-600">{creditCardStats.transferredCount}</span> 筆 <span className="font-black text-emerald-600">${creditCardStats.transferredSum.toLocaleString()}</span></span>
+                  <span className="text-stone-200 font-normal">/</span>
+                  <span>未轉帳 <span className="font-black text-rose-500">{creditCardStats.notTransferredCount}</span> 筆 <span className="font-black text-rose-500">${creditCardStats.notTransferredSum < 0 ? '-' : ''}${Math.abs(creditCardStats.notTransferredSum).toLocaleString()}</span></span>
+                </span>
+              ) : (
+                <span>結餘：<span className={`font-black ${listBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                  {listBalance < 0 ? '-' : ''}${Math.abs(listBalance).toLocaleString()}
+                </span></span>
+              )}
             </span>
           </div>
           
