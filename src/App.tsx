@@ -3507,20 +3507,29 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     let ntSum = 0;
     
     accountRecords.forEach(r => {
-      if (r.type === 'transfer') {
+      const isTransferPayment = r.type === 'transfer';
+      let isAutoPay = false;
+      
+      if (isTransferPayment) {
         const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
-        const isAutoPay = 
+        isAutoPay = 
           (noteText.includes('自動') && noteText.includes('扣繳')) || 
           (noteText.includes('自動') && noteText.includes('繳款')) || 
           (noteText.includes('自動') && noteText.includes('扣款')) ||
           noteText.includes('轉帳扣繳') ||
           noteText.includes('扣繳信用卡款') ||
           noteText.includes('自動扣繳');
+      }
 
-        if (!isAutoPay) {
-          tCount++;
-          tSum += Math.abs(r.amount);
-        }
+      if (isAutoPay) {
+        return; // skip auto-pay
+      }
+
+      const isTransferred = r.transferredDate || isTransferPayment;
+
+      if (isTransferred) {
+        tCount++;
+        tSum += Math.abs(r.amount);
       } else {
         ntCount++;
         ntSum += r.amount;
