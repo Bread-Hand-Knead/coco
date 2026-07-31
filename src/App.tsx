@@ -906,6 +906,48 @@ export default function App() {
     }
   }, [user, authLoading, accounts.length, projects.length]);
 
+  // One-time migration for installment date month-overflow bug
+  const hasMigratedRef = useRef(false);
+  useEffect(() => {
+    if (hasMigratedRef.current || records.length === 0 || authLoading) return;
+    hasMigratedRef.current = true;
+
+    const getCorrectInstallmentDate = (startDateStr: string, currentInstallment: number) => {
+      const startDate = new Date(startDateStr);
+      if (isNaN(startDate.getTime())) return null;
+      
+      const targetYear = startDate.getFullYear();
+      const targetMonth = startDate.getMonth() + (currentInstallment - 1);
+      
+      const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+      const targetDay = Math.min(startDate.getDate(), maxDays);
+      
+      const currentDate = new Date(targetYear, targetMonth, targetDay);
+      return formatLocalDate(currentDate);
+    };
+
+    let changed = false;
+    const updated = records.map(r => {
+      if (r.isInstallment && r.installmentGroupId && r.currentInstallment) {
+        const correctDate = getCorrectInstallmentDate(r.date, r.currentInstallment);
+        if (correctDate && r.postingDate !== correctDate) {
+          changed = true;
+          const updatedRec = { ...r, postingDate: correctDate };
+          if (user) {
+            setDoc(doc(db, 'users', user.uid, 'transactions', r.id), cleanData(updatedRec)).catch(console.error);
+          }
+          return updatedRec;
+        }
+      }
+      return r;
+    });
+
+    if (changed) {
+      setRecords(updated);
+      console.log('Successfully migrated credit card installment dates.');
+    }
+  }, [records, user, authLoading]);
+
   const syncToCloud = async (path: string, data: any, id: string) => {
     if (!user) return;
     try {
@@ -1371,7 +1413,11 @@ export default function App() {
       const batch = user ? writeBatch(db) : null;
 
       for (let i = 1; i <= record.totalInstallments; i++) {
-        const currentDate = new Date(startDate.getFullYear(), startDate.getMonth() + (i - 1), startDate.getDate());
+        const targetYear = startDate.getFullYear();
+        const targetMonth = startDate.getMonth() + (i - 1);
+        const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+        const targetDay = Math.min(startDate.getDate(), maxDays);
+        const currentDate = new Date(targetYear, targetMonth, targetDay);
         const dateStr = formatLocalDate(currentDate);
         
         const id = `${installmentGroupId}-${i}`;
