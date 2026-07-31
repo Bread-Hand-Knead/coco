@@ -2146,7 +2146,7 @@ export default function App() {
                     });
 
                     // 2. 刪除該計畫原本預定在未來月份產生的所有分期紀錄
-                    const filtered = updatedRecords.filter(r => r.installmentGroupId !== groupId || r.date <= today);
+                    const filtered = updatedRecords.filter(r => r.installmentGroupId !== groupId || (r.postingDate || r.date) <= today);
                     
                     // 3. 在「今天」自動產生一筆總額為「剩餘未付金額」的支出紀錄
                     const settlementRecord: Transaction = {
@@ -7421,7 +7421,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
             const total = first.totalInstallments || 1;
             
             const today = new Date().toISOString().split('T')[0];
-            const paidCount = isSettled ? total : group.filter(r => r.date <= today).length;
+            const paidCount = isSettled ? total : group.filter(r => (r.postingDate || r.date) <= today).length;
             const progress = (paidCount / total) * 100;
 
             return (
