@@ -1144,44 +1144,83 @@ export default function App() {
     updatedFixed = updatedFixed.map(fr => {
       if (!fr.autoEntry) return fr;
 
-      const lastProcessed = fr.lastProcessedDate ? parseLocalDate(fr.lastProcessedDate) : null;
+      const lastProcessed = fr.lastProcessedDate;
       const now = today;
       
       let shouldProcess = false;
+      let processDateStr = '';
+
       if (fr.period === 'monthly') {
-        if (now.getDate() === fr.day) {
-          if (!lastProcessed || lastProcessed.getMonth() !== now.getMonth() || lastProcessed.getFullYear() !== now.getFullYear()) {
+        const targetYear = now.getFullYear();
+        const targetMonth = now.getMonth();
+        const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+        const targetDay = Math.min(fr.day, maxDays);
+        
+        const scheduledDate = new Date(targetYear, targetMonth, targetDay);
+        const scheduledDateStr = formatLocalDate(scheduledDate);
+        
+        if (now >= scheduledDate) {
+          if (!lastProcessed || lastProcessed < scheduledDateStr) {
             shouldProcess = true;
+            processDateStr = scheduledDateStr;
+          }
+        } else {
+          const prevYear = targetMonth === 0 ? targetYear - 1 : targetYear;
+          const prevMonth = targetMonth === 0 ? 11 : targetMonth - 1;
+          const prevMaxDays = new Date(prevYear, prevMonth + 1, 0).getDate();
+          const prevTargetDay = Math.min(fr.day, prevMaxDays);
+          const prevScheduledDate = new Date(prevYear, prevMonth, prevTargetDay);
+          const prevScheduledDateStr = formatLocalDate(prevScheduledDate);
+          
+          if (!lastProcessed || lastProcessed < prevScheduledDateStr) {
+            shouldProcess = true;
+            processDateStr = prevScheduledDateStr;
           }
         }
       } else if (fr.period === 'weekly') {
-        if (now.getDay() === fr.day) {
-          if (!lastProcessed || (now.getTime() - lastProcessed.getTime()) > 6 * 24 * 60 * 60 * 1000) {
-            shouldProcess = true;
-          }
+        const daysDiff = (now.getDay() - fr.day + 7) % 7;
+        const lastScheduledDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysDiff);
+        const lastScheduledDateStr = formatLocalDate(lastScheduledDate);
+        
+        if (!lastProcessed || lastProcessed < lastScheduledDateStr) {
+          shouldProcess = true;
+          processDateStr = lastScheduledDateStr;
         }
       } else if (fr.period === 'yearly') {
-        if (now.getDate() === fr.day && now.getMonth() === 0) { 
-          if (!lastProcessed || lastProcessed.getFullYear() !== now.getFullYear()) {
+        const targetYear = now.getFullYear();
+        const targetDay = Math.min(fr.day, 31);
+        const scheduledDate = new Date(targetYear, 0, targetDay);
+        const scheduledDateStr = formatLocalDate(scheduledDate);
+        
+        if (now >= scheduledDate) {
+          if (!lastProcessed || lastProcessed < scheduledDateStr) {
             shouldProcess = true;
+            processDateStr = scheduledDateStr;
+          }
+        } else {
+          const prevScheduledDate = new Date(targetYear - 1, 0, targetDay);
+          const prevScheduledDateStr = formatLocalDate(prevScheduledDate);
+          if (!lastProcessed || lastProcessed < prevScheduledDateStr) {
+            shouldProcess = true;
+            processDateStr = prevScheduledDateStr;
           }
         }
       }
 
-      if (shouldProcess) {
-        const id = `fixed_${fr.id}_${todayStr}`;
+      if (shouldProcess && processDateStr) {
+        const id = `fixed_${fr.id}_${processDateStr}`;
         const newTransaction: Transaction = {
           id,
           amount: fr.amount,
           category: fr.category,
           note: fr.name,
-          date: todayStr,
+          date: processDateStr,
           type: fr.type,
           accountId: fr.accountId
         };
         recordsToSync.push(newTransaction);
         changed = true;
-        return { ...fr, lastProcessedDate: todayStr };
+        return { ...fr, lastProcessedDate: processDateStr };
       }
       return fr;
     });
@@ -1200,8 +1239,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    checkFixedRecords();
-  }, [selectedDate]);
+    if (fixedRecords.length > 0 && !authLoading) {
+      checkFixedRecords();
+    }
+  }, [selectedDate, fixedRecords, user, authLoading]);
 
   const headerTitle = useMemo(() => {
     if (currentView === 'accountDetail' && selectedAccountForDetail) {
