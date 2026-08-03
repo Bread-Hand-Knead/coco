@@ -2529,9 +2529,6 @@ function AccountSelector({
               <button 
                 onClick={() => {
                   setExpandedState(prev => ({ ...prev, [group.bankName]: false }));
-                  if (activeSub) {
-                    onSelect('');
-                  }
                 }}
                 type="button"
                 className="text-[11px] text-stone-400 hover:text-[#5D4037] font-bold"
