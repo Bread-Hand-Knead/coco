@@ -906,6 +906,31 @@ export default function App() {
     }
   }, [user, authLoading, accounts.length, projects.length]);
 
+  // One-time migration for fixed/recurring transactions with positive amount bug
+  const hasMigratedFixedRef = useRef(false);
+  useEffect(() => {
+    if (hasMigratedFixedRef.current || records.length === 0 || authLoading) return;
+    hasMigratedFixedRef.current = true;
+
+    let changed = false;
+    const updated = records.map(r => {
+      if (r.id && String(r.id).startsWith('fixed_') && r.type === 'expense' && r.amount > 0) {
+        changed = true;
+        const updatedRec = { ...r, amount: -r.amount };
+        if (user) {
+          setDoc(doc(db, 'users', user.uid, 'transactions', r.id), cleanData(updatedRec)).catch(console.error);
+        }
+        return updatedRec;
+      }
+      return r;
+    });
+
+    if (changed) {
+      setRecords(updated);
+      console.log('Successfully migrated positive fixed expense transaction amounts.');
+    }
+  }, [records, user, authLoading]);
+
   // One-time migration for installment date month-overflow bug
   const hasMigratedRef = useRef(false);
   useEffect(() => {
@@ -1211,7 +1236,7 @@ export default function App() {
         const id = `fixed_${fr.id}_${processDateStr}`;
         const newTransaction: Transaction = {
           id,
-          amount: fr.amount,
+          amount: (fr.type === 'expense' || fr.type === 'transfer') ? -Math.abs(fr.amount) : Math.abs(fr.amount),
           category: fr.category,
           note: fr.name,
           date: processDateStr,
