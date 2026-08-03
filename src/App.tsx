@@ -4280,7 +4280,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 <span className="flex items-center gap-2 flex-wrap">
                   <span>已轉帳 <span className="font-black text-emerald-600">{creditCardStats.transferredCount}</span> 筆 <span className="font-black text-emerald-600">${creditCardStats.transferredSum.toLocaleString()}</span></span>
                   <span className="text-stone-200 font-normal">/</span>
-                  <span>未轉帳 <span className="font-black text-rose-500">{creditCardStats.notTransferredCount}</span> 筆 <span className="font-black text-rose-500">${creditCardStats.notTransferredSum < 0 ? '-' : ''}${Math.abs(creditCardStats.notTransferredSum).toLocaleString()}</span></span>
+                  <span>未轉帳 <span className="font-black text-rose-500">{creditCardStats.notTransferredCount}</span> 筆 <span className="font-black text-rose-500">${creditCardStats.notTransferredSum < 0 ? '-' : ''}{Math.abs(creditCardStats.notTransferredSum).toLocaleString()}</span></span>
                 </span>
               ) : (
                 <span>結餘：<span className={`font-black ${listBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
