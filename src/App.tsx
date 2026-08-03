@@ -12121,13 +12121,14 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               {/* Shortened Project Picker Trigger */}
               <div 
                 onClick={() => setIsProjectPickerOpen(true)}
-                className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm"
+                className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm animate-fade-in"
                 style={getFontFamily()}
               >
                 <Layers size={13} className="text-[#FFD54F]" />
                 <span className="text-[12px] font-bold text-[#5D4037]">所屬專案：</span>
-                <span className="text-[12px] font-black text-[#5D4037] truncate">
-                  {projects.find(p => p.id === selectedProjectId)?.icon} {projects.find(p => p.id === selectedProjectId)?.name || '無特別專案'}
+                <span className="text-[12px] font-black text-[#5D4037] truncate flex items-center gap-1.5">
+                  <AccountIcon icon={projects.find(p => p.id === selectedProjectId)?.icon || ''} sizeClassName="w-4 h-4" />
+                  <span>{projects.find(p => p.id === selectedProjectId)?.name || '無特別專案'}</span>
                 </span>
               </div>
             </div>
