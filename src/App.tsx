@@ -11816,6 +11816,41 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
   };
 
+  const handleSaveAsTemplate = () => {
+    const calculatedAmtStr = evaluateExpression(amount);
+    const rawAmt = parseFloat(calculatedAmtStr) || 0;
+    if (rawAmt === 0) {
+      alert("請輸入金額！");
+      return;
+    }
+
+    const defaultSuggestName = note.trim() || subCategory || mainCategory || "";
+    const templateName = window.prompt("請輸入此範本的名稱：", defaultSuggestName);
+    if (!templateName || !templateName.trim()) {
+      return;
+    }
+
+    const catName = subCategory || mainCategory || "其他";
+    const cat = categories.find(c => c.name === catName || c.sub.includes(catName));
+    const resolvedType = (tab === 'template' ? 'expense' : tab);
+
+    const newTemplate = {
+      id: `template_${Date.now()}`,
+      name: templateName.trim(),
+      amount: Math.abs(rawAmt),
+      category: catName,
+      type: resolvedType,
+      fromAccountId: selectedAccountId,
+      toAccountId: resolvedType === 'transfer' ? toAccountId : undefined,
+      icon: cat?.icon || (resolvedType === 'transfer' ? '🔄' : '📝'),
+      color: 'bg-amber-100',
+      note: note.trim() || undefined
+    };
+
+    onUpdateTemplates([...templates, newTemplate]);
+    alert(`已成功將「${templateName.trim()}」儲存至範本頁！`);
+  };
+
   const handleSaveAndAnother = () => {
     const calculatedAmtStr = evaluateExpression(amount);
     setAmount(calculatedAmtStr);
@@ -12531,16 +12566,23 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           ))}
                         </div>
                         
-                        <div className="grid grid-cols-2 gap-3 mt-2">
+                        <div className="grid grid-cols-3 gap-2 mt-2">
+                          <button 
+                            onClick={handleSaveAsTemplate}
+                            className="w-full py-4 bg-white border-2 border-stone-200 text-stone-600 rounded-[20px] font-black text-[15px] shadow-sm active:scale-95 hover:bg-stone-50 transition-all flex items-center justify-center gap-1"
+                          >
+                            <span>💾</span>
+                            <span>存為範本</span>
+                          </button>
                           <button 
                             onClick={handleSaveAndAnother}
-                            className="w-full py-5 bg-white border-2 border-[#5D4037] text-[#5D4037] rounded-[25px] font-black text-xl shadow-md active:scale-95 hover:bg-stone-50 transition-all"
+                            className="w-full py-4 bg-white border-2 border-[#5D4037] text-[#5D4037] rounded-[20px] font-black text-[15px] shadow-md active:scale-95 hover:bg-stone-50 transition-all"
                           >
                             再記一筆
                           </button>
                           <button 
                             onClick={() => handleKey('SAVE')}
-                            className="w-full py-5 bg-[#5D4037] text-white rounded-[25px] font-black text-xl shadow-xl active:scale-95 active:bg-[#4E342E] transition-all"
+                            className="w-full py-4 bg-[#5D4037] text-white rounded-[20px] font-black text-[15px] shadow-xl active:scale-95 active:bg-[#4E342E] transition-all"
                           >
                             儲存紀錄
                           </button>
