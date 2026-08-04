@@ -2041,9 +2041,7 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="p-6 border-t border-stone-50 text-[10px] font-bold text-stone-300 text-center">
-                  CWMoney Pro Clone v1.0
-                </div>
+
               </motion.div>
             </>
           )}
