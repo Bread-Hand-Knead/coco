@@ -11971,6 +11971,24 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
     
     // 一般輸入處理
+    if (key === '.') {
+      if (amount === '0') {
+        setAmount('0.');
+      } else {
+        const lastChar = amount.slice(-1);
+        if (['+', '-', '×', '÷'].includes(lastChar)) {
+          setAmount(amount + '0.');
+        } else {
+          const segments = amount.split(/[+\-×÷]/);
+          const lastSegment = segments[segments.length - 1];
+          if (!lastSegment.includes('.')) {
+            setAmount(amount + '.');
+          }
+        }
+      }
+      return;
+    }
+
     if (amount === '0') {
       if (['+', '-', '×', '÷'].includes(key)) {
         setAmount('0' + key);
