@@ -26,6 +26,7 @@ import {
   Banknote,
   Trash2,
   ArrowRightLeft,
+  ArrowUpDown,
   Edit3,
   Pencil,
   History,
@@ -3494,6 +3495,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  type SortMode = 'date-desc' | 'date-asc' | 'posting-desc' | 'posting-asc';
+  const [sortMode, setSortMode] = useState<SortMode>('date-desc');
+  const [isSortModalOpen, setIsSortModalOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => {
     const d = new Date(selectedDate);
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -3719,9 +3723,26 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         normalRecords.push(r);
       }
     });
+
+    // Apply sortMode to normalRecords
+    normalRecords.sort((a, b) => {
+      if (sortMode === 'date-desc') {
+        const diff = b.date.localeCompare(a.date);
+        return diff !== 0 ? diff : b.amount - a.amount;
+      } else if (sortMode === 'date-asc') {
+        const diff = a.date.localeCompare(b.date);
+        return diff !== 0 ? diff : a.amount - b.amount;
+      } else if (sortMode === 'posting-desc') {
+        const diff = (b.postingDate || b.date).localeCompare(a.postingDate || a.date);
+        return diff !== 0 ? diff : b.amount - a.amount;
+      } else { // 'posting-asc'
+        const diff = (a.postingDate || a.date).localeCompare(a.postingDate || a.date);
+        return diff !== 0 ? diff : a.amount - b.amount;
+      }
+    });
     
     return { paymentRecords, normalRecords };
-  }, [accountRecords, account.type, targetIds]);
+  }, [accountRecords, account.type, targetIds, sortMode]);
 
   const creditCardStats = useMemo(() => {
     let tCount = 0;
@@ -3868,9 +3889,19 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     const statementList = Object.values(groups).map(g => {
       const sortedRecords = getMergedRecords(g.records, accounts).sort((a, b) => {
-        const dateDiff = b.date.localeCompare(a.date);
-        if (dateDiff !== 0) return dateDiff;
-        return b.amount - a.amount;
+        if (sortMode === 'date-desc') {
+          const diff = b.date.localeCompare(a.date);
+          return diff !== 0 ? diff : b.amount - a.amount;
+        } else if (sortMode === 'date-asc') {
+          const diff = a.date.localeCompare(b.date);
+          return diff !== 0 ? diff : a.amount - b.amount;
+        } else if (sortMode === 'posting-desc') {
+          const diff = (b.postingDate || b.date).localeCompare(a.postingDate || a.date);
+          return diff !== 0 ? diff : b.amount - a.amount;
+        } else { // 'posting-asc'
+          const diff = (a.postingDate || a.date).localeCompare(b.postingDate || b.date);
+          return diff !== 0 ? diff : a.amount - b.amount;
+        }
       });
 
       // Calculate the true balance of this billing cycle across all history transactions
@@ -3916,7 +3947,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     }
 
     return statementList;
-  }, [records, account, accounts, dateRangeStrings.filter, targetIds, childrenIds]);
+  }, [records, account, accounts, dateRangeStrings.filter, targetIds, childrenIds, sortMode]);
 
   const listBalance = useMemo(() => {
     if (account.type === 'credit' && effectiveClosingDay) {
@@ -4407,6 +4438,22 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 <History size={14} className="text-white" />
               </div>
               <span className="font-black text-base text-[#5D4037]">往來明細</span>
+              {account.type === 'credit' && (
+                <button
+                  onClick={() => setIsSortModalOpen(true)}
+                  className="px-2 py-0.5 bg-white border border-stone-200 rounded-full font-bold text-[10px] text-stone-500 hover:bg-stone-50 active:scale-95 transition-all flex items-center gap-1 shrink-0 ml-1.5 shadow-sm"
+                  title="選擇排序方式"
+                  style={getFontFamily()}
+                >
+                  <ArrowUpDown size={10} className="text-stone-400" />
+                  <span>
+                    {sortMode === 'date-desc' && '消費日 - 新到舊'}
+                    {sortMode === 'date-asc' && '消費日 - 舊到新'}
+                    {sortMode === 'posting-desc' && '入帳日 - 新到舊'}
+                    {sortMode === 'posting-asc' && '入帳日 - 舊到新'}
+                  </span>
+                </button>
+              )}
             </div>
             <span className={`text-[13px] font-black text-stone-400 bg-white px-5 py-2 ${account.type === 'credit' ? 'rounded-2xl sm:rounded-full' : 'rounded-full'} border border-stone-100 flex items-center gap-2 shadow-sm flex-wrap`} style={getFontFamily()}>
               <span>{accountRecords.length} 筆紀錄</span>
@@ -4605,6 +4652,51 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               setCurrentMonth(new Date(year, month - 1, 1));
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Sort Options Modal */}
+      <AnimatePresence>
+        {isSortModalOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+              className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md" 
+              onClick={() => setIsSortModalOpen(false)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} 
+              className="relative bg-[#FFFDF5] w-full max-w-xs rounded-[35px] shadow-2xl border-2 border-white overflow-hidden flex flex-col p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-stone-100 pb-2">
+                <h4 className="font-black text-[#5D4037] text-base" style={getFontFamily()}>選擇排序</h4>
+                <button onClick={() => setIsSortModalOpen(false)} className="p-1 hover:bg-stone-100 rounded-full transition-colors">
+                  <X size={18} className="text-stone-400" />
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {[
+                  { mode: 'date-desc', label: '消費日 - 新到舊' },
+                  { mode: 'date-asc', label: '消費日 - 舊到新' },
+                  { mode: 'posting-desc', label: '入帳日 - 新到舊' },
+                  { mode: 'posting-asc', label: '入帳日 - 舊到新' }
+                ].map(opt => (
+                  <button
+                    key={opt.mode}
+                    onClick={() => {
+                      setSortMode(opt.mode as any);
+                      setIsSortModalOpen(false);
+                    }}
+                    className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${sortMode === opt.mode ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
+                    style={getFontFamily()}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </motion.div>
