@@ -3515,6 +3515,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return [account.id, ...childrenIds];
   }, [account, childrenIds]);
 
+  const effectiveClosingDay = useMemo(() => {
+    if (account.isBrandGroup && (account as any).childAccounts) {
+      const childWithClosing = (account as any).childAccounts.find((c: any) => c.closingDay);
+      return childWithClosing ? childWithClosing.closingDay : null;
+    }
+    return account.closingDay;
+  }, [account]);
+
   const balanceMap = useMemo(() => {
     
     const relevant = records
@@ -3767,7 +3775,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   }, [accountRecords, targetIds]);
 
   const creditCardStatements = useMemo(() => {
-    if (account.type !== 'credit' || !account.closingDay) return [];
+    if (account.type !== 'credit' || !effectiveClosingDay) return [];
 
     const targetYearMonth = dateRangeStrings.filter; // e.g. "2026-07"
 
@@ -3844,7 +3852,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         }
       } else {
         const dateStr = r.postingDate || r.date;
-        const { label, key } = getStatementLabelAndKey(dateStr, account.closingDay!);
+        const { label, key } = getStatementLabelAndKey(dateStr, effectiveClosingDay!);
         
         if (!groups[key]) {
           groups[key] = {
@@ -3869,7 +3877,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       let bal = 0;
       allHistoryCardRecords.forEach(r => {
         const dateStr = r.postingDate || r.date;
-        const { key } = getStatementLabelAndKey(dateStr, account.closingDay!);
+        const { key } = getStatementLabelAndKey(dateStr, effectiveClosingDay!);
         if (key === g.key) {
           if (r.accountId === account.id || childrenIds.includes(r.accountId)) {
             bal += r.amount;
@@ -3911,7 +3919,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   }, [records, account, accounts, dateRangeStrings.filter, targetIds, childrenIds]);
 
   const listBalance = useMemo(() => {
-    if (account.type === 'credit' && account.closingDay) {
+    if (account.type === 'credit' && effectiveClosingDay) {
       let total = 0;
       creditCardStatements.forEach(s => {
         total += s.balance;
@@ -4441,7 +4449,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         </div>
 
         <div className="flex-1 bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white overflow-hidden flex flex-col">
-          {account.type === 'credit' && account.closingDay ? (
+          {account.type === 'credit' && effectiveClosingDay ? (
             creditCardStatements.length > 0 ? (
               <div className="overflow-y-auto p-6 space-y-6">
                 {creditCardStatements.map(stmt => (
@@ -4449,6 +4457,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     {/* Statement Header */}
                     <div className="flex justify-between items-center px-1" style={getFontFamily()}>
                       {stmt.key === '9999-99-payments' ? (
+                        <span className="font-black text-sm text-[#5D4037]">
+                          {stmt.label}
+                        </span>
+                      ) : account.isBrandGroup ? (
                         <span className="font-black text-sm text-[#5D4037]">
                           {stmt.label}
                         </span>
@@ -4492,7 +4504,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 </div>
               </div>
             )
-          ) : account.type === 'credit' && !account.closingDay ? (
+          ) : account.type === 'credit' && !effectiveClosingDay ? (
             accountRecords.length > 0 ? (
               <div className="overflow-y-auto p-6 space-y-6">
                 {paymentRecords.length > 0 && (
