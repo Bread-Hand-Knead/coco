@@ -3623,6 +3623,33 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return calculateAccountBalance(account, accounts, records); 
   }, [account, accounts, records]);
 
+  const { paymentRecords, normalRecords } = useMemo(() => {
+    if (account.type !== 'credit') return { paymentRecords: [], normalRecords: accountRecords };
+    
+    const paymentRecords: Transaction[] = [];
+    const normalRecords: Transaction[] = [];
+    
+    accountRecords.forEach(r => {
+      const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+      const hasKeywords = 
+        (noteText.includes('自動') && noteText.includes('扣繳')) || 
+        (noteText.includes('自動') && noteText.includes('繳款')) || 
+        (noteText.includes('自動') && noteText.includes('扣款')) ||
+        noteText.includes('轉帳扣繳') ||
+        noteText.includes('扣繳信用卡款') ||
+        noteText.includes('自動扣繳');
+      const isRepayment = (r.type === 'transfer' && r.toAccountId && targetIds.includes(r.toAccountId)) || hasKeywords;
+      
+      if (isRepayment) {
+        paymentRecords.push(r);
+      } else {
+        normalRecords.push(r);
+      }
+    });
+    
+    return { paymentRecords, normalRecords };
+  }, [accountRecords, account.type, targetIds]);
+
   const creditCardStats = useMemo(() => {
     let tCount = 0;
     let tSum = 0;
@@ -4397,6 +4424,53 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="font-black text-lg text-stone-300">本月無任何帳單紀錄</span>
+                </div>
+              </div>
+            )
+          ) : account.type === 'credit' && !account.closingDay ? (
+            accountRecords.length > 0 ? (
+              <div className="overflow-y-auto p-6 space-y-6">
+                {paymentRecords.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center px-1" style={getFontFamily()}>
+                      <span className="font-black text-sm text-[#5D4037]">扣繳資訊</span>
+                      <span className="text-xs font-bold text-stone-400">
+                        金額: <span className="font-black text-sm text-[#5D4037]">
+                          $ {paymentRecords.reduce((sum, r) => sum + (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1))), 0).toLocaleString()}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="bg-white rounded-[32px] p-4 shadow-sm border-2 border-white flex flex-col gap-2">
+                      {paymentRecords.map(renderRecord)}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="space-y-3">
+                  {paymentRecords.length > 0 && (
+                    <div className="px-1 font-black text-sm text-[#5D4037]">
+                      本月明細
+                    </div>
+                  )}
+                  <div className="bg-white rounded-[32px] p-4 shadow-sm border-2 border-white flex flex-col gap-2">
+                    {normalRecords.length > 0 ? (
+                      normalRecords.map(renderRecord)
+                    ) : (
+                      <div className="text-center py-4 text-xs font-bold text-stone-300">
+                        本月無任何消費明細紀錄
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="h-[40px] w-full" />
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-200">
+                <div className="w-24 h-24 bg-[#FFFDF5] rounded-full flex items-center justify-center border-4 border-white shadow-inner">
+                  <AlertCircle size={48} />
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="font-black text-lg text-stone-300">本月無任何交易紀錄</span>
                 </div>
               </div>
             )
