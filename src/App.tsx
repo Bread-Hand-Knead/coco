@@ -4029,15 +4029,20 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             const firstAccName = isPos ? counterpartAccName : currentAccName;
                             const secondAccName = isPos ? currentAccName : counterpartAccName;
                             return (
-                              <div className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037] mt-0.5" style={getFontFamily()}>
-                                <span className="opacity-80">{firstAccName}</span>
-                                <span className="text-amber-600 font-bold">➔</span>
-                                <span className="opacity-80 font-black text-amber-800">{secondAccName}</span>
-                                {record.transferredDate && (
-                                  <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold ml-1">
-                                    已轉帳
-                                  </span>
-                                )}
+                              <div className="flex flex-col gap-0.5 mt-0.5" style={getFontFamily()}>
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037]">
+                                  <span className="opacity-80">{firstAccName}</span>
+                                  <span className="text-amber-600 font-bold">➔</span>
+                                  <span className="opacity-80 font-black text-amber-800">{secondAccName}</span>
+                                  {record.transferredDate && (
+                                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold ml-1">
+                                      已轉帳
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[11px] font-bold text-stone-300">
+                                  {record.postingDate ? `入帳: ${record.postingDate}` : `轉帳: ${record.date}`}
+                                </span>
                               </div>
                             );
                           })()
