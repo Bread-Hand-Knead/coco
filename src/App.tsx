@@ -7261,7 +7261,7 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
                       </div>
                     )}
 
-                    {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '規則', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
+                    {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
                       <button 
                         key={icon}
                         onClick={() => setNewCat(prev => ({ ...prev, icon }))}
@@ -7665,7 +7665,7 @@ function CategoryManagePage({ categories, onSave, onBack }: {
                       </div>
                     )}
 
-                    {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '規則', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
+                    {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
                       <button 
                         key={icon}
                         onClick={() => setNewCat(prev => ({ ...prev, icon }))}
