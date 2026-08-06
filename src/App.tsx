@@ -7000,7 +7000,7 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
   const [newSubName, setNewSubName] = useState('');
   const [editingSubIndex, setEditingSubIndex] = useState<number | null>(null);
-  const [movingSub, setMovingSub] = useState<{ catId: string; subName: string; index: number } | null>(null);
+  
 
   const filtered = useMemo(() => {
     return categories
@@ -7354,65 +7354,7 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
       </AnimatePresence>
 
       {/* Sub-category Detail/Name Modal */}
-      {/* Move Sub-category Modal */}
-      <AnimatePresence>
-        {movingSub && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
-              className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md" 
-              onClick={() => setMovingSub(null)} 
-            />
-            <motion.div 
-              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} 
-              className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[70vh]"
-            >
-              <div className="p-6 pb-2 flex items-center justify-between border-b border-stone-100">
-                <div className="flex flex-col">
-                  <h3 className="text-lg font-black text-[#5D4037]" style={getFontFamily()}>搬移子分類</h3>
-                  <span className="text-[11px] font-bold text-stone-400 mt-0.5">移動「{movingSub.subName}」至其他主分類</span>
-                </div>
-                <button onClick={() => setMovingSub(null)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
-                  <X size={18} className="text-stone-400" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-2">
-                {categories
-                  .filter(c => c.type === tab && c.id !== movingSub.catId)
-                  .map(targetCat => (
-                    <button
-                      key={targetCat.id}
-                      onClick={async () => {
-                        const targetHasSub = targetCat.sub && targetCat.sub.includes(movingSub.subName);
-                        if (targetHasSub) {
-                          alert(`主分類「${targetCat.name}」下已存在名為「${movingSub.subName}」的子分類！`);
-                          return;
-                        }
-                        
-                        const confirmMove = window.confirm(`確認將「${movingSub.subName}」搬移到「${targetCat.name}」下嗎？這將會自動更新所有相關記帳明細。`);
-                        if (!confirmMove) return;
-                        
-                        try {
-                          await onMoveSubCategory(movingSub.subName, selectedCategory!.name, targetCat.name);
-                          setMovingSub(null);
-                        } catch (err) {
-                          alert("子分類搬移失敗，請重試。");
-                        }
-                      }}
-                      className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm hover:border-[#FFD54F] transition-all flex items-center gap-3 active:scale-98 text-left"
-                    >
-                      <div className="w-8 h-8 bg-stone-50 rounded-lg flex items-center justify-center text-lg overflow-hidden shrink-0">
-                        <AccountIcon icon={targetCat.icon} sizeClassName="w-5 h-5" />
-                      </div>
-                      <span className="font-black text-sm text-[#5D4037]" style={getFontFamily()}>{targetCat.name}</span>
-                    </button>
-                  ))}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      
 
       <AnimatePresence>
         {isSubModalOpen && (
@@ -7482,6 +7424,7 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
   const [newSubName, setNewSubName] = useState('');
   const [editingSubIndex, setEditingSubIndex] = useState<number | null>(null);
+  const [movingSub, setMovingSub] = useState<{ catId: string; subName: string; index: number } | null>(null);
 
   const filtered = useMemo(() => {
     return categories
@@ -7815,6 +7758,66 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
                 <button onClick={handleSaveMainCategory} className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2">
                   <Check size={20} /> 儲存設定
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+            {/* Move Sub-category Modal */}
+      <AnimatePresence>
+        {movingSub && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+              className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md" 
+              onClick={() => setMovingSub(null)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} 
+              className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[70vh]"
+            >
+              <div className="p-6 pb-2 flex items-center justify-between border-b border-stone-100">
+                <div className="flex flex-col">
+                  <h3 className="text-lg font-black text-[#5D4037]" style={getFontFamily()}>搬移子分類</h3>
+                  <span className="text-[11px] font-bold text-stone-400 mt-0.5">移動「{movingSub.subName}」至其他主分類</span>
+                </div>
+                <button onClick={() => setMovingSub(null)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                  <X size={18} className="text-stone-400" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-2">
+                {categories
+                  .filter(c => c.type === tab && c.id !== movingSub.catId)
+                  .map(targetCat => (
+                    <button
+                      key={targetCat.id}
+                      onClick={async () => {
+                        const targetHasSub = targetCat.sub && targetCat.sub.includes(movingSub.subName);
+                        if (targetHasSub) {
+                          alert(`主分類「${targetCat.name}」下已存在名為「${movingSub.subName}」的子分類！`);
+                          return;
+                        }
+                        
+                        const confirmMove = window.confirm(`確認將「${movingSub.subName}」搬移到「${targetCat.name}」下嗎？這將會自動更新所有相關記帳明細。`);
+                        if (!confirmMove) return;
+                        
+                        try {
+                          await onMoveSubCategory(movingSub.subName, selectedCategory!.name, targetCat.name);
+                          setMovingSub(null);
+                        } catch (err) {
+                          alert("子分類搬移失敗，請重試。");
+                        }
+                      }}
+                      className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm hover:border-[#FFD54F] transition-all flex items-center gap-3 active:scale-98 text-left"
+                    >
+                      <div className="w-8 h-8 bg-stone-50 rounded-lg flex items-center justify-center text-lg overflow-hidden shrink-0">
+                        <AccountIcon icon={targetCat.icon} sizeClassName="w-5 h-5" />
+                      </div>
+                      <span className="font-black text-sm text-[#5D4037]" style={getFontFamily()}>{targetCat.name}</span>
+                    </button>
+                  ))}
               </div>
             </motion.div>
           </div>
