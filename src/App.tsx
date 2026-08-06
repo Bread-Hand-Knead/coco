@@ -6089,7 +6089,9 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                       edited.category.split(' > ')[0] === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
                     }`}
                   >
-                    <div className={`w-10 h-10 ${edited.category.split(' > ')[0] === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl`}>{cat.icon}</div>
+                    <div className={`w-10 h-10 ${edited.category.split(' > ')[0] === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
+                      <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
+                    </div>
                     <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
                   </button>
                 ))}
@@ -7098,7 +7100,9 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
           </button>
           <div className="flex flex-col">
             <h2 className="text-xl font-black text-[#5D4037] flex items-center gap-2">
-              <span className="text-2xl">{selectedCategory?.icon}</span>
+              <span className="text-2xl w-8 h-8 flex items-center justify-center overflow-hidden shrink-0">
+                {selectedCategory && <AccountIcon icon={selectedCategory.icon} sizeClassName="w-7 h-7" />}
+              </span>
               {selectedCategory?.name}
             </h2>
             <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest leading-none mt-0.5">管理子分類</span>
@@ -7116,8 +7120,8 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
               className="bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex flex-col md:flex-row md:items-center md:justify-between group gap-4 md:gap-0 cursor-pointer hover:border-[#FFD54F] transition-all"
             >
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50 shrink-0">
-                  {cat.icon}
+                <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50 shrink-0 overflow-hidden">
+                  <AccountIcon icon={cat.icon} sizeClassName="w-8 h-8" />
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="font-black text-[#5D4037] text-lg md:text-base truncate break-all leading-tight">{cat.name}</span>
@@ -7193,11 +7197,74 @@ function CategoryManagementPage({ categories, onSave, onBack }: {
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類圖示</label>
+                  
+                  {/* 自訂 Emoji 輸入框 */}
+                  <div className="mb-4">
+                    <input 
+                      type="text"
+                      placeholder="自訂輸入 Emoji..."
+                      value={newCat.icon && !(newCat.icon.startsWith('http') || newCat.icon.startsWith('data:image/') || newCat.icon.startsWith('/')) ? newCat.icon : ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setNewCat(prev => ({ ...prev, icon: '' }));
+                        } else {
+                          setNewCat(prev => ({ ...prev, icon: val.slice(-2).trim() }));
+                        }
+                      }}
+                      className="w-full p-3 bg-white border border-stone-200 rounded-xl font-bold text-sm text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                      maxLength={2}
+                    />
+                  </div>
+
                   <div className="grid grid-cols-6 gap-2">
+                    {/* 上傳圖片按鈕 */}
+                    <div className="relative">
+                      <label className="w-10 h-10 rounded-xl border border-dashed bg-white border-stone-300 shadow-sm flex flex-col items-center justify-center cursor-pointer hover:bg-stone-50 transition-all active:scale-95">
+                        <Upload size={14} className="text-stone-400" />
+                        <span className="text-[8px] font-bold text-stone-400 mt-0.5" style={getFontFamily()}>上傳</span>
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 500 * 1024) {
+                              alert("上傳圖片大小不能超過 500KB！");
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              const base64 = event.target?.result as string;
+                              if (base64) {
+                                setNewCat(prev => ({ ...prev, icon: base64 }));
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }} 
+                          className="hidden" 
+                        />
+                      </label>
+                    </div>
+
+                    {/* 自訂圖片預覽 */}
+                    {newCat.icon && (newCat.icon.startsWith('data:image/') || newCat.icon.startsWith('http') || newCat.icon.startsWith('/')) && (
+                      <div className="relative w-10 h-10 rounded-xl border-2 border-[#FFD54F] bg-white shadow-md flex items-center justify-center overflow-hidden">
+                        <img src={newCat.icon} className="w-full h-full object-contain p-0.5 select-none pointer-events-none" alt="custom-icon" />
+                        <button 
+                          type="button"
+                          onClick={() => setNewCat(prev => ({ ...prev, icon: '✨' }))}
+                          className="absolute -top-1 -right-1 w-4.5 h-4.5 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black shadow-sm"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+
                     {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '規則', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
                       <button 
                         key={icon}
-                        onClick={() => setNewCat({ ...newCat, icon })}
+                        onClick={() => setNewCat(prev => ({ ...prev, icon }))}
                         className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl transition-all ${newCat.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md scale-110' : 'bg-white border-stone-50 shadow-sm'}`}
                       >
                         {icon}
@@ -7404,8 +7471,8 @@ function CategoryManagePage({ categories, onSave, onBack }: {
               className="bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex flex-col md:flex-row md:items-center md:justify-between group gap-4 md:gap-0"
             >
               <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedCategoryId(cat.id)}>
-                <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50 shrink-0">
-                  {cat.icon}
+                <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50 shrink-0 overflow-hidden">
+                  <AccountIcon icon={cat.icon} sizeClassName="w-8 h-8" />
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="font-black text-[#5D4037] text-lg md:text-base truncate break-all leading-tight">{cat.name}</span>
@@ -7522,10 +7589,79 @@ function CategoryManagePage({ categories, onSave, onBack }: {
                 <input value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]" />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">圖示</label>
+                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類圖示</label>
+                
+                {/* 自訂 Emoji 輸入框 */}
+                <div className="mb-4">
+                  <input 
+                    type="text"
+                    placeholder="自訂輸入 Emoji..."
+                    value={newCat.icon && !(newCat.icon.startsWith('http') || newCat.icon.startsWith('data:image/') || newCat.icon.startsWith('/')) ? newCat.icon : ''}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        setNewCat(prev => ({ ...prev, icon: '' }));
+                      } else {
+                        setNewCat(prev => ({ ...prev, icon: val.slice(-2).trim() }));
+                      }
+                    }}
+                    className="w-full p-3 bg-white border border-stone-200 rounded-xl font-bold text-sm text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                    maxLength={2}
+                  />
+                </div>
+
                 <div className="grid grid-cols-6 gap-2">
+                  {/* 上傳圖片按鈕 */}
+                  <div className="relative">
+                    <label className="w-10 h-10 rounded-xl border border-dashed bg-white border-stone-300 shadow-sm flex flex-col items-center justify-center cursor-pointer hover:bg-stone-50 transition-all active:scale-95">
+                      <Upload size={14} className="text-stone-400" />
+                      <span className="text-[8px] font-bold text-stone-400 mt-0.5" style={getFontFamily()}>上傳</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.size > 500 * 1024) {
+                            alert("上傳圖片大小不能超過 500KB！");
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            const base64 = event.target?.result as string;
+                            if (base64) {
+                              setNewCat(prev => ({ ...prev, icon: base64 }));
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }} 
+                        className="hidden" 
+                      />
+                    </label>
+                  </div>
+
+                  {/* 自訂圖片預覽 */}
+                  {newCat.icon && (newCat.icon.startsWith('data:image/') || newCat.icon.startsWith('http') || newCat.icon.startsWith('/')) && (
+                    <div className="relative w-10 h-10 rounded-xl border-2 border-[#FFD54F] bg-white shadow-md flex items-center justify-center overflow-hidden">
+                      <img src={newCat.icon} className="w-full h-full object-contain p-0.5 select-none pointer-events-none" alt="custom-icon" />
+                      <button 
+                        type="button"
+                        onClick={() => setNewCat(prev => ({ ...prev, icon: '✨' }))}
+                        className="absolute -top-1 -right-1 w-4.5 h-4.5 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black shadow-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+
                   {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '規則', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
-                    <button key={icon} onClick={() => setNewCat({ ...newCat, icon })} className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl transition-all ${newCat.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F]' : 'bg-white border-stone-50'}`}>{icon}</button>
+                    <button 
+                      key={icon}
+                      onClick={() => setNewCat(prev => ({ ...prev, icon }))}
+                      className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl transition-all ${newCat.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md scale-110' : 'bg-white border-stone-50 shadow-sm'}`}
+                    >
+                      {icon}
+                    </button>
                   ))}
                 </div>
               </div>
@@ -8488,8 +8624,8 @@ function BudgetManagementPage({
                   <div className="flex items-center justify-between w-full">
                     {/* Category Title */}
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-[#FFFDF5] rounded-xl flex items-center justify-center text-xl shadow-sm border border-stone-100/50">
-                        {cat.icon}
+                      <div className="w-10 h-10 bg-[#FFFDF5] rounded-xl flex items-center justify-center text-xl shadow-sm border border-stone-100/50 overflow-hidden">
+                        <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
                       </div>
                       <div className="flex flex-col">
                         <span className="text-sm font-bold text-[#5D4037]">{cat.name}</span>
@@ -12478,7 +12614,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           mainCategory === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
                         }`}
                       >
-                        <div className={`w-10 h-10 ${mainCategory === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl`}>{cat.icon}</div>
+                        <div className={`w-10 h-10 ${mainCategory === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
+                          <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
+                        </div>
                         <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
                       </button>
                     ))}
@@ -12897,8 +13035,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                                 : 'bg-white text-stone-400 border-white shadow-sm'
                             }`}
                           >
-                            <div className={`w-10 h-10 ${editingTemplate.category.split(' > ')[0] === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl`}>
-                              {cat.icon}
+                            <div className={`w-10 h-10 ${editingTemplate.category.split(' > ')[0] === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
+                              <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
                             </div>
                             <span className={`text-[14px] font-bold text-center px-1 leading-tight ${editingTemplate.category.split(' > ')[0] === cat.name ? 'text-white' : 'text-[#000000]'}`}>{cat.name}</span>
                           </button>
