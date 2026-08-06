@@ -7582,90 +7582,106 @@ function CategoryManagePage({ categories, onSave, onBack }: {
         {isAddModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md" onClick={() => setIsAddModalOpen(false)} />
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white p-8 space-y-6">
-              <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯主分類' : '新增主分類'}</h3>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">名稱</label>
-                <input value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]" />
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} 
+              className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[85vh]"
+            >
+              <div className="p-8 pb-4 flex items-center justify-between">
+                <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯主分類' : '新增主分類'}</h3>
+                <button onClick={() => setIsAddModalOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                  <X size={20} className="text-stone-400" />
+                </button>
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類圖示</label>
-                
-                {/* 自訂 Emoji 輸入框 */}
-                <div className="mb-4">
-                  <input 
-                    type="text"
-                    placeholder="自訂輸入 Emoji..."
-                    value={newCat.icon && !(newCat.icon.startsWith('http') || newCat.icon.startsWith('data:image/') || newCat.icon.startsWith('/')) ? newCat.icon : ''}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (val === '') {
-                        setNewCat(prev => ({ ...prev, icon: '' }));
-                      } else {
-                        setNewCat(prev => ({ ...prev, icon: val.slice(-2).trim() }));
-                      }
-                    }}
-                    className="w-full p-3 bg-white border border-stone-200 rounded-xl font-bold text-sm text-[#5D4037] outline-none focus:border-[#FFD54F]"
-                    maxLength={2}
-                  />
-                </div>
 
-                <div className="grid grid-cols-6 gap-2">
-                  {/* 上傳圖片按鈕 */}
-                  <div className="relative">
-                    <label className="w-10 h-10 rounded-xl border border-dashed bg-white border-stone-300 shadow-sm flex flex-col items-center justify-center cursor-pointer hover:bg-stone-50 transition-all active:scale-95">
-                      <Upload size={14} className="text-stone-400" />
-                      <span className="text-[8px] font-bold text-stone-400 mt-0.5" style={getFontFamily()}>上傳</span>
-                      <input 
-                        type="file" 
-                        accept="image/*" 
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          if (file.size > 500 * 1024) {
-                            alert("上傳圖片大小不能超過 500KB！");
-                            return;
-                          }
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            const base64 = event.target?.result as string;
-                            if (base64) {
-                              setNewCat(prev => ({ ...prev, icon: base64 }));
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        }} 
-                        className="hidden" 
-                      />
-                    </label>
+              <div className="flex-1 overflow-y-auto p-8 pt-2 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">名稱</label>
+                  <input value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]" placeholder="輸入主分類名稱" />
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類圖示</label>
+                  
+                  {/* 自訂 Emoji 輸入框 */}
+                  <div className="mb-4">
+                    <input 
+                      type="text"
+                      placeholder="自訂輸入 Emoji..."
+                      value={newCat.icon && !(newCat.icon.startsWith('http') || newCat.icon.startsWith('data:image/') || newCat.icon.startsWith('/')) ? newCat.icon : ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setNewCat(prev => ({ ...prev, icon: '' }));
+                        } else {
+                          setNewCat(prev => ({ ...prev, icon: val.slice(-2).trim() }));
+                        }
+                      }}
+                      className="w-full p-3 bg-white border border-stone-200 rounded-xl font-bold text-sm text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                      maxLength={2}
+                    />
                   </div>
 
-                  {/* 自訂圖片預覽 */}
-                  {newCat.icon && (newCat.icon.startsWith('data:image/') || newCat.icon.startsWith('http') || newCat.icon.startsWith('/')) && (
-                    <div className="relative w-10 h-10 rounded-xl border-2 border-[#FFD54F] bg-white shadow-md flex items-center justify-center overflow-hidden">
-                      <img src={newCat.icon} className="w-full h-full object-contain p-0.5 select-none pointer-events-none" alt="custom-icon" />
-                      <button 
-                        type="button"
-                        onClick={() => setNewCat(prev => ({ ...prev, icon: '✨' }))}
-                        className="absolute -top-1 -right-1 w-4.5 h-4.5 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black shadow-sm"
-                      >
-                        ✕
-                      </button>
+                  <div className="grid grid-cols-6 gap-2">
+                    {/* 上傳圖片按鈕 */}
+                    <div className="relative">
+                      <label className="w-10 h-10 rounded-xl border border-dashed bg-white border-stone-300 shadow-sm flex flex-col items-center justify-center cursor-pointer hover:bg-stone-50 transition-all active:scale-95">
+                        <Upload size={14} className="text-stone-400" />
+                        <span className="text-[8px] font-bold text-stone-400 mt-0.5" style={getFontFamily()}>上傳</span>
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 500 * 1024) {
+                              alert("上傳圖片大小不能超過 500KB！");
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              const base64 = event.target?.result as string;
+                              if (base64) {
+                                setNewCat(prev => ({ ...prev, icon: base64 }));
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }} 
+                          className="hidden" 
+                        />
+                      </label>
                     </div>
-                  )}
 
-                  {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '規則', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
-                    <button 
-                      key={icon}
-                      onClick={() => setNewCat(prev => ({ ...prev, icon }))}
-                      className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl transition-all ${newCat.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md scale-110' : 'bg-white border-stone-50 shadow-sm'}`}
-                    >
-                      {icon}
-                    </button>
-                  ))}
+                    {/* 自訂圖片預覽 */}
+                    {newCat.icon && (newCat.icon.startsWith('data:image/') || newCat.icon.startsWith('http') || newCat.icon.startsWith('/')) && (
+                      <div className="relative w-10 h-10 rounded-xl border-2 border-[#FFD54F] bg-white shadow-md flex items-center justify-center overflow-hidden">
+                        <img src={newCat.icon} className="w-full h-full object-contain p-0.5 select-none pointer-events-none" alt="custom-icon" />
+                        <button 
+                          type="button"
+                          onClick={() => setNewCat(prev => ({ ...prev, icon: '✨' }))}
+                          className="absolute -top-1 -right-1 w-4.5 h-4.5 bg-rose-500 text-white rounded-full flex items-center justify-center text-[8px] font-black shadow-sm"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+
+                    {['🍱', '🚗', '🛍️', '🎮', '🏠', '🏥', '✨', '💼', '📈', '🍔', '☕', '🎬', '規則', '💊', '🎁', '💡', '📚', '⚽'].map(icon => (
+                      <button 
+                        key={icon}
+                        onClick={() => setNewCat(prev => ({ ...prev, icon }))}
+                        className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl transition-all ${newCat.icon === icon ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md scale-110' : 'bg-white border-stone-50 shadow-sm'}`}
+                      >
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <button onClick={handleSaveMainCategory} className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black shadow-xl">儲存設定</button>
+              <div className="p-8 pt-4">
+                <button onClick={handleSaveMainCategory} className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2">
+                  <Check size={20} /> 儲存設定
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
