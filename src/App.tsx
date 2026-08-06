@@ -4040,7 +4040,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-[11px] font-bold text-stone-300">
+                                <span className="text-xs font-bold text-stone-300">
                                   {record.postingDate ? `入帳: ${record.postingDate}` : `轉帳: ${record.date}`}
                                 </span>
                               </div>
