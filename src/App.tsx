@@ -4441,11 +4441,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               {account.type === 'credit' && (
                 <button
                   onClick={() => setIsSortModalOpen(true)}
-                  className="px-2 py-0.5 bg-white border border-stone-200 rounded-full font-bold text-[10px] text-stone-500 hover:bg-stone-50 active:scale-95 transition-all flex items-center gap-1 shrink-0 ml-1.5 shadow-sm"
+                  className="px-3.5 py-1.5 bg-[#FFFDF5] border border-[#5D4037]/25 rounded-2xl font-black text-xs text-[#5D4037]/80 hover:bg-stone-50 hover:text-[#5D4037] active:scale-95 transition-all flex items-center gap-1.5 shrink-0 ml-2.5 shadow-sm"
                   title="選擇排序方式"
                   style={getFontFamily()}
                 >
-                  <ArrowUpDown size={10} className="text-stone-400" />
+                  <ArrowUpDown size={13} className="text-[#5D4037]/50" />
                   <span>
                     {sortMode === 'date-desc' && '消費日 - 新到舊'}
                     {sortMode === 'date-asc' && '消費日 - 舊到新'}
