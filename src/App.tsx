@@ -2822,6 +2822,12 @@ function StatCard({ title, date, expense, income, onClick }: { title: string, da
 }
 
 export function calculateAccountBalance(account: Account, accounts: Account[], records: Transaction[]): number {
+  if (account.isBrandGroup && (account as any).childAccounts) {
+    return (account as any).childAccounts.reduce((sum: number, c: Account) => {
+      return sum + calculateAccountBalance(c, accounts, records);
+    }, 0);
+  }
+
   const mergedRecords = getMergedRecords(records, accounts);
   const getBaseBalance = (acc: Account) => {
     let bal = acc.type === 'credit' ? 0 : (acc.initialBalance || 0);
