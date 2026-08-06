@@ -3199,8 +3199,8 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                     <div key={acc.id} className="flex flex-col gap-3">
                       {/* Level 1 Card: Group Total */}
                       <div 
-                        onClick={() => !isBrandGroup && onAccountClick(acc as Account)}
-                        className={`bg-white p-4 sm:p-5 rounded-[32px] shadow-sm border-2 border-stone-50 flex flex-col gap-1 group transition-all relative overflow-hidden ${!isBrandGroup ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+                        onClick={() => onAccountClick(acc as Account)}
+                        className="bg-white p-4 sm:p-5 rounded-[32px] shadow-sm border-2 border-stone-50 flex flex-col gap-1 group transition-all relative overflow-hidden cursor-pointer active:scale-[0.98]"
                       >
                         <div className="flex flex-row items-center gap-3 sm:gap-4 w-full">
                           <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl sm:text-3xl shadow-sm border border-white">
@@ -3430,9 +3430,21 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   const [showDiagnostic, setShowDiagnostic] = useState(false);
 
+  const childrenIds = useMemo(() => {
+    if (account.isBrandGroup && (account as any).childAccounts) {
+      return (account as any).childAccounts.map((c: any) => c.id);
+    }
+    return accounts.filter(c => c.parentId === account.id).map(c => c.id);
+  }, [account, accounts]);
+
+  const targetIds = useMemo(() => {
+    if (account.isBrandGroup && (account as any).childAccounts) {
+      return (account as any).childAccounts.map((c: any) => c.id);
+    }
+    return [account.id, ...childrenIds];
+  }, [account, childrenIds]);
+
   const balanceMap = useMemo(() => {
-    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
-    const targetIds = [account.id, ...childrenIds];
     
     const relevant = records
       .filter(r => (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && r.category !== '初始資金')
@@ -3457,11 +3469,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     });
     
     return map;
-  }, [records, account, accounts]);
+  }, [records, account, targetIds]);
 
   const diagnosticInfo = useMemo(() => {
-    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
-    const targetIds = [account.id, ...childrenIds];
     const merged = getMergedRecords(records, accounts);
     
     let bal = account.type === 'credit' ? 0 : (account.initialBalance || 0);
@@ -3501,14 +3511,16 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       }
     });
     
-    const children = accounts.filter(c => c.parentId === account.id);
-    const childrenBals = children.map(child => {
+    const children = account.isBrandGroup && (account as any).childAccounts
+      ? (account as any).childAccounts
+      : accounts.filter(c => c.parentId === account.id);
+    const childrenBals = children.map((child: any) => {
       const childBal = calculateAccountBalance(child, accounts, records);
       return { name: child.name, balance: childBal };
     });
     
     return { log, childrenBals, initial: account.type === 'credit' ? 0 : (account.initialBalance || 0) };
-  }, [records, account, accounts]);
+  }, [records, account, targetIds, accounts]);
 
   const dateRangeStrings = useMemo(() => {
     const firstDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
@@ -3584,8 +3596,6 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   };
   
   const accountRecords = useMemo(() => {
-    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
-    const targetIds = [account.id, ...childrenIds];
     const targetYearMonth = dateRangeStrings.filter;
     
     const raw = records.filter(r => 
@@ -3601,7 +3611,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       if (dateDiff !== 0) return dateDiff;
       return b.amount - a.amount;
     });
-  }, [records, account.id, accounts, dateRangeStrings.filter]);
+  }, [records, accounts, dateRangeStrings.filter, targetIds]);
 
   const calculatedBalance = useMemo(() => { 
     return calculateAccountBalance(account, accounts, records); 
@@ -3612,9 +3622,6 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     let tSum = 0;
     let ntCount = 0;
     let ntSum = 0;
-    
-    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
-    const targetIds = [account.id, ...childrenIds];
 
     accountRecords.forEach(r => {
       const isTransferPayment = r.type === 'transfer';
@@ -3659,13 +3666,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       notTransferredCount: ntCount,
       notTransferredSum: ntSum
     };
-  }, [accountRecords, accounts, account.id]);
+  }, [accountRecords, targetIds]);
 
   const creditCardStatements = useMemo(() => {
     if (account.type !== 'credit' || !account.closingDay) return [];
 
-    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
-    const targetIds = [account.id, ...childrenIds];
     const targetYearMonth = dateRangeStrings.filter; // e.g. "2026-07"
 
     const getStatementLabelAndKey = (dateStr: string, closingDay: number) => {
@@ -3805,7 +3810,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     }
 
     return statementList;
-  }, [records, account, accounts, dateRangeStrings.filter]);
+  }, [records, account, accounts, dateRangeStrings.filter, targetIds, childrenIds]);
 
   const listBalance = useMemo(() => {
     if (account.type === 'credit' && account.closingDay) {
@@ -3816,8 +3821,6 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       return total;
     }
 
-    const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
-    const targetIds = [account.id, ...childrenIds];
     const targetYearMonth = dateRangeStrings.filter;
 
     const mergedRecords = getMergedRecords(records, accounts);
@@ -3850,6 +3853,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       });
       return total;
     };
+
+    if (account.isBrandGroup && (account as any).childAccounts) {
+      return (account as any).childAccounts.reduce((sum: number, c: Account) => {
+        return sum + getRecursiveBalance(c.id);
+      }, 0);
+    }
 
     return getRecursiveBalance(account.id);
   }, [account, accounts, records, dateRangeStrings.filter, creditCardStatements]);
@@ -3924,9 +3933,6 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         <div className="flex flex-col items-end gap-1">
                           {/* 金額顯示 */}
                           {(() => {
-                            const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
-                            const targetIds = [account.id, ...childrenIds];
-                            
                             let isFrom = targetIds.includes(record.accountId);
                             let isTo = record.toAccountId && targetIds.includes(record.toAccountId);
                             
@@ -3991,8 +3997,6 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                           {/* 轉入轉出標籤 */}
                           {(record.type === 'transfer' || record._isMergedTransfer) && (
                             (() => {
-                              const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
-                              const targetIds = [account.id, ...childrenIds];
                               let isFrom = targetIds.includes(record.accountId);
                               if (record.type === 'transfer' || record._isMergedTransfer) {
                                 const { src } = getTransferSourceAndDest(record);
@@ -4226,12 +4230,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               })()}
             </div>
           </div>
-          <button 
-            onClick={onEdit}
-            className="w-14 h-14 bg-[#FFD54F] rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-all z-10"
-          >
-            <Pencil size={24} className="text-[#5D4037]" />
-          </button>
+          {!account.isBrandGroup && (
+            <button 
+              onClick={onEdit}
+              className="w-14 h-14 bg-[#FFD54F] rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-all z-10"
+            >
+              <Pencil size={24} className="text-[#5D4037]" />
+            </button>
+          )}
           
           {/* Decorative background element */}
           <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-[#FFD54F]/10 rounded-full blur-3xl pointer-events-none" />
