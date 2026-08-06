@@ -4432,44 +4432,57 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       {/* Transaction History Section */}
       <div className="flex-1 px-4 flex flex-col gap-4 mt-2">
         <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between px-2">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-[#5D4037] rounded-lg flex items-center justify-center">
-                <History size={14} className="text-white" />
+          <div className="flex items-center justify-between px-2 gap-4">
+            {/* Left Column: Icon + Title & Sorting Button */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-[#5D4037] rounded-full flex items-center justify-center shrink-0 shadow-md">
+                <History size={18} className="text-white" />
               </div>
-              <span className="font-black text-base text-[#5D4037]">往來明細</span>
-              {account.type === 'credit' && (
-                <button
-                  onClick={() => setIsSortModalOpen(true)}
-                  className="px-3.5 py-1.5 bg-[#FFFDF5] border border-[#5D4037]/25 rounded-2xl font-black text-xs text-[#5D4037]/80 hover:bg-stone-50 hover:text-[#5D4037] active:scale-95 transition-all flex items-center gap-1.5 shrink-0 ml-2.5 shadow-sm"
-                  title="選擇排序方式"
-                  style={getFontFamily()}
-                >
-                  <ArrowUpDown size={13} className="text-[#5D4037]/50" />
-                  <span>
-                    {sortMode === 'date-desc' && '消費日 - 新到舊'}
-                    {sortMode === 'date-asc' && '消費日 - 舊到新'}
-                    {sortMode === 'posting-desc' && '入帳日 - 新到舊'}
-                    {sortMode === 'posting-asc' && '入帳日 - 舊到新'}
-                  </span>
-                </button>
+              <div className="flex flex-col gap-1.5 items-start">
+                <span className="font-black text-base text-[#5D4037]" style={getFontFamily()}>往來明細</span>
+                {account.type === 'credit' && (
+                  <button
+                    onClick={() => setIsSortModalOpen(true)}
+                    className="px-3.5 py-1.5 bg-[#FFFDF5] border border-[#5D4037]/25 rounded-2xl font-black text-xs text-[#5D4037]/80 hover:bg-stone-50 hover:text-[#5D4037] active:scale-95 transition-all flex items-center gap-1.5 shrink-0 shadow-sm"
+                    title="選擇排序方式"
+                    style={getFontFamily()}
+                  >
+                    <ArrowUpDown size={12} className="text-[#5D4037]/50" />
+                    <span>
+                      {sortMode === 'date-desc' && '消費日 - 新到舊'}
+                      {sortMode === 'date-asc' && '消費日 - 舊到新'}
+                      {sortMode === 'posting-desc' && '入帳日 - 新到舊'}
+                      {sortMode === 'posting-asc' && '入帳日 - 舊到新'}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Right Card: Statistics */}
+            <div className="bg-white p-3 px-4 rounded-[25px] shadow-sm border border-stone-50 flex flex-col gap-0.5 text-[11px] font-bold text-stone-400 shrink-0 text-left" style={getFontFamily()}>
+              <div className="flex items-center justify-between gap-1">
+                <span>{accountRecords.length} 筆紀錄</span>
+                <span>|</span>
+              </div>
+              {account.type === 'credit' ? (
+                <>
+                  <div className="flex items-center justify-between gap-1">
+                    <span>已轉帳 <span className="text-[#00B0FF] font-black">{creditCardStats.transferredCount}</span> 筆 <span className="text-emerald-600 font-black">${creditCardStats.transferredSum.toLocaleString()}</span></span>
+                    <span>/</span>
+                  </div>
+                  <div>
+                    <span>未轉帳 <span className="text-[#FF5252] font-black">{creditCardStats.notTransferredCount}</span> 筆 <span className="text-rose-500 font-black">${creditCardStats.notTransferredSum < 0 ? '-' : ''}{Math.abs(creditCardStats.notTransferredSum).toLocaleString()}</span></span>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <span>結餘：<span className={`font-black ${listBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                    {listBalance < 0 ? '-' : ''}${Math.abs(listBalance).toLocaleString()}
+                  </span></span>
+                </div>
               )}
             </div>
-            <span className={`text-[13px] font-black text-stone-400 bg-white px-5 py-2 ${account.type === 'credit' ? 'rounded-2xl sm:rounded-full' : 'rounded-full'} border border-stone-100 flex items-center gap-2 shadow-sm flex-wrap`} style={getFontFamily()}>
-              <span>{accountRecords.length} 筆紀錄</span>
-              <span className="text-stone-200 font-normal">|</span>
-              {account.type === 'credit' ? (
-                <span className="flex items-center gap-2 flex-wrap">
-                  <span>已轉帳 <span className="font-black text-emerald-600">{creditCardStats.transferredCount}</span> 筆 <span className="font-black text-emerald-600">${creditCardStats.transferredSum.toLocaleString()}</span></span>
-                  <span className="text-stone-200 font-normal">/</span>
-                  <span>未轉帳 <span className="font-black text-rose-500">{creditCardStats.notTransferredCount}</span> 筆 <span className="font-black text-rose-500">${creditCardStats.notTransferredSum < 0 ? '-' : ''}{Math.abs(creditCardStats.notTransferredSum).toLocaleString()}</span></span>
-                </span>
-              ) : (
-                <span>結餘：<span className={`font-black ${listBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                  {listBalance < 0 ? '-' : ''}${Math.abs(listBalance).toLocaleString()}
-                </span></span>
-              )}
-            </span>
           </div>
           
           {/* Month Switcher Row */}
