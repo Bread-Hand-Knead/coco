@@ -192,7 +192,7 @@ type CurrencyMode = 'TWD' | 'FOREIGN' | null;
 interface Account {
   id: string;
   name: string;
-  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket' | 'e-payment' | 'points' | 'other';
+  type: 'cash' | 'bank' | 'investment' | 'credit' | 'e-ticket' | 'e-payment' | 'points' | 'deposit' | 'insurance' | 'other';
   icon: string;
   parentId?: string;
   currency: string;    // 幣別 (如 "TWD", "USD", "JPY")
@@ -3030,6 +3030,8 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
     'e-ticket': '電子票證',
     'e-payment': '電子支付',
     points: '點數',
+    deposit: '定存',
+    insurance: '保險',
     other: '其他'
   };
 
@@ -5237,7 +5239,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   onDelete: (id: string) => void,
   onViewDetail?: (acc: Account) => void
 }) {
-  const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket', 'e-payment', 'points', 'other'];
+  const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket', 'e-payment', 'points', 'deposit', 'insurance', 'other'];
   const isNew = !accounts.find(a => a.id === account.id);
   const [editedAcc, setEditedAcc] = useState<Account>(() => {
     // Migrate initialBalance from records if not present on account
@@ -5425,6 +5427,8 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                     'e-ticket': '電子票證',
                     'e-payment': '電子支付',
                     points: '點數',
+                    deposit: '定存',
+                    insurance: '保險',
                     other: '其他'
                   };
                   return (
@@ -5511,7 +5515,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                     />
                   </div>
 
-                  {['💰', '🏦', '💳', '📔', '💵', '🪙', '📱', '🐷', '📈', '🏠', '🚗', '💼', '💎', '🛒', '🍱', '✈️', '🎮', '🎁'].map(icon => (
+                  {['💰', '🏦', '💳', '📔', '💵', '🪙', '📱', '🛡️', '🐷', '📈', '🏠', '🚗', '💼', '💎', '🛒', '🍱', '✈️', '🎮', '🎁'].map(icon => (
                     <button 
                       key={icon}
                       onClick={() => setEditedAcc({ ...editedAcc, icon })}
@@ -6343,7 +6347,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
   );
 }
 
-const defaultTypeOrder: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'insurance', 'points', 'other'];
+const defaultTypeOrder: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'deposit', 'insurance', 'points', 'other'];
 
 const getGroupOrder = (type: Account['type'], accountsList: Account[]): number => {
   const catAccs = accountsList.filter(a => a.type === type);
@@ -6359,14 +6363,14 @@ function AccountSortModal({ accounts, onClose, onSave }: {
   onSave: (newOrder: Account[]) => void 
 }) {
   const [categoryOrder, setCategoryOrder] = useState<Account['type'][]>(() => {
-    const uniqueTypes: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'insurance', 'points', 'other'];
+    const uniqueTypes: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'deposit', 'insurance', 'points', 'other'];
     return [...uniqueTypes].sort((a, b) => getGroupOrder(a, accounts) - getGroupOrder(b, accounts));
   });
 
   // Grouping parents and children within their respective categories
   const [orderedAccounts, setOrderedAccounts] = useState<Account[]>(() => {
     const result: Account[] = [];
-    const uniqueTypes: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'insurance', 'points', 'other'];
+    const uniqueTypes: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'deposit', 'insurance', 'points', 'other'];
     
     uniqueTypes.forEach(cat => {
       const catAccs = accounts.filter(a => a.type === cat);
@@ -6520,6 +6524,7 @@ function AccountSortModal({ accounts, onClose, onSave }: {
     'e-payment': { label: '電子支付', bg: 'bg-[#26C6DA]', icon: '📱' },
     'e-ticket': { label: '儲值卡', bg: 'bg-[#FFA726]', icon: '🚃' },
     investment: { label: '證券', bg: 'bg-[#78909C]', icon: '📈' },
+    deposit: { label: '定存', bg: 'bg-[#9CCC65]', icon: '🏦' },
     insurance: { label: '保險', bg: 'bg-[#FF7043]', icon: '🛡️' },
     points: { label: '點數', bg: 'bg-[#FDD835]', icon: '⭐' },
     other: { label: '其他', bg: 'bg-[#8D6E63]', icon: '💼' }
