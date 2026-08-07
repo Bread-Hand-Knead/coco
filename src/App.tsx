@@ -3753,6 +3753,20 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     let ntSum = 0;
 
     accountRecords.forEach(r => {
+      const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+      const noteLower = noteText.toLowerCase();
+      const isFeedback = 
+        noteLower.includes('回饋') || 
+        noteLower.includes('返現') || 
+        noteLower.includes('紅利') || 
+        noteLower.includes('折抵') || 
+        noteLower.includes('cashback') || 
+        noteLower.includes('reward');
+      
+      if (isFeedback) {
+        return; // skip cashbacks / rewards entirely from transfer statistics
+      }
+
       const isTransferPayment = r.type === 'transfer';
       let isTransferIn = false;
       let isAutoPay = false;
@@ -3762,7 +3776,6 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         isTransferIn = r.toAccountId && targetIds.includes(r.toAccountId);
         
         if (isTransferIn) {
-          const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
           isAutoPay = 
             (noteText.includes('自動') && noteText.includes('扣繳')) || 
             (noteText.includes('自動') && noteText.includes('繳款')) || 
@@ -3860,13 +3873,22 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     cardRecords.forEach(r => {
       const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+      const noteLower = noteText.toLowerCase();
+      const isFeedback = 
+        noteLower.includes('回饋') || 
+        noteLower.includes('返現') || 
+        noteLower.includes('紅利') || 
+        noteLower.includes('折抵') || 
+        noteLower.includes('cashback') || 
+        noteLower.includes('reward');
+
       const hasKeywords = 
         (noteText.includes('自動') && noteText.includes('扣繳')) || 
         (noteText.includes('自動') && noteText.includes('繳款')) || 
         (noteText.includes('自動') && noteText.includes('扣款')) ||
         noteText.includes('轉帳扣繳') ||
         noteText.includes('扣繳信用卡款');
-      const isTransferIn = (r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) || hasKeywords;
+      const isTransferIn = !isFeedback && (((r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) || hasKeywords));
       
       if (isTransferIn) {
         // Payments are filtered by calendar month (when the payment actually occurred)
