@@ -2935,6 +2935,76 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
   return result;
 }
 
+export function calculateCreditCardUntransferred(
+  account: Account,
+  accounts: Account[],
+  records: Transaction[]
+): number {
+  if (account.isBrandGroup && (account as any).childAccounts) {
+    return (account as any).childAccounts.reduce((sum: number, c: Account) => {
+      return sum + calculateCreditCardUntransferred(c, accounts, records);
+    }, 0);
+  }
+
+  const childrenIds = accounts.filter(a => a.parentId === account.id).map(a => a.id);
+  const targetIds = [account.id, ...childrenIds];
+
+  const mergedRecords = getMergedRecords(records, accounts);
+  
+  const accountRecords = mergedRecords.filter(r => 
+    (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
+    r.category !== '初始資金'
+  );
+
+  let ntSum = 0;
+
+  accountRecords.forEach(r => {
+    const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+    const noteLower = noteText.toLowerCase();
+    const isFeedback = 
+      noteLower.includes('回饋') || 
+      noteLower.includes('返現') || 
+      noteLower.includes('紅利') || 
+      noteLower.includes('折抵') || 
+      noteLower.includes('cashback') || 
+      noteLower.includes('reward');
+    
+    if (isFeedback) {
+      return;
+    }
+
+    const isTransferPayment = r.type === 'transfer';
+    let isTransferIn = false;
+    let isAutoPay = false;
+    
+    if (isTransferPayment) {
+      isTransferIn = r.toAccountId && targetIds.includes(r.toAccountId);
+      
+      if (isTransferIn) {
+        isAutoPay = 
+          (noteText.includes('自動') && noteText.includes('扣繳')) || 
+          (noteText.includes('自動') && noteText.includes('繳款')) || 
+          (noteText.includes('自動') && noteText.includes('扣款')) ||
+          noteText.includes('轉帳扣繳') ||
+          noteText.includes('扣繳信用卡款') ||
+          noteText.includes('自動扣繳');
+      }
+    }
+
+    if (isAutoPay) {
+      return;
+    }
+
+    const isTransferred = r.transferredDate || (isTransferPayment && isTransferIn);
+
+    if (!isTransferred) {
+      ntSum += r.amount;
+    }
+  });
+
+  return ntSum;
+}
+
 function DynamicAccountBalance({ 
   account, 
   accounts,
@@ -3249,13 +3319,36 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
             return sum + (bal * rate);
           }, 0);
 
+          const creditUntransferredTotal = type === 'credit' ? typeAccounts.reduce((sum, acc) => {
+            if (acc.isBrandGroup && acc.childAccounts) {
+              return sum + acc.childAccounts.reduce((cSum: number, c: Account) => {
+                const untransferred = calculateCreditCardUntransferred(c, accounts, records);
+                const cur = c.currency || 'TWD';
+                const rate = (currencyMode === 'FOREIGN' && cur !== 'TWD') ? getLatestExchangeRate(records, accounts, cur) : 1;
+                return cSum + (untransferred * rate);
+              }, 0);
+            }
+            const untransferred = calculateCreditCardUntransferred(acc as Account, accounts, records);
+            const cur = acc.currency || 'TWD';
+            const rate = (currencyMode === 'FOREIGN' && cur !== 'TWD') ? getLatestExchangeRate(records, accounts, cur) : 1;
+            return sum + (untransferred * rate);
+          }, 0) : 0;
+
           return (
             <div key={type} className="flex flex-col gap-4">
               {/* Group Header */}
               <div className="px-2 flex justify-between items-end border-b border-[#5D4037]/10 pb-2">
                 <span className="text-lg font-black text-[#5D4037]">{accountTypeLabels[type]}</span>
-                <span className="text-sm font-bold text-stone-400" style={getFontFamily()}>
-                  合計 {currencyMode === 'FOREIGN' ? 'NT$ ' : '$ '}{formatAmount(typeTotal)}
+                <span className="text-sm font-bold text-stone-400 flex items-center gap-1.5" style={getFontFamily()}>
+                  <span>合計 {currencyMode === 'FOREIGN' ? 'NT$ ' : '$ '}{formatAmount(typeTotal)}</span>
+                  {type === 'credit' && (
+                    <>
+                      <span>|</span>
+                      <span className="text-rose-500 font-black">
+                        未轉帳 {currencyMode === 'FOREIGN' ? 'NT$ ' : '$ '}{formatAmount(creditUntransferredTotal)}
+                      </span>
+                    </>
+                  )}
                 </span>
               </div>
 
