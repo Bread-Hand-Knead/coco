@@ -4850,66 +4850,68 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             />
             <motion.div 
               initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} 
-              className="relative bg-[#FFFDF5] w-full max-w-xs rounded-[35px] shadow-2xl border-2 border-white overflow-hidden flex flex-col p-6 space-y-4"
+              className="relative bg-[#FFFDF5] w-full max-w-xs rounded-[35px] shadow-2xl border-2 border-white flex flex-col p-6 space-y-4 max-h-[85vh]"
             >
-              <div className="flex items-center justify-between border-b border-stone-100 pb-2">
+              <div className="flex items-center justify-between border-b border-stone-100 pb-2 flex-shrink-0">
                 <h4 className="font-black text-[#5D4037] text-base" style={getFontFamily()}>選擇排序</h4>
                 <button onClick={() => setIsSortModalOpen(false)} className="p-1 hover:bg-stone-100 rounded-full transition-colors">
                   <X size={18} className="text-stone-400" />
                 </button>
               </div>
 
-              <div className="flex flex-col gap-2">
-                {[
-                  { mode: 'date-desc', label: '消費日 - 新到舊' },
-                  { mode: 'date-asc', label: '消費日 - 舊到新' },
-                  { mode: 'posting-desc', label: '入帳日 - 新到舊' },
-                  { mode: 'posting-asc', label: '入帳日 - 舊到新' }
-                ].map(opt => (
-                  <button
-                    key={opt.mode}
-                    onClick={() => {
-                      setSortMode(opt.mode as any);
-                      setIsSortModalOpen(false);
-                    }}
-                    className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${sortMode === opt.mode ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
-                    style={getFontFamily()}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              {account.isBrandGroup && (account as any).childAccounts && (account as any).childAccounts.length > 0 && (
-                <div className="border-t border-stone-100 pt-3 flex flex-col gap-2">
-                  <div className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分卡別篩選 (FILTER BY CARD)</div>
-                  <div className="flex flex-col gap-2">
+              <div className="flex-1 overflow-y-auto pr-1 space-y-4 max-h-[60vh] custom-scrollbar">
+                <div className="flex flex-col gap-2">
+                  {[
+                    { mode: 'date-desc', label: '消費日 - 新到舊' },
+                    { mode: 'date-asc', label: '消費日 - 舊到新' },
+                    { mode: 'posting-desc', label: '入帳日 - 新到舊' },
+                    { mode: 'posting-asc', label: '入帳日 - 舊到新' }
+                  ].map(opt => (
                     <button
+                      key={opt.mode}
                       onClick={() => {
-                        setSelectedCardFilterId(null);
+                        setSortMode(opt.mode as any);
                         setIsSortModalOpen(false);
                       }}
-                      className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${selectedCardFilterId === null ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
+                      className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${sortMode === opt.mode ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
                       style={getFontFamily()}
                     >
-                      💳 全部卡片明細
+                      {opt.label}
                     </button>
-                    {(account as any).childAccounts.map((child: any) => (
+                  ))}
+                </div>
+
+                {account.isBrandGroup && (account as any).childAccounts && (account as any).childAccounts.length > 0 && (
+                  <div className="border-t border-stone-100 pt-3 flex flex-col gap-2">
+                    <div className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分卡別篩選 (FILTER BY CARD)</div>
+                    <div className="flex flex-col gap-2">
                       <button
-                        key={child.id}
                         onClick={() => {
-                          setSelectedCardFilterId(child.id);
+                          setSelectedCardFilterId(null);
                           setIsSortModalOpen(false);
                         }}
-                        className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${selectedCardFilterId === child.id ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
+                        className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${selectedCardFilterId === null ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
                         style={getFontFamily()}
                       >
-                        💳 {child.name}
+                        💳 全部卡片明細
                       </button>
-                    ))}
+                      {(account as any).childAccounts.map((child: any) => (
+                        <button
+                          key={child.id}
+                          onClick={() => {
+                            setSelectedCardFilterId(child.id);
+                            setIsSortModalOpen(false);
+                          }}
+                          className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${selectedCardFilterId === child.id ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
+                          style={getFontFamily()}
+                        >
+                          💳 {child.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </motion.div>
           </div>
         )}
