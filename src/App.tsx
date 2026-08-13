@@ -3600,6 +3600,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   const [showDiagnostic, setShowDiagnostic] = useState(false);
 
+  const [selectedCardFilterId, setSelectedCardFilterId] = useState<string | null>(null);
+
   const childrenIds = useMemo(() => {
     if (account.isBrandGroup && (account as any).childAccounts) {
       return (account as any).childAccounts.map((c: any) => c.id);
@@ -3607,20 +3609,41 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return accounts.filter(c => c.parentId === account.id).map(c => c.id);
   }, [account, accounts]);
 
+  const effectiveChildrenIds = useMemo(() => {
+    if (selectedCardFilterId) {
+      return [selectedCardFilterId];
+    }
+    return childrenIds;
+  }, [childrenIds, selectedCardFilterId]);
+
+  const effectiveParentId = useMemo(() => {
+    if (selectedCardFilterId) {
+      return selectedCardFilterId;
+    }
+    return account.id;
+  }, [account.id, selectedCardFilterId]);
+
   const targetIds = useMemo(() => {
+    if (selectedCardFilterId) {
+      return [selectedCardFilterId];
+    }
     if (account.isBrandGroup && (account as any).childAccounts) {
       return (account as any).childAccounts.map((c: any) => c.id);
     }
     return [account.id, ...childrenIds];
-  }, [account, childrenIds]);
+  }, [account, childrenIds, selectedCardFilterId]);
 
   const effectiveClosingDay = useMemo(() => {
+    if (selectedCardFilterId) {
+      const childAcc = accounts.find(a => a.id === selectedCardFilterId);
+      if (childAcc && childAcc.closingDay) return childAcc.closingDay;
+    }
     if (account.isBrandGroup && (account as any).childAccounts) {
       const childWithClosing = (account as any).childAccounts.find((c: any) => c.closingDay);
       return childWithClosing ? childWithClosing.closingDay : null;
     }
     return account.closingDay;
-  }, [account]);
+  }, [account, accounts, selectedCardFilterId]);
 
   const balanceMap = useMemo(() => {
     
@@ -3633,7 +3656,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       });
       
     const map: Record<string, number> = {};
-    let bal = account.initialBalance || 0;
+    const initialBal = selectedCardFilterId
+      ? (accounts.find(a => a.id === selectedCardFilterId)?.initialBalance || 0)
+      : (account.initialBalance || 0);
+    let bal = initialBal;
     
     relevant.forEach(r => {
       if (targetIds.includes(r.accountId)) {
@@ -3647,7 +3673,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     });
     
     return map;
-  }, [records, account, targetIds]);
+  }, [records, account, targetIds, accounts, selectedCardFilterId]);
 
   const diagnosticInfo = useMemo(() => {
     const merged = getMergedRecords(records, accounts);
@@ -3792,8 +3818,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   }, [records, accounts, dateRangeStrings.filter, targetIds]);
 
   const calculatedBalance = useMemo(() => { 
+    if (selectedCardFilterId) {
+      const childAcc = accounts.find(a => a.id === selectedCardFilterId);
+      if (childAcc) {
+        return calculateAccountBalance(childAcc, accounts, records);
+      }
+    }
     return calculateAccountBalance(account, accounts, records); 
-  }, [account, accounts, records]);
+  }, [account, accounts, records, selectedCardFilterId]);
 
   const { paymentRecords, normalRecords } = useMemo(() => {
     if (account.type !== 'credit') return { paymentRecords: [], normalRecords: accountRecords };
@@ -3981,7 +4013,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         (noteText.includes('自動') && noteText.includes('扣款')) ||
         noteText.includes('轉帳扣繳') ||
         noteText.includes('扣繳信用卡款');
-      const isTransferIn = !isFeedback && (((r.type === 'transfer' && (r.toAccountId === account.id || childrenIds.includes(r.toAccountId!))) || hasKeywords));
+      const isTransferIn = !isFeedback && (((r.type === 'transfer' && (r.toAccountId === effectiveParentId || effectiveChildrenIds.includes(r.toAccountId!))) || hasKeywords));
       
       if (isTransferIn) {
         // Payments are filtered by calendar month (when the payment actually occurred)
@@ -4027,7 +4059,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         const dateStr = r.postingDate || r.date;
         const { key } = getStatementLabelAndKey(dateStr, effectiveClosingDay!);
         if (key === g.key) {
-          if (r.accountId === account.id || childrenIds.includes(r.accountId)) {
+          if (r.accountId === effectiveParentId || effectiveChildrenIds.includes(r.accountId)) {
             bal += r.amount;
             if (r.fee) bal -= r.fee;
           }
@@ -4064,7 +4096,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     }
 
     return statementList;
-  }, [records, account, accounts, dateRangeStrings.filter, targetIds, childrenIds, sortMode]);
+  }, [records, account, accounts, dateRangeStrings.filter, targetIds, effectiveChildrenIds, effectiveParentId, sortMode, effectiveClosingDay]);
 
   const listBalance = useMemo(() => {
     if (account.type === 'credit' && effectiveClosingDay) {
@@ -4478,8 +4510,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               <span className={`text-4xl font-black tracking-tight ${calculatedBalance < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`} style={getFontFamily()}>
                 {calculatedBalance.toLocaleString()}
               </span>
-              {account.currency && account.currency !== 'TWD' && (() => {
-                const rate = getLatestExchangeRate(records, accounts, account.currency);
+              {(() => {
+                const activeCurrency = selectedCardFilterId 
+                  ? accounts.find(a => a.id === selectedCardFilterId)?.currency || account.currency 
+                  : account.currency;
+                if (!activeCurrency || activeCurrency === 'TWD') return null;
+                const rate = getLatestExchangeRate(records, accounts, activeCurrency);
                 const twdBal = Math.round(calculatedBalance * rate);
                 return (
                   <span className="text-sm font-bold text-stone-400 ml-1.5" style={getFontFamily()}>
@@ -4563,20 +4599,33 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               <div className="flex flex-col gap-1.5 items-start">
                 <span className="font-black text-base text-[#5D4037]" style={getFontFamily()}>往來明細</span>
                 {account.type === 'credit' && (
-                  <button
-                    onClick={() => setIsSortModalOpen(true)}
-                    className="px-3.5 py-1.5 bg-[#FFFDF5] border border-[#5D4037]/25 rounded-2xl font-black text-xs text-[#5D4037]/80 hover:bg-stone-50 hover:text-[#5D4037] active:scale-95 transition-all flex items-center gap-1.5 shrink-0 shadow-sm"
-                    title="選擇排序方式"
-                    style={getFontFamily()}
-                  >
-                    <ArrowUpDown size={12} className="text-[#5D4037]/50" />
-                    <span>
-                      {sortMode === 'date-desc' && '消費日 - 新到舊'}
-                      {sortMode === 'date-asc' && '消費日 - 舊到新'}
-                      {sortMode === 'posting-desc' && '入帳日 - 新到舊'}
-                      {sortMode === 'posting-asc' && '入帳日 - 舊到新'}
-                    </span>
-                  </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => setIsSortModalOpen(true)}
+                      className="px-3.5 py-1.5 bg-[#FFFDF5] border border-[#5D4037]/25 rounded-2xl font-black text-xs text-[#5D4037]/80 hover:bg-stone-50 hover:text-[#5D4037] active:scale-95 transition-all flex items-center gap-1.5 shrink-0 shadow-sm"
+                      title="選擇排序與卡片"
+                      style={getFontFamily()}
+                    >
+                      <ArrowUpDown size={12} className="text-[#5D4037]/50" />
+                      <span>
+                        {sortMode === 'date-desc' && '消費日 - 新到舊'}
+                        {sortMode === 'date-asc' && '消費日 - 舊到新'}
+                        {sortMode === 'posting-desc' && '入帳日 - 新到舊'}
+                        {sortMode === 'posting-asc' && '入帳日 - 舊到新'}
+                      </span>
+                    </button>
+                    {selectedCardFilterId && (
+                      <span 
+                        className="px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full font-black text-[10px] flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer transition-all"
+                        onClick={() => setSelectedCardFilterId(null)}
+                        title="點擊清除卡片篩選"
+                        style={getFontFamily()}
+                      >
+                        <span>卡片: {accounts.find(a => a.id === selectedCardFilterId)?.name}</span>
+                        <span className="text-[8px] opacity-60 ml-0.5">✕</span>
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -4830,6 +4879,37 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   </button>
                 ))}
               </div>
+
+              {account.isBrandGroup && (account as any).childAccounts && (account as any).childAccounts.length > 0 && (
+                <div className="border-t border-stone-100 pt-3 flex flex-col gap-2">
+                  <div className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分卡別篩選 (FILTER BY CARD)</div>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedCardFilterId(null);
+                        setIsSortModalOpen(false);
+                      }}
+                      className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${selectedCardFilterId === null ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
+                      style={getFontFamily()}
+                    >
+                      💳 全部卡片明細
+                    </button>
+                    {(account as any).childAccounts.map((child: any) => (
+                      <button
+                        key={child.id}
+                        onClick={() => {
+                          setSelectedCardFilterId(child.id);
+                          setIsSortModalOpen(false);
+                        }}
+                        className={`w-full py-4 px-6 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 ${selectedCardFilterId === child.id ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
+                        style={getFontFamily()}
+                      >
+                        💳 {child.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
