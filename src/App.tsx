@@ -13417,6 +13417,21 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     {templates.find(t => t.id === editingTemplate.id) ? '編輯範本' : '新增範本'}
                   </h3>
                 </div>
+                {templates.some(t => t.id === editingTemplate.id) && (
+                  <button 
+                    onClick={() => {
+                      if (window.confirm('確定要刪除此記帳範本嗎？')) {
+                        onUpdateTemplates(templates.filter(t => t.id !== editingTemplate.id));
+                        setEditingTemplate(null);
+                      }
+                    }}
+                    type="button"
+                    className="p-2 text-rose-400 hover:bg-rose-50 rounded-full transition-all active:scale-90"
+                    title="刪除範本"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-5 pr-1">
