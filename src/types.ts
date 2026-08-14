@@ -49,6 +49,7 @@ export interface Template {
   icon: string;
   color: string;
   note?: string;
+  order?: number;
 }
 
 export interface FixedRecord {

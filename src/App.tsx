@@ -6881,6 +6881,84 @@ function AccountSortModal({ accounts, onClose, onSave }: {
   );
 }
 
+function TemplateSortModal({ 
+  templates, 
+  onClose, 
+  onSave 
+}: { 
+  templates: Template[], 
+  onClose: () => void, 
+  onSave: (newTemplates: Template[]) => void 
+}) {
+  const [items, setItems] = useState<Template[]>(() => {
+    return [...templates].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  });
+
+  const handleSave = () => {
+    const updated = items.map((t, idx) => ({ ...t, order: idx }));
+    onSave(updated);
+    onClose();
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-[#5D4037]/40 backdrop-blur-md z-[100] flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+        className="bg-[#FFFDF5] w-full max-w-sm rounded-[30px] shadow-2xl border-2 border-white overflow-hidden max-h-[80vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+        style={getFontFamily()}
+      >
+        <div className="p-6 pb-2 border-b border-stone-50 flex items-center justify-between shrink-0">
+          <h3 className="text-xl font-black text-[#5D4037]">範本排序</h3>
+          <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+            <X size={20} className="text-stone-400" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+          <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest leading-none mb-2 px-1">
+            按住右側圖示 ☰ 上下拖曳以排序
+          </div>
+          
+          <Reorder.Group axis="y" values={items} onReorder={setItems} className="space-y-3">
+            {items.map(t => (
+              <Reorder.Item 
+                key={t.id} 
+                value={t}
+                className="bg-white rounded-2xl border-2 border-stone-50 shadow-sm p-4 flex items-center gap-3 relative"
+              >
+                <div className={`w-10 h-10 ${t.color} rounded-xl flex items-center justify-center text-xl shadow-sm bg-[#FFFDF5]`}>
+                  {t.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="font-bold text-base text-[#5D4037] truncate block">{t.name}</span>
+                  <span className="text-xs text-stone-400 block">{t.type === 'transfer' ? '轉帳' : t.category}</span>
+                </div>
+                <div className="cursor-grab active:cursor-grabbing p-2 text-stone-300 hover:text-[#5D4037] transition-colors">
+                  <GripVertical size={20} />
+                </div>
+              </Reorder.Item>
+            ))}
+          </Reorder.Group>
+        </div>
+
+        <div className="p-6 border-t border-stone-50 bg-[#FFFDF5] shrink-0">
+          <button 
+            onClick={handleSave}
+            className="w-full py-4 bg-[#5D4037] hover:bg-[#5D4037]/90 text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
+          >
+            <Check size={24} /> 完成排序
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function ProjectSortModal({ projects, onClose, onSave }: {
   projects: Project[],
   onClose: () => void,
@@ -11918,6 +11996,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const [totalInstallments, setTotalInstallments] = useState(1);
   const [showCalculator, setShowCalculator] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
+  const [isTemplateSortOpen, setIsTemplateSortOpen] = useState(false);
+
+  const sortedTemplates = useMemo(() => {
+    return [...templates].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  }, [templates]);
 
   const [consumptionDate, setConsumptionDate] = useState(selectedDate);
   const [postingDate, setPostingDate] = useState(selectedDate);
@@ -12952,9 +13035,20 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         <div className="flex-1 overflow-y-auto flex flex-col gap-6 px-1">
           {tab === 'template' ? (
             <div className="space-y-4 py-2">
-              <span className="text-[20px] font-bold text-[#000000] uppercase px-2">常用範本</span>
+              <div className="flex justify-between items-center px-2">
+                <span className="text-[20px] font-bold text-[#000000] uppercase">常用範本</span>
+                <button 
+                  onClick={() => setIsTemplateSortOpen(true)}
+                  type="button"
+                  className="px-3.5 py-1.5 bg-[#FFFDF5] border border-[#5D4037]/25 rounded-2xl font-black text-xs text-[#5D4037]/80 hover:bg-stone-50 hover:text-[#5D4037] active:scale-95 transition-all flex items-center gap-1.5 shrink-0 shadow-sm animate-fade-in"
+                  style={getFontFamily()}
+                >
+                  <ArrowUpDown size={12} className="text-[#5D4037]/50" />
+                  <span>調整順序</span>
+                </button>
+              </div>
               <HorizontalScrollArea>
-                {templates.map((t) => (
+                {sortedTemplates.map((t) => (
                   <div key={t.id} className="relative flex-shrink-0 w-[180px]">
                     <button 
                       onClick={() => handleApplyTemplate(t)}
@@ -13573,6 +13667,19 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Template Sort Modal */}
+      <AnimatePresence>
+        {isTemplateSortOpen && (
+          <TemplateSortModal 
+            templates={templates}
+            onClose={() => setIsTemplateSortOpen(false)}
+            onSave={(newTemplates) => {
+              onUpdateTemplates(newTemplates);
+            }}
+          />
         )}
       </AnimatePresence>
 
