@@ -12847,20 +12847,176 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setEditingTemplate(null);
   };
 
+  const renderTabs = () => (
+    <div className="bg-stone-100 p-1 rounded-full flex w-full">
+      {['template', 'expense', 'income', 'transfer'].map(t => (
+        <button 
+          key={t}
+          onClick={() => {
+            setTab(t as any);
+            setShowCalculator(false);
+            setMainCategory(null);
+            setSubCategory(null);
+          }}
+          className={`flex-1 py-1.5 rounded-full text-[10px] font-bold transition-all ${tab === t ? 'bg-[#5D4037] text-white shadow-md' : 'text-stone-400'}`}
+        >
+          {t === 'template' ? '範本' : t === 'expense' ? '支出' : t === 'income' ? '收入' : '轉帳'}
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderDateProjectCamera = () => (
+    <>
+      <label className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
+        <input 
+          type="file" 
+          accept="image/*" 
+          capture="environment"
+          className="hidden" 
+          onChange={handleScanReceipt} 
+          disabled={isScanningReceipt}
+        />
+        {isScanningReceipt ? (
+          <div className="flex flex-col items-center gap-1">
+            <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
+            <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-1">
+            <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
+            <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
+          </div>
+        )}
+      </label>
+
+      <div className="flex-1 flex flex-col gap-2 min-w-0">
+        <AnimatePresence mode="wait">
+          {!isCreditCard || (tab !== 'expense' && tab !== 'income') ? (
+            <motion.div 
+              key="single-date"
+              initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+              animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
+              exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+              className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
+              style={getFontFamily()}
+            >
+              <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
+                <CalendarIcon size={14} className="text-[#FFD54F]" />
+                <span>日期：</span>
+                <input 
+                  type="date"
+                  value={consumptionDate}
+                  onChange={e => {
+                    setConsumptionDate(e.target.value);
+                    setPostingDate(e.target.value);
+                  }}
+                  className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
+                  style={getFontFamily()}
+                />
+              </div>
+            </motion.div>
+          ) : isDateExpanded ? (
+            <motion.div 
+              key="expanded"
+              initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
+              animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
+              exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
+              className="bg-[#FFFDF5] p-3 pb-4 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3 w-full" 
+              style={getFontFamily()}
+            >
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
+                    <CalendarIcon size={10} /> 消費日
+                  </label>
+                  <input 
+                    type="date"
+                    value={consumptionDate}
+                    onChange={e => setConsumptionDate(e.target.value)}
+                    className="bg-white border-2 border-stone-50 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  />
+                </div>
+                <div className={`flex flex-col gap-1 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                  <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
+                    <Banknote size={10} /> 入帳日
+                  </label>
+                  <input 
+                    type="date"
+                    value={postingDate}
+                    onChange={e => setPostingDate(e.target.value)}
+                    className="bg-white border-2 border-stone-50 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between pl-1">
+                <button 
+                  onClick={() => setIsDateExpanded(false)}
+                  className="text-[#5D4037] text-[10px] font-bold bg-[#FFD54F] px-3 py-1 rounded-full shadow-sm active:scale-95 transition-all"
+                >
+                  完成
+                </button>
+                <div className="flex items-center gap-2 pr-1">
+                  <span className="text-[10px] font-bold text-stone-400">待入帳</span>
+                  <button 
+                    onClick={() => setIsPending(!isPending)}
+                    className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-200'}`}
+                  >
+                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="collapsed"
+              initial={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
+              animate={{ opacity: 1, y: 0, height: "auto", marginBottom: 0 }}
+              exit={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
+              onClick={() => setIsDateExpanded(true)}
+              className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 cursor-pointer hover:bg-stone-50 transition-colors shadow-sm"
+              style={getFontFamily()}
+            >
+              <div className="flex items-center gap-2 text-[12px] font-bold text-[#5D4037] truncate px-2">
+                <CalendarIcon size={13} className="text-[#FFD54F]" />
+                <span>消費：{consumptionDate.replace(/-/g, '/')}</span>
+                <span className="text-stone-300">|</span>
+                <span>入帳：{isPending ? '待入帳' : postingDate.replace(/-/g, '/')}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div 
+          onClick={() => setIsProjectPickerOpen(true)}
+          className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm animate-fade-in"
+          style={getFontFamily()}
+        >
+          <Layers size={13} className="text-[#FFD54F]" />
+          <span className="text-[12px] font-bold text-[#5D4037]">所屬專案：</span>
+          <span className="text-[12px] font-black text-[#5D4037] truncate flex items-center gap-1.5">
+            <AccountIcon icon={projects.find(p => p.id === selectedProjectId)?.icon || ''} sizeClassName="w-4 h-4" />
+            <span>{projects.find(p => p.id === selectedProjectId)?.name || '無特別專案'}</span>
+          </span>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/30 backdrop-blur-md z-50 flex items-end justify-center"
+      className="fixed inset-0 bg-black/30 backdrop-blur-md z-50 flex items-end justify-center md:items-center md:p-6"
       onClick={onClose}
     >
       <motion.div 
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-        className="bg-[#FFFDF5] w-full max-w-md rounded-t-[40px] p-6 flex flex-col gap-4 max-h-[95vh] overflow-hidden"
+        className="bg-[#FFFDF5] w-full max-w-md md:max-w-4xl lg:max-w-5xl rounded-t-[40px] md:rounded-[40px] p-6 flex flex-col gap-4 h-[95vh] md:h-[80vh] max-h-[95vh] md:max-h-[90vh] overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
         style={getFontFamily()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between shrink-0">
           <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
             <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
           </button>
@@ -12871,170 +13027,22 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex justify-center">
-          <div className="bg-stone-100 p-1 rounded-full flex w-full">
-            {['template', 'expense', 'income', 'transfer'].map(t => (
-              <button 
-                key={t}
-                onClick={() => {
-                  setTab(t as any);
-                  setShowCalculator(false);
-                  setMainCategory(null);
-                  setSubCategory(null);
-                }}
-                className={`flex-1 py-1.5 rounded-full text-[10px] font-bold transition-all ${tab === t ? 'bg-[#5D4037] text-white shadow-md' : 'text-stone-400'}`}
-              >
-                {t === 'template' ? '範本' : t === 'expense' ? '支出' : t === 'income' ? '收入' : '轉帳'}
-              </button>
-            ))}
-          </div>
+        {/* Tabs (Mobile only) */}
+        <div className="flex justify-center md:hidden shrink-0">
+          {renderTabs()}
         </div>
 
-        {/* Date & Project & Camera Selection Area */}
+        {/* Date & Project & Camera Selection Area (Mobile only) */}
         {tab !== 'template' && (
-          <div className="mx-6 flex items-center gap-3">
-            {/* Camera / Scan Receipt Button */}
-            <label className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
-              <input 
-                type="file" 
-                accept="image/*" 
-                capture="environment"
-                className="hidden" 
-                onChange={handleScanReceipt} 
-                disabled={isScanningReceipt}
-              />
-              {isScanningReceipt ? (
-                <div className="flex flex-col items-center gap-1">
-                  <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
-                  <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-1">
-                  <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
-                  <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
-                </div>
-              )}
-            </label>
-
-            {/* Shortened Date & Project Stack */}
-            <div className="flex-1 flex flex-col gap-2 min-w-0">
-              <AnimatePresence mode="wait">
-                {!isCreditCard || (tab !== 'expense' && tab !== 'income') ? (
-                  <motion.div 
-                    key="single-date"
-                    initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
-                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
-                    style={getFontFamily()}
-                  >
-                    <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
-                      <CalendarIcon size={14} className="text-[#FFD54F]" />
-                      <span>日期：</span>
-                      <input 
-                        type="date"
-                        value={consumptionDate}
-                        onChange={e => {
-                          setConsumptionDate(e.target.value);
-                          setPostingDate(e.target.value);
-                        }}
-                        className="bg-transparent outline-none cursor-pointer text-[13px]"
-                      />
-                    </div>
-                  </motion.div>
-                ) : isDateExpanded ? (
-                  <motion.div 
-                    key="expanded"
-                    initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-                    animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
-                    exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-                    className="bg-[#FFFDF5] p-3 pb-4 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3 w-full" 
-                    style={getFontFamily()}
-                  >
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
-                          <CalendarIcon size={10} /> 消費日
-                        </label>
-                        <input 
-                          type="date"
-                          value={consumptionDate}
-                          onChange={e => setConsumptionDate(e.target.value)}
-                          className="bg-white border-2 border-stone-50 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                        />
-                      </div>
-                      <div className={`flex flex-col gap-1 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-                        <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
-                          <Banknote size={10} /> 入帳日
-                        </label>
-                        <input 
-                          type="date"
-                          value={postingDate}
-                          onChange={e => setPostingDate(e.target.value)}
-                          className="bg-white border-2 border-stone-50 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between pl-1">
-                      <button 
-                        onClick={() => setIsDateExpanded(false)}
-                        className="text-[#5D4037] text-[10px] font-bold bg-[#FFD54F] px-3 py-1 rounded-full shadow-sm active:scale-95 transition-all"
-                      >
-                        完成
-                      </button>
-                      <div className="flex items-center gap-2 pr-1">
-                        <span className="text-[10px] font-bold text-stone-400">待入帳</span>
-                        <button 
-                          onClick={() => setIsPending(!isPending)}
-                          className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-200'}`}
-                        >
-                          <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                ) : (
-                  <motion.div 
-                    key="collapsed"
-                    initial={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
-                    animate={{ opacity: 1, y: 0, height: "auto", marginBottom: 0 }}
-                    exit={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
-                    onClick={() => setIsDateExpanded(true)}
-                    className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 cursor-pointer hover:bg-stone-50 transition-colors shadow-sm"
-                    style={getFontFamily()}
-                  >
-                    <div className="flex items-center gap-2 text-[12px] font-bold text-[#5D4037] truncate px-2">
-                      <CalendarIcon size={13} className="text-[#FFD54F]" />
-                      <span>消費：{consumptionDate.replace(/-/g, '/')}</span>
-                      <span className="text-stone-300">|</span>
-                      <span>入帳：{isPending ? '待入帳' : postingDate.replace(/-/g, '/')}</span>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Shortened Project Picker Trigger */}
-              <div 
-                onClick={() => setIsProjectPickerOpen(true)}
-                className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm animate-fade-in"
-                style={getFontFamily()}
-              >
-                <Layers size={13} className="text-[#FFD54F]" />
-                <span className="text-[12px] font-bold text-[#5D4037]">所屬專案：</span>
-                <span className="text-[12px] font-black text-[#5D4037] truncate flex items-center gap-1.5">
-                  <AccountIcon icon={projects.find(p => p.id === selectedProjectId)?.icon || ''} sizeClassName="w-4 h-4" />
-                  <span>{projects.find(p => p.id === selectedProjectId)?.name || '無特別專案'}</span>
-                </span>
-              </div>
-            </div>
+          <div className="mx-6 flex items-center gap-3 md:hidden shrink-0">
+            {renderDateProjectCamera()}
           </div>
         )}
 
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto flex flex-col gap-6 px-1">
+        {/* Scrollable / Grid Content Area */}
+        <div className="flex-1 overflow-hidden flex flex-col">
           {tab === 'template' ? (
-            <div className="space-y-4 py-2">
+            <div className="flex-1 overflow-y-auto space-y-4 py-2">
               <div className="flex justify-between items-center px-2">
                 <span className="text-[20px] font-bold text-[#000000] uppercase">常用範本</span>
                 <button 
@@ -13097,30 +13105,180 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               <div className="h-[40px]" />
             </div>
           ) : (
-            <div className="space-y-6 pb-4">
-              {/* Step 1: Account Selection */}
-              {tab === 'transfer' ? (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between px-2">
-                      <span className="text-[18px] font-bold text-[#000000] uppercase">1. 來源帳戶 (錢從哪裡出)</span>
-                      <span className="text-[16px] font-bold text-[#000000] bg-[#FFD54F]/20 px-2 py-0.5 rounded-full">
-                        {currentAccount?.currency}
-                      </span>
-                    </div>
-                    {renderAccountSelector(selectedAccountId, setSelectedAccountId, expandedSourceBanks, setExpandedSourceBanks, 'source')}
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between px-2">
-                      <span className="text-[18px] font-bold text-[#000000] uppercase">2. 目的帳戶 (錢往哪裡去)</span>
-                      <span className="text-[16px] font-bold text-[#000000] bg-[#FFD54F]/20 px-2 py-0.5 rounded-full">
-                        {currentToAccount?.currency}
-                      </span>
-                    </div>
-                    {renderAccountSelector(toAccountId, setToAccountId, expandedDestBanks, setExpandedDestBanks, 'dest')}
-                  </div>
+            <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left Column */}
+              <div className="flex flex-col gap-5 overflow-y-auto pr-1 md:pr-2">
+                {/* Tabs (Desktop only) */}
+                <div className="hidden md:flex justify-center shrink-0">
+                  {renderTabs()}
+                </div>
 
-                  {/* Exchange Rate & Fee Logic */}
+                {/* Date & Project & Camera Selection Area (Desktop only) */}
+                <div className="hidden md:flex items-center gap-3 shrink-0">
+                  {renderDateProjectCamera()}
+                </div>
+
+                {/* Step 1: Account Selection */}
+                {tab === 'transfer' ? (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between px-2">
+                        <span className="text-[18px] font-bold text-[#000000] uppercase">1. 來源帳戶 (錢從哪裡出)</span>
+                        <span className="text-[16px] font-bold text-[#000000] bg-[#FFD54F]/20 px-2 py-0.5 rounded-full">
+                          {currentAccount?.currency}
+                        </span>
+                      </div>
+                      {renderAccountSelector(selectedAccountId, setSelectedAccountId, expandedSourceBanks, setExpandedSourceBanks, 'source')}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between px-2">
+                        <span className="text-[18px] font-bold text-[#000000] uppercase">2. 目的帳戶 (錢往哪裡去)</span>
+                        <span className="text-[16px] font-bold text-[#000000] bg-[#FFD54F]/20 px-2 py-0.5 rounded-full">
+                          {currentToAccount?.currency}
+                        </span>
+                      </div>
+                      {renderAccountSelector(toAccountId, setToAccountId, expandedDestBanks, setExpandedDestBanks, 'dest')}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <span className="text-[18px] font-bold text-[#000000] uppercase px-2">1. 選擇帳戶</span>
+                    {renderAccountSelector(selectedAccountId, setSelectedAccountId, expandedBanks, setExpandedBanks, 'main')}
+                  </div>
+                )}
+
+                {/* Step 2: Main Category Selection */}
+                {tab !== 'transfer' && (
+                  <div className="space-y-2">
+                    <span className="text-[18px] font-bold text-[#000000] uppercase px-2">2. 選擇主分類</span>
+                    <HorizontalScrollArea className="px-8">
+                      {filteredCategories.map(cat => (
+                        <button 
+                          key={cat.id}
+                          onClick={() => {
+                            setMainCategory(cat.name);
+                            setSubCategory(null);
+                            setShowCalculator(false);
+                          }}
+                          className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                            mainCategory === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
+                          }`}
+                        >
+                          <div className={`w-10 h-10 ${mainCategory === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
+                            <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
+                          </div>
+                          <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
+                        </button>
+                      ))}
+                      <button 
+                        onClick={() => setShowAddCategoryModal(true)}
+                        className="flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 border-dashed border-stone-200 bg-[#FDF5E6] text-stone-400 hover:bg-stone-50 transition-all active:scale-95"
+                      >
+                        <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-xl shadow-sm">
+                          <Plus size={20} className="text-[#5D4037]" />
+                        </div>
+                        <span className="text-[12px] font-bold text-[#5D4037] text-center px-1 leading-tight">新增分類</span>
+                      </button>
+                    </HorizontalScrollArea>
+                  </div>
+                )}
+
+                {/* Step 3: Sub Category Selection */}
+                {tab !== 'transfer' && mainCategory && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
+                    <span className="text-[18px] font-bold text-[#000000] uppercase px-2">3. 選擇子分類</span>
+                    <HorizontalScrollArea className="px-8">
+                      {currentMainCat?.sub.map((sub, i) => (
+                        <button 
+                          key={`${currentMainCat.id}-sub-${i}`}
+                          onClick={() => {
+                            setSubCategory(sub);
+                            setShowCalculator(true);
+                          }}
+                          className={`flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 transition-all text-[18px] text-[#000000] ${
+                            subCategory === sub ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-[#000000]'
+                          }`}
+                        >
+                          {sub}
+                        </button>
+                      ))}
+                      <button 
+                        onClick={() => setShowAddSubCategoryModal(true)}
+                        className="flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 border-dashed border-stone-200 bg-[#FDF5E6] text-[#5D4037] text-[16px] transition-all hover:bg-stone-50 active:scale-95"
+                      >
+                        + 新增
+                      </button>
+                    </HorizontalScrollArea>
+                  </motion.div>
+                )}
+                
+                {/* Transfer Mode Auto Trigger (Mobile only) */}
+                {tab === 'transfer' && selectedAccountId && toAccountId && !showCalculator && (
+                  <div className="flex justify-center py-4 md:hidden">
+                    <button 
+                      onClick={() => setShowCalculator(true)}
+                      className="px-8 py-3 bg-[#5D4037] text-white rounded-full font-bold shadow-lg"
+                    >
+                      輸入轉帳金額
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column */}
+              <div className="flex flex-col gap-5 overflow-y-auto pl-1 md:pl-2">
+                {/* Note Input */}
+                <div className="space-y-2">
+                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">備註 (買了什麼？)</span>
+                  <input 
+                    value={note}
+                    onChange={e => setNote(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[16px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    placeholder="例如：開源社雞排、演唱會周邊"
+                  />
+                </div>
+
+                {/* Installment Section */}
+                {tab === 'expense' && (
+                  <div className="space-y-4 bg-white/50 p-4 rounded-2xl border-2 border-white shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[18px] font-bold text-[#000000]">分期付款</span>
+                      <button 
+                        onClick={() => setIsInstallment(!isInstallment)}
+                        className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isInstallment ? 'left-7' : 'left-1'}`} />
+                      </button>
+                    </div>
+                    
+                    {isInstallment && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 overflow-hidden">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
+                            <input 
+                              type="number"
+                              min="1"
+                              max="36"
+                              value={totalInstallments}
+                              onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
+                              className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[18px] text-[#000000] outline-none shadow-sm focus:border-[#FFD54F]"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-stone-300 uppercase">每期金額</label>
+                            <div className="w-full p-3 bg-stone-50 border-2 border-transparent rounded-xl font-bold text-[18px] text-[#000000]">
+                              {Math.round(parseFloat(amount) / totalInstallments)}
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                )}
+
+                {/* Exchange Rate & Fee Logic */}
+                {tab === 'transfer' && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 px-2">
                     <div className="grid grid-cols-2 gap-4">
                       {currentAccount?.currency !== currentToAccount?.currency && (
@@ -13160,252 +13318,108 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                       </div>
                     </div>
                   </motion.div>
-                </>
-              ) : (
-                <div className="space-y-2">
-                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">1. 選擇帳戶</span>
-                  {renderAccountSelector(selectedAccountId, setSelectedAccountId, expandedBanks, setExpandedBanks, 'main')}
-                </div>
-              )}
+                )}
 
-              {/* Step 2: Main Category Selection */}
-              {tab !== 'transfer' && (
-                <div className="space-y-2">
-                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">2. 選擇主分類</span>
-                  <HorizontalScrollArea className="px-8">
-                    {filteredCategories.map(cat => (
-                      <button 
-                        key={cat.id}
-                        onClick={() => {
-                          setMainCategory(cat.name);
-                          setSubCategory(null);
-                          setShowCalculator(false);
-                        }}
-                        className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                          mainCategory === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
-                        }`}
-                      >
-                        <div className={`w-10 h-10 ${mainCategory === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
-                          <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
-                        </div>
-                        <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
-                      </button>
-                    ))}
-                    <button 
-                      onClick={() => setShowAddCategoryModal(true)}
-                      className="flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 border-dashed border-stone-200 bg-[#FDF5E6] text-stone-400 hover:bg-stone-50 transition-all active:scale-95"
+                {/* Amount Box */}
+                <div 
+                  onClick={() => setShowCalculator(true)}
+                  className="bg-white border-2 border-[#FFD54F] rounded-[20px] p-4 flex items-center justify-between shadow-inner cursor-pointer shrink-0"
+                >
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別</label>
+                    <select 
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-stone-50 border-none outline-none text-xs font-bold text-[#5D4037] px-2 py-1 rounded-lg cursor-pointer"
+                      style={getFontFamily()}
                     >
-                      <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-xl shadow-sm">
-                        <Plus size={20} className="text-[#5D4037]" />
-                      </div>
-                      <span className="text-[12px] font-bold text-[#5D4037] text-center px-1 leading-tight">新增分類</span>
-                    </button>
-                  </HorizontalScrollArea>
-                </div>
-              )}
-
-              {/* Step 3: Sub Category Selection */}
-              {tab !== 'transfer' && mainCategory && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
-                  <span className="text-[18px] font-bold text-[#000000] uppercase px-2">3. 選擇子分類</span>
-                  <HorizontalScrollArea className="px-8">
-                    {currentMainCat?.sub.map((sub, i) => (
-                      <button 
-                        key={`${currentMainCat.id}-sub-${i}`}
-                        onClick={() => {
-                          setSubCategory(sub);
-                          setShowCalculator(true);
-                        }}
-                        className={`flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 transition-all text-[18px] text-[#000000] ${
-                          subCategory === sub ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-[#000000]'
-                        }`}
-                      >
-                        {sub}
-                      </button>
-                    ))}
-                    <button 
-                      onClick={() => setShowAddSubCategoryModal(true)}
-                      className="flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 border-dashed border-stone-200 bg-[#FDF5E6] text-[#5D4037] text-[16px] transition-all hover:bg-stone-50 active:scale-95"
-                    >
-                      + 新增
-                    </button>
-                  </HorizontalScrollArea>
-                </motion.div>
-              )}
-
-              {/* Note Input */}
-              {tab !== 'template' && (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <span className="text-[18px] font-bold text-[#000000] uppercase px-2">備註 (買了什麼？)</span>
-                    <input 
-                      value={note}
-                      onChange={e => setNote(e.target.value)}
-                      className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[16px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                      placeholder="例如：開源社雞排、演唱會周邊"
-                    />
+                      <option value="TWD">台幣 (TWD)</option>
+                      <option value="USD">美金 (USD)</option>
+                      <option value="JPY">日圓 (JPY)</option>
+                      <option value="KRW">韓元 (KRW)</option>
+                    </select>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-3xl font-black ${tab === 'income' ? 'text-[#03A9F4]' : tab === 'expense' ? 'text-[#E91E63]' : 'text-[#5D4037]'}`}>{amount}</span>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleKey('BACKSPACE'); }} 
+                      className="w-10 h-10 bg-stone-100 text-stone-500 active:scale-95 active:bg-stone-200 transition-all rounded-full flex items-center justify-center"
+                    >
+                      <Delete size={18} />
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleKey('AC'); }} 
+                      className="w-10 h-10 bg-rose-50 text-rose-400 active:scale-95 active:bg-rose-100 transition-all rounded-full flex items-center justify-center font-bold text-xs"
+                    >
+                      AC
+                    </button>
+                  </div>
+                </div>
 
-                  {/* Installment Section */}
-                  {tab === 'expense' && (
-                    <div className="space-y-4 bg-white/50 p-4 rounded-2xl border-2 border-white shadow-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[18px] font-bold text-[#000000]">分期付款</span>
-                        <button 
-                          onClick={() => setIsInstallment(!isInstallment)}
-                          className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
-                        >
-                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isInstallment ? 'left-7' : 'left-1'}`} />
-                        </button>
+                {/* Calculator Grid */}
+                <AnimatePresence>
+                  {showCalculator && (
+                    <motion.div 
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden flex flex-col gap-4 md:!h-auto md:!opacity-100"
+                    >
+                      {/* Confirmation Status Bar */}
+                      <div className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between">
+                        <div className="flex items-center gap-1 text-[20px] font-bold text-[#000000] overflow-hidden whitespace-nowrap">
+                          <span className="text-[#000000]">{currentAccount?.name}</span>
+                          <span>&gt;</span>
+                          {tab === 'transfer' ? (
+                            <span className="text-[#000000]">{currentToAccount?.name}</span>
+                          ) : (
+                            <>
+                              <span>{mainCategory}</span>
+                              <span>&gt;</span>
+                              <span className="text-[#000000]">{subCategory}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2">
+                        {['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '.', '0', '=', '+'].map(k => (
+                          <button 
+                            key={k}
+                            onClick={() => handleKey(k)}
+                            className={`h-14 rounded-xl flex items-center justify-center text-xl font-bold shadow-sm active:scale-95 transition-all ${['÷', '×', '-', '+', '='].includes(k) ? 'bg-[#FFD54F] text-[#5D4037] active:bg-[#FBC02D]' : 'bg-white text-[#5D4037] active:bg-[#FFF9E3]'}`}
+                          >
+                            {k}
+                          </button>
+                        ))}
                       </div>
                       
-                      {isInstallment && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 overflow-hidden">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
-                              <input 
-                                type="number"
-                                min="1"
-                                max="36"
-                                value={totalInstallments}
-                                onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
-                                className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[18px] text-[#000000] outline-none shadow-sm focus:border-[#FFD54F]"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold text-stone-300 uppercase">每期金額</label>
-                              <div className="w-full p-3 bg-stone-50 border-2 border-transparent rounded-xl font-bold text-[18px] text-[#000000]">
-                                {Math.round(parseFloat(amount) / totalInstallments)}
-                              </div>
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-                    </div>
+                      <div className="grid grid-cols-3 gap-2 mt-2 pb-4">
+                        <button 
+                          onClick={handleSaveAsTemplate}
+                          className="w-full py-4 bg-white border-2 border-stone-200 text-stone-600 rounded-[20px] font-black text-[15px] shadow-sm active:scale-95 hover:bg-stone-50 transition-all flex items-center justify-center gap-1"
+                        >
+                          <span>💾</span>
+                          <span>存為範本</span>
+                        </button>
+                        <button 
+                          onClick={handleSaveAndAnother}
+                          className="w-full py-4 bg-white border-2 border-[#5D4037] text-[#5D4037] rounded-[20px] font-black text-[15px] shadow-md active:scale-95 hover:bg-stone-50 transition-all"
+                        >
+                          再記一筆
+                        </button>
+                        <button 
+                          onClick={() => handleKey('SAVE')}
+                          className="w-full py-4 bg-[#5D4037] text-white rounded-[20px] font-black text-[15px] shadow-xl active:scale-95 active:bg-[#4E342E] transition-all"
+                        >
+                          儲存紀錄
+                        </button>
+                      </div>
+                    </motion.div>
                   )}
-                </div>
-              )}
-
-              {/* Transfer Mode Auto Trigger */}
-              {tab === 'transfer' && selectedAccountId && toAccountId && !showCalculator && (
-                <div className="flex justify-center py-4">
-                  <button 
-                    onClick={() => setShowCalculator(true)}
-                    className="px-8 py-3 bg-[#5D4037] text-white rounded-full font-bold shadow-lg"
-                  >
-                    輸入轉帳金額
-                  </button>
-                </div>
-              )}
-
-              {/* Calculator & Amount Section (Integrated into Scroll) */}
-              {tab !== 'template' && (
-                <div className="flex flex-col gap-4 pt-4">
-                  {/* Amount Box */}
-                  <div 
-                    onClick={() => setShowCalculator(true)}
-                    className="bg-white border-2 border-[#FFD54F] rounded-[20px] p-4 flex items-center justify-between shadow-inner cursor-pointer"
-                  >
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別</label>
-                      <select 
-                        value={currency}
-                        onChange={(e) => setCurrency(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="bg-stone-50 border-none outline-none text-xs font-bold text-[#5D4037] px-2 py-1 rounded-lg cursor-pointer"
-                        style={getFontFamily()}
-                      >
-                        <option value="TWD">台幣 (TWD)</option>
-                        <option value="USD">美金 (USD)</option>
-                        <option value="JPY">日圓 (JPY)</option>
-                        <option value="KRW">韓元 (KRW)</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-3xl font-black ${tab === 'income' ? 'text-[#03A9F4]' : tab === 'expense' ? 'text-[#E91E63]' : 'text-[#5D4037]'}`}>{amount}</span>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); handleKey('BACKSPACE'); }} 
-                        className="w-10 h-10 bg-stone-100 text-stone-500 active:scale-95 active:bg-stone-200 transition-all rounded-full flex items-center justify-center"
-                      >
-                        <Delete size={18} />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); handleKey('AC'); }} 
-                        className="w-10 h-10 bg-rose-50 text-rose-400 active:scale-95 active:bg-rose-100 transition-all rounded-full flex items-center justify-center font-bold text-xs"
-                      >
-                        AC
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Calculator Grid */}
-                  <AnimatePresence>
-                    {showCalculator && (
-                      <motion.div 
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden flex flex-col gap-4"
-                      >
-                        {/* Confirmation Status Bar */}
-                        <div className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between">
-                          <div className="flex items-center gap-1 text-[20px] font-bold text-[#000000] overflow-hidden whitespace-nowrap">
-                            <span className="text-[#000000]">{currentAccount?.name}</span>
-                            <span>&gt;</span>
-                            {tab === 'transfer' ? (
-                              <span className="text-[#000000]">{currentToAccount?.name}</span>
-                            ) : (
-                              <>
-                                <span>{mainCategory}</span>
-                                <span>&gt;</span>
-                                <span className="text-[#000000]">{subCategory}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-4 gap-2">
-                          {['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '.', '0', '=', '+'].map(k => (
-                            <button 
-                              key={k}
-                              onClick={() => handleKey(k)}
-                              className={`h-14 rounded-xl flex items-center justify-center text-xl font-bold shadow-sm active:scale-95 transition-all ${['÷', '×', '-', '+', '='].includes(k) ? 'bg-[#FFD54F] text-[#5D4037] active:bg-[#FBC02D]' : 'bg-white text-[#5D4037] active:bg-[#FFF9E3]'}`}
-                            >
-                              {k}
-                            </button>
-                          ))}
-                        </div>
-                        
-                        <div className="grid grid-cols-3 gap-2 mt-2">
-                          <button 
-                            onClick={handleSaveAsTemplate}
-                            className="w-full py-4 bg-white border-2 border-stone-200 text-stone-600 rounded-[20px] font-black text-[15px] shadow-sm active:scale-95 hover:bg-stone-50 transition-all flex items-center justify-center gap-1"
-                          >
-                            <span>💾</span>
-                            <span>存為範本</span>
-                          </button>
-                          <button 
-                            onClick={handleSaveAndAnother}
-                            className="w-full py-4 bg-white border-2 border-[#5D4037] text-[#5D4037] rounded-[20px] font-black text-[15px] shadow-md active:scale-95 hover:bg-stone-50 transition-all"
-                          >
-                            再記一筆
-                          </button>
-                          <button 
-                            onClick={() => handleKey('SAVE')}
-                            className="w-full py-4 bg-[#5D4037] text-white rounded-[20px] font-black text-[15px] shadow-xl active:scale-95 active:bg-[#4E342E] transition-all"
-                          >
-                            儲存紀錄
-                          </button>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
-              
-              {/* Bottom Spacing */}
-              <div className="h-[40px]" />
+                </AnimatePresence>
+              </div>
             </div>
           )}
         </div>
