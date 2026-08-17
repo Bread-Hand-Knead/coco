@@ -13011,7 +13011,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     >
       <motion.div 
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-        className="bg-[#FFFDF5] w-full max-w-md md:max-w-4xl lg:max-w-5xl rounded-t-[40px] md:rounded-[40px] p-6 flex flex-col gap-4 h-[95vh] md:h-[80vh] max-h-[95vh] md:max-h-[90vh] overflow-hidden shadow-2xl"
+        className="bg-[#FFFDF5] w-full max-w-md md:max-w-4xl lg:max-w-5xl rounded-t-[40px] md:rounded-[40px] p-6 flex flex-col gap-4 h-[95vh] md:h-auto max-h-[95vh] md:max-h-[92vh] overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
         style={getFontFamily()}
       >
@@ -13105,9 +13105,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               <div className="h-[40px]" />
             </div>
           ) : (
-            <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0">
               {/* Left Column */}
-              <div className="flex flex-col gap-5 overflow-y-auto pr-1 md:pr-2">
+              <div className="flex flex-col gap-5 overflow-y-auto pr-1 md:pr-2 min-h-0">
 
 
                 {/* Date & Project & Camera Selection Area (Desktop only) */}
@@ -13223,7 +13223,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               </div>
 
               {/* Right Column */}
-              <div className="flex flex-col gap-5 overflow-y-auto pl-1 md:pl-2">
+              <div className="flex flex-col gap-5 overflow-y-auto pl-1 md:pl-2 min-h-0">
                 {/* Note Input */}
                 <div className="space-y-2">
                   <span className="text-[18px] font-bold text-[#000000] uppercase px-2">備註 (買了什麼？)</span>
