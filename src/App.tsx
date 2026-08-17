@@ -13027,8 +13027,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
           </div>
         </div>
 
-        {/* Tabs (Mobile only) */}
-        <div className="flex justify-center md:hidden shrink-0">
+        {/* Tabs (Always visible at the top, full width, centered) */}
+        <div className="flex justify-center shrink-0">
           {renderTabs()}
         </div>
 
@@ -13108,10 +13108,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
             <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Left Column */}
               <div className="flex flex-col gap-5 overflow-y-auto pr-1 md:pr-2">
-                {/* Tabs (Desktop only) */}
-                <div className="hidden md:flex justify-center shrink-0">
-                  {renderTabs()}
-                </div>
+
 
                 {/* Date & Project & Camera Selection Area (Desktop only) */}
                 <div className="hidden md:flex items-center gap-3 shrink-0">
@@ -13358,67 +13355,66 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 </div>
 
                 {/* Calculator Grid */}
-                <AnimatePresence>
-                  {showCalculator && (
-                    <motion.div 
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden flex flex-col gap-4 md:!h-auto md:!opacity-100"
-                    >
-                      {/* Confirmation Status Bar */}
-                      <div className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between">
-                        <div className="flex items-center gap-1 text-[20px] font-bold text-[#000000] overflow-hidden whitespace-nowrap">
-                          <span className="text-[#000000]">{currentAccount?.name}</span>
+                <motion.div 
+                  initial={false}
+                  animate={{ 
+                    height: showCalculator ? 'auto' : 0,
+                    opacity: showCalculator ? 1 : 0
+                  }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden flex flex-col gap-4 md:!h-auto md:!opacity-100 md:!flex"
+                >
+                  {/* Confirmation Status Bar */}
+                  <div className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-1 text-[20px] font-bold text-[#000000] overflow-hidden whitespace-nowrap">
+                      <span className="text-[#000000]">{currentAccount?.name}</span>
+                      <span>&gt;</span>
+                      {tab === 'transfer' ? (
+                        <span className="text-[#000000]">{currentToAccount?.name}</span>
+                      ) : (
+                        <>
+                          <span>{mainCategory}</span>
                           <span>&gt;</span>
-                          {tab === 'transfer' ? (
-                            <span className="text-[#000000]">{currentToAccount?.name}</span>
-                          ) : (
-                            <>
-                              <span>{mainCategory}</span>
-                              <span>&gt;</span>
-                              <span className="text-[#000000]">{subCategory}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
+                          <span className="text-[#000000]">{subCategory}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
 
-                      <div className="grid grid-cols-4 gap-2">
-                        {['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '.', '0', '=', '+'].map(k => (
-                          <button 
-                            key={k}
-                            onClick={() => handleKey(k)}
-                            className={`h-14 rounded-xl flex items-center justify-center text-xl font-bold shadow-sm active:scale-95 transition-all ${['÷', '×', '-', '+', '='].includes(k) ? 'bg-[#FFD54F] text-[#5D4037] active:bg-[#FBC02D]' : 'bg-white text-[#5D4037] active:bg-[#FFF9E3]'}`}
-                          >
-                            {k}
-                          </button>
-                        ))}
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 mt-2 pb-4">
-                        <button 
-                          onClick={handleSaveAsTemplate}
-                          className="w-full py-4 bg-white border-2 border-stone-200 text-stone-600 rounded-[20px] font-black text-[15px] shadow-sm active:scale-95 hover:bg-stone-50 transition-all flex items-center justify-center gap-1"
-                        >
-                          <span>💾</span>
-                          <span>存為範本</span>
-                        </button>
-                        <button 
-                          onClick={handleSaveAndAnother}
-                          className="w-full py-4 bg-white border-2 border-[#5D4037] text-[#5D4037] rounded-[20px] font-black text-[15px] shadow-md active:scale-95 hover:bg-stone-50 transition-all"
-                        >
-                          再記一筆
-                        </button>
-                        <button 
-                          onClick={() => handleKey('SAVE')}
-                          className="w-full py-4 bg-[#5D4037] text-white rounded-[20px] font-black text-[15px] shadow-xl active:scale-95 active:bg-[#4E342E] transition-all"
-                        >
-                          儲存紀錄
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                  <div className="grid grid-cols-4 gap-2">
+                    {['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '.', '0', '=', '+'].map(k => (
+                      <button 
+                        key={k}
+                        onClick={() => handleKey(k)}
+                        className={`h-14 rounded-xl flex items-center justify-center text-xl font-bold shadow-sm active:scale-95 transition-all ${['÷', '×', '-', '+', '='].includes(k) ? 'bg-[#FFD54F] text-[#5D4037] active:bg-[#FBC02D]' : 'bg-white text-[#5D4037] active:bg-[#FFF9E3]'}`}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-2 mt-2 pb-4">
+                    <button 
+                      onClick={handleSaveAsTemplate}
+                      className="w-full py-4 bg-white border-2 border-stone-200 text-stone-600 rounded-[20px] font-black text-[15px] shadow-sm active:scale-95 hover:bg-stone-50 transition-all flex items-center justify-center gap-1"
+                    >
+                      <span>💾</span>
+                      <span>存為範本</span>
+                    </button>
+                    <button 
+                      onClick={handleSaveAndAnother}
+                      className="w-full py-4 bg-white border-2 border-[#5D4037] text-[#5D4037] rounded-[20px] font-black text-[15px] shadow-md active:scale-95 hover:bg-stone-50 transition-all"
+                    >
+                      再記一筆
+                    </button>
+                    <button 
+                      onClick={() => handleKey('SAVE')}
+                      className="w-full py-4 bg-[#5D4037] text-white rounded-[20px] font-black text-[15px] shadow-xl active:scale-95 active:bg-[#4E342E] transition-all"
+                    >
+                      儲存紀錄
+                    </button>
+                  </div>
+                </motion.div>
               </div>
             </div>
           )}
