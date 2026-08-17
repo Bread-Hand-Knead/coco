@@ -13006,7 +13006,14 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const renderCalculator = () => (
     <>
       {/* Confirmation Status Bar */}
-      <div className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between">
+      <div 
+        onClick={() => {
+          if (window.innerWidth < 768) {
+            setShowCalculator(false);
+          }
+        }}
+        className="bg-stone-100 px-4 py-2 rounded-xl flex items-center justify-between cursor-pointer md:cursor-default"
+      >
         <div className="flex items-center gap-1 text-[20px] font-bold text-[#000000] overflow-hidden whitespace-nowrap">
           <span className="text-[#000000]">{currentAccount?.name}</span>
           <span>&gt;</span>
@@ -13020,6 +13027,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
             </>
           )}
         </div>
+        <span className="text-[12px] font-bold text-stone-400 md:hidden">編輯 ✎</span>
       </div>
 
       <div className="grid grid-cols-4 gap-2">
@@ -13083,12 +13091,12 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         </div>
 
         {/* Tabs (Always visible at the top, full width, centered) */}
-        <div className="flex justify-center shrink-0">
+        <div className={`flex justify-center shrink-0 ${showCalculator ? 'hidden md:flex' : 'flex'}`}>
           {renderTabs()}
         </div>
 
         {/* Date & Project & Camera Selection Area (Mobile only) */}
-        {tab !== 'template' && (
+        {tab !== 'template' && !showCalculator && (
           <div className="mx-6 flex items-center gap-3 md:hidden shrink-0">
             {renderDateProjectCamera()}
           </div>
@@ -13162,7 +13170,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
           ) : (
             <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0">
               {/* Left Column */}
-              <div className="flex flex-col gap-5 overflow-y-auto pr-1 md:pr-2 min-h-0">
+              <div className={`flex-col gap-5 overflow-y-auto pr-1 md:pr-2 min-h-0 ${showCalculator ? 'hidden md:flex' : 'flex'}`}>
 
 
                 {/* Date & Project & Camera Selection Area (Desktop only) */}
