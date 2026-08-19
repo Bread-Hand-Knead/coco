@@ -59,6 +59,7 @@ import {
   LogOut,
   Cloud,
   CloudUpload,
+  CloudDownload,
   Loader2,
   GripVertical,
   RefreshCw,
@@ -78,7 +79,9 @@ import {
   deleteDoc,
   getDocFromServer,
   writeBatch,
-  serverTimestamp
+  serverTimestamp,
+  getDocs,
+  getDoc
 } from 'firebase/firestore';
 import { 
   PieChart as RePieChart, 
@@ -10086,6 +10089,72 @@ function MoreView({
     }
   };
 
+  const handleRestoreFromCloud = async () => {
+    if (!user) {
+      alert('請先登入後再進行雲端還原。');
+      return;
+    }
+
+    const confirm = window.confirm('確定要從雲端還原資料嗎？\n這將會使用雲端儲存的最新資料覆蓋您目前的本地資料，以確保兩端資料一致。');
+    if (!confirm) return;
+
+    setIsSyncing(true);
+    try {
+      // 1. Fetch transactions
+      const txSnapshot = await getDocs(collection(db, 'users', user.uid, 'transactions'));
+      const txData = txSnapshot.docs.map(doc => doc.data() as Transaction);
+      
+      // 2. Fetch accounts
+      const accSnapshot = await getDocs(collection(db, 'users', user.uid, 'accounts'));
+      const accData = accSnapshot.docs.map(doc => doc.data() as Account);
+      
+      // 3. Fetch categories
+      const catSnapshot = await getDocs(collection(db, 'users', user.uid, 'categories'));
+      const catData = catSnapshot.docs.map(doc => doc.data() as Category);
+      
+      // 4. Fetch projects
+      const projSnapshot = await getDocs(collection(db, 'users', user.uid, 'projects'));
+      const projData = projSnapshot.docs.map(doc => doc.data() as Project);
+      
+      // 5. Fetch fixedRecords
+      const fixedSnapshot = await getDocs(collection(db, 'users', user.uid, 'fixedRecords'));
+      const fixedData = fixedSnapshot.docs.map(doc => doc.data() as FixedRecord);
+      
+      // 6. Fetch installments
+      const instSnapshot = await getDocs(collection(db, 'users', user.uid, 'installments'));
+      const instData = instSnapshot.docs.map(doc => doc.data() as Installment);
+      
+      // 7. Fetch templates
+      const tempSnapshot = await getDocs(collection(db, 'users', user.uid, 'templates'));
+      const tempData = tempSnapshot.docs.map(doc => doc.data() as Template);
+      
+      // 8. Fetch monthlyBudget
+      const profileSnapshot = await getDoc(doc(db, 'users', user.uid));
+      if (profileSnapshot.exists()) {
+        const profileData = profileSnapshot.data();
+        if (profileData?.monthlyBudget) {
+          setMonthlyBudget(profileData.monthlyBudget);
+        }
+      }
+
+      // Update states
+      setRecords(txData);
+      setAccounts(accData.sort((a, b) => (a.order || 0) - (b.order || 0)));
+      setCategories(catData.length > 0 ? catData : INITIAL_CATEGORIES);
+      setProjects(projData.length > 0 ? projData : INITIAL_PROJECTS);
+      setFixedRecords(fixedData);
+      setInstallments(instData);
+      setTemplates(tempData);
+
+      alert('雲端資料還原成功！');
+    } catch (err) {
+      console.error('Cloud restore failed:', err);
+      alert('還原失敗，請檢查網路連線後再試。');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleMergeDuplicateAccounts = async () => {
     const confirm = window.confirm('確定要偵測合併重複帳戶，並自動修正系統中的民國日期交易記錄嗎？\n這將會合併同名帳戶，並將類似「115-06-21」的民國日期修正為西元「2026-06-21」，使其正確顯示於往來明細中。');
     if (!confirm) return;
@@ -11410,6 +11479,13 @@ function MoreView({
                   >
                     <Upload size={18} />
                     選取備份檔還原 (.json / .xlsx)
+                  </button>
+                  <button 
+                    onClick={handleRestoreFromCloud}
+                    className="bg-[#E0F2FE] hover:bg-[#BAE6FD] text-[#0369A1] py-3.5 rounded-2xl font-bold text-[15px] flex items-center justify-center gap-3 active:scale-95 transition-all shadow-sm"
+                  >
+                    <CloudDownload size={18} />
+                    從雲端資料庫還原資料
                   </button>
                   <button 
                     onClick={handleMergeDuplicateAccounts}
