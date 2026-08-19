@@ -11119,6 +11119,17 @@ function MoreView({
             if (expAcc === '-') expAcc = '';
             if (incAcc === '-') incAcc = '';
             if (genAcc === '-') genAcc = '';
+
+            const findAccByName = (name: string) => {
+              if (!name) return undefined;
+              const trimmed = name.trim();
+              // 1. Precise 100% exact full string match with ===
+              let found = accounts.find(a => a.name.trim() === trimmed);
+              if (found) return found;
+              // 2. Case-insensitive full string match (no substring) with ===
+              found = accounts.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
+              return found;
+            };
             
             const parseSignedVal = (val: any) => {
               if (val === undefined || val === null) return 0;
@@ -11209,18 +11220,7 @@ function MoreView({
               return String(s).replace(/\s+/g, '').replace(/[-_@()（）]/g, '').trim().toLowerCase();
             };
 
-            const findAccByName = (name: string) => {
-              if (!name) return undefined;
-              const trimmed = name.trim();
-              // 1. Precise 100% exact full string match with ===
-              let found = accounts.find(a => a.name.trim() === trimmed);
-              if (found) return found;
-              // 2. Case-insensitive full string match (no substring) with ===
-              found = accounts.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
-              return found;
-            };
-
-             const sourceAcc = findAccByName(sourceAccName);
+            const sourceAcc = findAccByName(sourceAccName);
             const destAcc = findAccByName(destAccName);
             const mainAcc = findAccByName(genAcc);
             
