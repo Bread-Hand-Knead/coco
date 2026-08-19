@@ -10178,6 +10178,29 @@ function MoreView({
       }
     });
 
+    const getAccountSortingInfo = (r: Transaction) => {
+      const acc = accounts.find(x => x.id === r.accountId);
+      const parentAcc = acc?.parentId ? accounts.find(x => x.id === acc.parentId) : null;
+      const parentName = parentAcc ? parentAcc.name : (acc?.name || '未知帳戶');
+      const childName = parentAcc ? (acc?.name || '') : '';
+      return { parentName, childName };
+    };
+
+    const sortFunc = (a: Transaction, b: Transaction) => {
+      const infoA = getAccountSortingInfo(a);
+      const infoB = getAccountSortingInfo(b);
+      const parentCompare = infoA.parentName.localeCompare(infoB.parentName);
+      if (parentCompare !== 0) return parentCompare;
+      if (infoA.childName && !infoB.childName) return 1;
+      if (!infoA.childName && infoB.childName) return -1;
+      const childCompare = infoA.childName.localeCompare(infoB.childName);
+      if (childCompare !== 0) return childCompare;
+      return a.date.localeCompare(b.date);
+    };
+
+    unique.sort(sortFunc);
+    duplicates.sort(sortFunc);
+
     return { unique, duplicates };
   }, [importPreview, records, accounts, projects]);
 
@@ -10857,11 +10880,29 @@ function MoreView({
     const twdHeaders = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '金額', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
     const foreignHeaders = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '外幣金額', '外幣幣別', '折合台幣金額', '匯率', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
     
-    // Filter records by date range
+    const getAccountSortingInfo = (r: Transaction) => {
+      const acc = accounts.find(x => x.id === r.accountId);
+      const parentAcc = acc?.parentId ? accounts.find(x => x.id === acc.parentId) : null;
+      const parentName = parentAcc ? parentAcc.name : (acc?.name || '未知帳戶');
+      const childName = parentAcc ? (acc?.name || '') : '';
+      return { parentName, childName };
+    };
+
+    // Filter records by date range and sort by Parent Account, then Child Account, then Date
     const filtered = records.filter(r => {
       const date = r.date;
       return date >= exportRange.start && date <= exportRange.end;
-    }).sort((a, b) => a.date.localeCompare(b.date));
+    }).sort((a, b) => {
+      const infoA = getAccountSortingInfo(a);
+      const infoB = getAccountSortingInfo(b);
+      const parentCompare = infoA.parentName.localeCompare(infoB.parentName);
+      if (parentCompare !== 0) return parentCompare;
+      if (infoA.childName && !infoB.childName) return 1;
+      if (!infoA.childName && infoB.childName) return -1;
+      const childCompare = infoA.childName.localeCompare(infoB.childName);
+      if (childCompare !== 0) return childCompare;
+      return a.date.localeCompare(b.date);
+    });
 
     const twdRows: any[][] = [];
     const foreignRows: any[][] = [];
