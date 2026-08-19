@@ -11350,6 +11350,13 @@ function MoreView({
 
             const noteText = itemNameVal || remarkVal || '未命名明細';
 
+            const isTransferredText = String(getVal(row, ['是否已轉帳', '已轉帳']) || '').trim();
+            const rawTransferredDate = getVal(row, ['轉帳日期', 'transferredDate']);
+            let resolvedTransferredDate = parseDate(rawTransferredDate);
+            if (isTransferredText === '否') {
+              resolvedTransferredDate = undefined;
+            }
+
             return {
               id: cleanId || `import_${Date.now()}_${idx}`,
               date: String(date),
@@ -11370,7 +11377,8 @@ function MoreView({
               _importDestAccountName: destAccName,
               _importProjectName: projectName ? String(projectName) : undefined,
               toAmount: type === 'transfer' ? importedToAmount : undefined,
-              exchangeRate: type === 'transfer' ? importedExchangeRate : undefined
+              exchangeRate: type === 'transfer' ? importedExchangeRate : undefined,
+              transferredDate: resolvedTransferredDate
             };
           }).filter(r => r.amount !== 0 || r.category === '初始資金');
 
