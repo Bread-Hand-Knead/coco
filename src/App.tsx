@@ -3857,7 +3857,19 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   }, [account, accounts, records, selectedCardFilterId]);
 
   const { paymentRecords, normalRecords } = useMemo(() => {
-    if (account.type !== 'credit') return { paymentRecords: [], normalRecords: accountRecords };
+    if (account.type !== 'credit') {
+      const sortedNormals = [...accountRecords];
+      sortedNormals.sort((a, b) => {
+        if (sortMode === 'date-desc' || sortMode === 'posting-desc') {
+          const diff = b.date.localeCompare(a.date);
+          return diff !== 0 ? diff : b.amount - a.amount;
+        } else { // 'date-asc' or 'posting-asc'
+          const diff = a.date.localeCompare(b.date);
+          return diff !== 0 ? diff : a.amount - b.amount;
+        }
+      });
+      return { paymentRecords: [], normalRecords: sortedNormals };
+    }
     
     const paymentRecords: Transaction[] = [];
     const normalRecords: Transaction[] = [];
@@ -4627,35 +4639,33 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               </div>
               <div className="flex flex-col gap-1.5 items-start">
                 <span className="font-black text-base text-[#5D4037]" style={getFontFamily()}>往來明細</span>
-                {account.type === 'credit' && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      onClick={() => setIsSortModalOpen(true)}
-                      className="px-3.5 py-1.5 bg-[#FFFDF5] border border-[#5D4037]/25 rounded-2xl font-black text-xs text-[#5D4037]/80 hover:bg-stone-50 hover:text-[#5D4037] active:scale-95 transition-all flex items-center gap-1.5 shrink-0 shadow-sm"
-                      title="選擇排序與卡片"
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setIsSortModalOpen(true)}
+                    className="px-3.5 py-1.5 bg-[#FFFDF5] border border-[#5D4037]/25 rounded-2xl font-black text-xs text-[#5D4037]/80 hover:bg-stone-50 hover:text-[#5D4037] active:scale-95 transition-all flex items-center gap-1.5 shrink-0 shadow-sm"
+                    title={account.type === 'credit' ? '選擇排序與卡片' : '選擇排序'}
+                    style={getFontFamily()}
+                  >
+                    <ArrowUpDown size={12} className="text-[#5D4037]/50" />
+                    <span>
+                      {sortMode === 'date-desc' && (account.type === 'credit' ? '消費日 - 新到舊' : '日期 - 新到舊')}
+                      {sortMode === 'date-asc' && (account.type === 'credit' ? '消費日 - 舊到新' : '日期 - 舊到新')}
+                      {sortMode === 'posting-desc' && '入帳日 - 新到舊'}
+                      {sortMode === 'posting-asc' && '入帳日 - 舊到新'}
+                    </span>
+                  </button>
+                  {account.type === 'credit' && selectedCardFilterId && (
+                    <span 
+                      className="px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full font-black text-[10px] flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer transition-all"
+                      onClick={() => setSelectedCardFilterId(null)}
+                      title="點擊清除卡片篩選"
                       style={getFontFamily()}
                     >
-                      <ArrowUpDown size={12} className="text-[#5D4037]/50" />
-                      <span>
-                        {sortMode === 'date-desc' && '消費日 - 新到舊'}
-                        {sortMode === 'date-asc' && '消費日 - 舊到新'}
-                        {sortMode === 'posting-desc' && '入帳日 - 新到舊'}
-                        {sortMode === 'posting-asc' && '入帳日 - 舊到新'}
-                      </span>
-                    </button>
-                    {selectedCardFilterId && (
-                      <span 
-                        className="px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full font-black text-[10px] flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer transition-all"
-                        onClick={() => setSelectedCardFilterId(null)}
-                        title="點擊清除卡片篩選"
-                        style={getFontFamily()}
-                      >
-                        <span>卡片: {accounts.find(a => a.id === selectedCardFilterId)?.name}</span>
-                        <span className="text-[8px] opacity-60 ml-0.5">✕</span>
-                      </span>
-                    )}
-                  </div>
-                )}
+                      <span>卡片: {accounts.find(a => a.id === selectedCardFilterId)?.name}</span>
+                      <span className="text-[8px] opacity-60 ml-0.5">✕</span>
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -4812,9 +4822,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               </div>
             )
           ) : (
-            accountRecords.length > 0 ? (
+            normalRecords.length > 0 ? (
               <div className="overflow-y-auto p-6 space-y-4">
-                {accountRecords.map(renderRecord)}
+                {normalRecords.map(renderRecord)}
                 {/* Bottom Buffer inside scroll area */}
                 <div className="h-[40px] w-full" />
               </div>
@@ -4890,12 +4900,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
               <div className="flex-1 overflow-y-auto pr-1 space-y-4 max-h-[60vh] custom-scrollbar">
                 <div className="flex flex-col gap-2">
-                  {[
+                  {(account.type === 'credit' ? [
                     { mode: 'date-desc', label: '消費日 - 新到舊' },
                     { mode: 'date-asc', label: '消費日 - 舊到新' },
                     { mode: 'posting-desc', label: '入帳日 - 新到舊' },
                     { mode: 'posting-asc', label: '入帳日 - 舊到新' }
-                  ].map(opt => (
+                  ] : [
+                    { mode: 'date-desc', label: '日期 - 新到舊' },
+                    { mode: 'date-asc', label: '日期 - 舊到新' }
+                  ]).map(opt => (
                     <button
                       key={opt.mode}
                       onClick={() => {
