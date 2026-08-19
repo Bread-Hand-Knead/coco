@@ -10854,7 +10854,8 @@ function MoreView({
   });
 
   const handleExportCSV = () => {
-    const headers = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '金額', '幣別', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
+    const twdHeaders = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '金額', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
+    const foreignHeaders = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '外幣金額', '外幣幣別', '折合台幣金額', '匯率', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
     
     // Filter records by date range
     const filtered = records.filter(r => {
@@ -10905,41 +10906,84 @@ function MoreView({
         }
       }
 
-      const currencyLabel = isForeign 
-        ? `${acc?.currency || toAcc?.currency || 'USD'}`
-        : 'TWD';
-
-      const row = [
-        r.date,
-        r.postingDate || (r.isPending ? '未入帳' : r.date),
-        r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳'),
-        catMain,
-        catSub,
-        proj?.name || '',
-        r.amount,
-        currencyLabel,
-        r.fee || 0,
-        sourceAccount,
-        destAccount,
-        r.note || '',
-        r.transferredDate ? '是' : '否',
-        r.transferredDate || '',
-        r.id
-      ];
-
       if (isForeign) {
-        foreignRows.push(row);
+        let foreignAmount = Math.abs(r.amount);
+        let foreignCurrency = acc?.currency || 'TWD';
+        let twdAmount: number | string = '';
+        let rateUsed: number | string = '';
+
+        if (r.type === 'transfer' && toAcc) {
+          const srcCur = acc?.currency || 'TWD';
+          const dstCur = toAcc?.currency || 'TWD';
+
+          if (srcCur === 'TWD' && dstCur !== 'TWD') {
+            twdAmount = Math.abs(r.amount);
+            foreignAmount = r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1));
+            foreignCurrency = dstCur;
+            rateUsed = r.exchangeRate || (twdAmount > 0 ? (foreignAmount / twdAmount) : '');
+          } else if (srcCur !== 'TWD' && dstCur === 'TWD') {
+            foreignAmount = Math.abs(r.amount);
+            foreignCurrency = srcCur;
+            twdAmount = r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1));
+            rateUsed = r.exchangeRate || (foreignAmount > 0 ? (twdAmount / foreignAmount) : '');
+          } else {
+            foreignAmount = Math.abs(r.amount);
+            foreignCurrency = srcCur;
+          }
+        } else {
+          foreignAmount = Math.abs(r.amount);
+          foreignCurrency = acc?.currency || 'TWD';
+          if (foreignCurrency !== 'TWD') {
+            const rate = r.exchangeRate || getLatestExchangeRate(records, accounts, foreignCurrency, r.date);
+            rateUsed = rate;
+            twdAmount = Math.round(foreignAmount * rate);
+          }
+        }
+
+        foreignRows.push([
+          r.date,
+          r.postingDate || (r.isPending ? '未入帳' : r.date),
+          r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳'),
+          catMain,
+          catSub,
+          proj?.name || '',
+          foreignAmount,
+          foreignCurrency,
+          twdAmount,
+          rateUsed,
+          r.fee || 0,
+          sourceAccount,
+          destAccount,
+          r.note || '',
+          r.transferredDate ? '是' : '否',
+          r.transferredDate || '',
+          r.id
+        ]);
       } else {
-        twdRows.push(row);
+        twdRows.push([
+          r.date,
+          r.postingDate || (r.isPending ? '未入帳' : r.date),
+          r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳'),
+          catMain,
+          catSub,
+          proj?.name || '',
+          Math.abs(r.amount),
+          r.fee || 0,
+          sourceAccount,
+          destAccount,
+          r.note || '',
+          r.transferredDate ? '是' : '否',
+          r.transferredDate || '',
+          r.id
+        ]);
       }
     });
 
     try {
       const wb = XLSX.utils.book_new();
       
-      // Make sure each sheet has headers
-      const twdSheet = XLSX.utils.aoa_to_sheet([headers, ...twdRows]);
-      const foreignSheet = XLSX.utils.aoa_to_sheet([headers, ...foreignRows]);
+      const twdSheet = XLSX.utils.aoa_to_sheet([twdHeaders, ...twdRows]);
+      const foreignSheet = XLSX.utils.aoa_to_sheet([foreignHeaders, ...foreignRows]);
       
       XLSX.utils.book_append_sheet(wb, twdSheet, '台幣帳戶明細');
       XLSX.utils.book_append_sheet(wb, foreignSheet, '外幣帳戶明細');
