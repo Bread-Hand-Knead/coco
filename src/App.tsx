@@ -9959,6 +9959,7 @@ function MoreView({
   
   const [cloudBackups, setCloudBackups] = useState<any[]>([]);
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
+  const [exportAccountId, setExportAccountId] = useState<string>('all');
 
   const fetchCloudBackups = async () => {
     if (!user) return;
@@ -10901,10 +10902,13 @@ function MoreView({
       return { parentName, childName };
     };
 
-    // Filter records by date range and sort by Parent Account, then Child Account, then Date
+    // Filter records by date range and selected account, then sort by Parent Account, then Child Account, then Date
     const filtered = records.filter(r => {
       const date = r.date;
-      return date >= exportRange.start && date <= exportRange.end;
+      const matchesDate = date >= exportRange.start && date <= exportRange.end;
+      if (!matchesDate) return false;
+      if (exportAccountId === 'all') return true;
+      return r.accountId === exportAccountId || r.toAccountId === exportAccountId;
     }).sort((a, b) => {
       const infoA = getAccountSortingInfo(a);
       const infoB = getAccountSortingInfo(b);
@@ -11042,7 +11046,8 @@ function MoreView({
       XLSX.utils.book_append_sheet(wb, twdSheet, '台幣帳戶明細');
       XLSX.utils.book_append_sheet(wb, foreignSheet, '外幣帳戶明細');
       
-      XLSX.writeFile(wb, `KK記帳_匯出_${exportRange.start}_${exportRange.end}.xlsx`);
+      const accName = exportAccountId === 'all' ? '' : `_${accounts.find(a => a.id === exportAccountId)?.name || ''}`;
+      XLSX.writeFile(wb, `KK記帳_匯出${accName}_${exportRange.start}_${exportRange.end}.xlsx`);
     } catch (err) {
       console.error('Failed to export Excel:', err);
       alert('匯出 Excel 失敗，請重試。');
@@ -12094,6 +12099,27 @@ function MoreView({
                     onChange={e => setExportRange({ ...exportRange, end: e.target.value })}
                     className="w-full p-4 bg-white border-2 border-stone-100 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">選擇匯出帳戶</label>
+                  <div className="relative">
+                    <select
+                      value={exportAccountId}
+                      onChange={e => setExportAccountId(e.target.value)}
+                      className="w-full p-4 bg-white border-2 border-stone-100 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all appearance-none cursor-pointer"
+                    >
+                      <option value="all">📁 全部帳戶</option>
+                      {accounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.type === 'credit' ? '💳' : '🏦'} {acc.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-[#5D4037]/50">
+                      ▼
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex gap-3 pt-2">
