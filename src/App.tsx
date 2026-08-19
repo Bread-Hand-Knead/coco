@@ -10854,7 +10854,7 @@ function MoreView({
   });
 
   const handleExportCSV = () => {
-    const headers = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '金額', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
+    const headers = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '金額', '幣別', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
     
     // Filter records by date range
     const filtered = records.filter(r => {
@@ -10862,10 +10862,20 @@ function MoreView({
       return date >= exportRange.start && date <= exportRange.end;
     }).sort((a, b) => a.date.localeCompare(b.date));
 
-    const rows = filtered.map(r => {
-      const mainAccName = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
-      const toAccName = r.type === 'transfer' ? (accounts.find(a => a.id === r.toAccountId)?.name || '未知帳戶') : '';
+    const twdRows: any[][] = [];
+    const foreignRows: any[][] = [];
+
+    filtered.forEach(r => {
+      const acc = accounts.find(a => a.id === r.accountId);
+      const toAcc = r.toAccountId ? accounts.find(a => a.id === r.toAccountId) : null;
       
+      const isForeign = 
+        (acc && acc.currency && acc.currency !== 'TWD') || 
+        (toAcc && toAcc.currency && toAcc.currency !== 'TWD');
+
+      const mainAccName = acc?.name || '未知帳戶';
+      const toAccName = toAcc?.name || '未知帳戶';
+
       let sourceAccount = '';
       let destAccount = '';
       
@@ -10895,7 +10905,11 @@ function MoreView({
         }
       }
 
-      return [
+      const currencyLabel = isForeign 
+        ? `${acc?.currency || toAcc?.currency || 'USD'}`
+        : 'TWD';
+
+      const row = [
         r.date,
         r.postingDate || (r.isPending ? '未入帳' : r.date),
         r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳'),
@@ -10903,6 +10917,7 @@ function MoreView({
         catSub,
         proj?.name || '',
         r.amount,
+        currencyLabel,
         r.fee || 0,
         sourceAccount,
         destAccount,
@@ -10911,23 +10926,30 @@ function MoreView({
         r.transferredDate || '',
         r.id
       ];
+
+      if (isForeign) {
+        foreignRows.push(row);
+      } else {
+        twdRows.push(row);
+      }
     });
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => {
-        const str = String(cell).replace(/"/g, '""');
-        return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
-      }).join(','))
-    ].join('\n');
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // Make sure each sheet has headers
+      const twdSheet = XLSX.utils.aoa_to_sheet([headers, ...twdRows]);
+      const foreignSheet = XLSX.utils.aoa_to_sheet([headers, ...foreignRows]);
+      
+      XLSX.utils.book_append_sheet(wb, twdSheet, '台幣帳戶明細');
+      XLSX.utils.book_append_sheet(wb, foreignSheet, '外幣帳戶明細');
+      
+      XLSX.writeFile(wb, `KK記帳_匯出_${exportRange.start}_${exportRange.end}.xlsx`);
+    } catch (err) {
+      console.error('Failed to export Excel:', err);
+      alert('匯出 Excel 失敗，請重試。');
+    }
 
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.setAttribute('download', `KK記帳_匯出_${exportRange.start}_${exportRange.end}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
     setShowCsvModal(false);
   };
 
@@ -11536,7 +11558,7 @@ function MoreView({
           onClick={() => setShowCsvModal(true)}
           className="flex items-center justify-between py-3 border-b border-stone-50 text-left w-full active:opacity-60"
         >
-          <span className="font-bold text-[#5D4037]">匯出資料 (CSV)</span>
+          <span className="font-bold text-[#5D4037]">匯出資料 (Excel)</span>
           <ChevronRight size={20} className="text-stone-300" />
         </button>
         <button 
