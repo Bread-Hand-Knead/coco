@@ -10283,19 +10283,10 @@ function MoreView({
       const tempSnapshot = await getDocs(collection(db, 'users', user.uid, 'templates'));
       const tempData = tempSnapshot.docs.map(doc => doc.data() as Template);
       
-      // 8. Fetch monthlyBudget
-      const profileSnapshot = await getDoc(doc(db, 'users', user.uid));
-      if (profileSnapshot.exists()) {
-        const profileData = profileSnapshot.data();
-        if (profileData?.monthlyBudget) {
-          setMonthlyBudget(profileData.monthlyBudget);
-        }
-      }
-
-      // Update states
+      // Update states (monthlyBudget is synced in real-time via onSnapshot unsubProfile in App)
       setRecords(txData);
       setAccounts(accData.sort((a, b) => (a.order || 0) - (b.order || 0)));
-      setCategories(catData.length > 0 ? catData : INITIAL_CATEGORIES);
+      onUpdateCategories(catData.length > 0 ? catData : INITIAL_CATEGORIES);
       setProjects(projData.length > 0 ? projData : INITIAL_PROJECTS);
       setFixedRecords(fixedData);
       setInstallments(instData);
