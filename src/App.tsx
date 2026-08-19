@@ -11045,8 +11045,12 @@ function MoreView({
         try {
           const data = new Uint8Array(event.target?.result as ArrayBuffer);
           const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const jsonData = XLSX.utils.sheet_to_json(firstSheet, { defval: "" }) as any[];
+          let jsonData: any[] = [];
+          workbook.SheetNames.forEach(sheetName => {
+            const sheet = workbook.Sheets[sheetName];
+            const sheetData = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[];
+            jsonData = jsonData.concat(sheetData);
+          });
           
           if (jsonData.length === 0) throw new Error('檔案中沒有資料');
 
@@ -11124,7 +11128,45 @@ function MoreView({
               return isNaN(num) ? 0 : num;
             };
 
-            const rawAmount = parseSignedVal(getVal(row, ['金額', '小計', 'amount']));
+            let rawAmount = parseSignedVal(getVal(row, ['金額', '小計', 'amount']));
+            let importedToAmount: number | undefined = undefined;
+            let importedExchangeRate: number | undefined = undefined;
+
+            const foreignAmt = parseSignedVal(getVal(row, ['外幣金額']));
+            const twdAmt = parseSignedVal(getVal(row, ['折合台幣金額']));
+            const rateVal = parseSignedVal(getVal(row, ['匯率']));
+
+            if (rawAmount === 0 && (foreignAmt !== 0 || twdAmt !== 0)) {
+              // Determine currency based on account lookup
+              const sAcc = findAccByName(expAcc || genAcc);
+              const dAcc = findAccByName(incAcc);
+
+              if (sAcc && sAcc.currency && sAcc.currency !== 'TWD') {
+                rawAmount = foreignAmt || twdAmt;
+                if (dAcc && dAcc.currency === 'TWD') {
+                  importedToAmount = twdAmt || foreignAmt;
+                  importedExchangeRate = rateVal || (rawAmount > 0 ? (importedToAmount / rawAmount) : undefined);
+                }
+              } else {
+                rawAmount = twdAmt || foreignAmt;
+                if (dAcc && dAcc.currency && dAcc.currency !== 'TWD') {
+                  importedToAmount = foreignAmt || twdAmt;
+                  importedExchangeRate = rateVal || (rawAmount > 0 ? (importedToAmount / rawAmount) : undefined);
+                }
+              }
+            } else if (rawAmount !== 0) {
+              // Check if rate is present
+              if (rateVal !== 0) {
+                importedExchangeRate = rateVal;
+                // If it is a transfer, we can compute toAmount
+                const sAcc = findAccByName(expAcc || genAcc);
+                const dAcc = findAccByName(incAcc);
+                if (sAcc && dAcc) {
+                  importedToAmount = Math.abs(rawAmount) * rateVal;
+                }
+              }
+            }
+
             const feeVal = Math.abs(parseSignedVal(getVal(row, ['手續費', 'fee'])));
             const rawBalanceText = getVal(row, ['餘額', '交易後餘額', '結餘', 'Balance']);
             const isBalanceEmpty = rawBalanceText === undefined || rawBalanceText === null || String(rawBalanceText).trim() === '';
@@ -11276,7 +11318,9 @@ function MoreView({
               _importMainAccountName: genAcc,
               _importSourceAccountName: sourceAccName,
               _importDestAccountName: destAccName,
-              _importProjectName: projectName ? String(projectName) : undefined
+              _importProjectName: projectName ? String(projectName) : undefined,
+              toAmount: type === 'transfer' ? importedToAmount : undefined,
+              exchangeRate: type === 'transfer' ? importedExchangeRate : undefined
             };
           }).filter(r => r.amount !== 0 || r.category === '初始資金');
 
