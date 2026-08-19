@@ -10736,7 +10736,7 @@ function MoreView({
   });
 
   const handleExportCSV = () => {
-    const headers = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '金額', '手續費', '來源帳戶', '目的帳戶', '備註', 'ID'];
+    const headers = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '金額', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
     
     // Filter records by date range
     const filtered = records.filter(r => {
@@ -10765,10 +10765,16 @@ function MoreView({
       const proj = projects.find(p => p.id === r.projectId);
       let catMain = r.category;
       let catSub = '';
-      const catObj = categories.find(c => c.name === r.category || c.sub.includes(r.category));
-      if (catObj && catObj.sub.includes(r.category)) {
-        catMain = catObj.name;
-        catSub = r.category;
+      if (r.category && r.category.includes(' > ')) {
+        const parts = r.category.split(' > ');
+        catMain = parts[0];
+        catSub = parts[1];
+      } else {
+        const catObj = categories.find(c => c.name === r.category || c.sub.includes(r.category));
+        if (catObj && catObj.sub.includes(r.category)) {
+          catMain = catObj.name;
+          catSub = r.category;
+        }
       }
 
       return [
@@ -10783,6 +10789,8 @@ function MoreView({
         sourceAccount,
         destAccount,
         r.note || '',
+        r.transferredDate ? '是' : '否',
+        r.transferredDate || '',
         r.id
       ];
     });
