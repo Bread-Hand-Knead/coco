@@ -1013,6 +1013,32 @@ export default function App() {
     }
 
     try {
+      // Create a historical backup snapshot before overwriting
+      const backupId = `bk_${Date.now()}`;
+      const backupDocRef = doc(db, 'users', user.uid, 'backups', backupId);
+      await setDoc(backupDocRef, cleanData({
+        id: backupId,
+        timestamp: new Date().toISOString(),
+        records,
+        accounts,
+        projects,
+        categories,
+        fixedRecords,
+        installments,
+        templates,
+        monthlyBudget
+      }));
+
+      // Maintain only the last 5 backups
+      const backupsSnapshot = await getDocs(collection(db, 'users', user.uid, 'backups'));
+      const backupsList = backupsSnapshot.docs.map(doc => doc.data());
+      backupsList.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      if (backupsList.length > 5) {
+        for (let i = 5; i < backupsList.length; i++) {
+          await deleteDoc(doc(db, 'users', user.uid, 'backups', backupsList[i].id));
+        }
+      }
+
       const batch = writeBatch(db);
       
       categories.forEach(item => {
@@ -9917,6 +9943,97 @@ function MoreView({
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [importPreview, setImportPreview] = useState<{ transactions: Transaction[], total: number } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  const [cloudBackups, setCloudBackups] = useState<any[]>([]);
+  const [isLoadingBackups, setIsLoadingBackups] = useState(false);
+
+  const fetchCloudBackups = async () => {
+    if (!user) return;
+    setIsLoadingBackups(true);
+    try {
+      const snapshot = await getDocs(collection(db, 'users', user.uid, 'backups'));
+      const list = snapshot.docs.map(doc => doc.data());
+      list.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      setCloudBackups(list);
+    } catch (err) {
+      console.error('Failed to fetch backups:', err);
+    } finally {
+      setIsLoadingBackups(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showSyncModal && user) {
+      fetchCloudBackups();
+    }
+  }, [showSyncModal, user]);
+
+  const handleRestoreSpecificBackup = async (backup: any) => {
+    const confirm = window.confirm(`確定要還原此備份版本嗎？\\n(版本時間：${new Date(backup.timestamp).toLocaleString()})\\n這將會取代您目前的本地與雲端主資料庫資料！`);
+    if (!confirm) return;
+
+    setIsSyncing(true);
+    try {
+      // Update local states
+      setRecords(backup.records || []);
+      setAccounts((backup.accounts || []).sort((a, b) => (a.order || 0) - (b.order || 0)));
+      if (backup.categories && backup.categories.length > 0) {
+        onUpdateCategories(backup.categories);
+      }
+      setProjects(backup.projects || []);
+      setFixedRecords(backup.fixedRecords || []);
+      setInstallments(backup.installments || []);
+      setTemplates(backup.templates || []);
+
+      // Clear main Firestore collections and write the backup data
+      const collectionsToClear = ['transactions', 'accounts', 'projects', 'categories', 'fixedRecords', 'installments', 'templates'];
+      const deleteBatch = writeBatch(db);
+      
+      for (const colName of collectionsToClear) {
+        const snap = await getDocs(collection(db, 'users', user.uid, colName));
+        snap.docs.forEach(doc => {
+          deleteBatch.delete(doc.ref);
+        });
+      }
+      await deleteBatch.commit();
+
+      const writeBatchObj = writeBatch(db);
+      (backup.records || []).forEach((item) => {
+        writeBatchObj.set(doc(db, 'users', user.uid, 'transactions', item.id), cleanData(item));
+      });
+      (backup.accounts || []).forEach((item) => {
+        writeBatchObj.set(doc(db, 'users', user.uid, 'accounts', item.id), cleanData(item));
+      });
+      (backup.categories || []).forEach((item) => {
+        writeBatchObj.set(doc(db, 'users', user.uid, 'categories', item.id), cleanData(item));
+      });
+      (backup.projects || []).forEach((item) => {
+        writeBatchObj.set(doc(db, 'users', user.uid, 'projects', item.id), cleanData(item));
+      });
+      (backup.fixedRecords || []).forEach((item) => {
+        writeBatchObj.set(doc(db, 'users', user.uid, 'fixedRecords', item.id), cleanData(item));
+      });
+      (backup.installments || []).forEach((item) => {
+        writeBatchObj.set(doc(db, 'users', user.uid, 'installments', item.id), cleanData(item));
+      });
+      (backup.templates || []).forEach((item) => {
+        writeBatchObj.set(doc(db, 'users', user.uid, 'templates', item.id), cleanData(item));
+      });
+      
+      if (backup.monthlyBudget) {
+        writeBatchObj.set(doc(db, 'users', user.uid), { monthlyBudget: backup.monthlyBudget }, { merge: true });
+      }
+
+      await writeBatchObj.commit();
+      alert('已成功將資料庫恢復至指定備份版本！');
+      fetchCloudBackups();
+    } catch (err) {
+      console.error('Failed to restore cloud backup:', err);
+      alert('還原失敗，請檢查網路連線。');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dangerAction, setDangerAction] = useState<'date' | 'account' | null>(null);
   const [deleteStartDate, setDeleteStartDate] = useState(() => {
@@ -10082,6 +10199,7 @@ function MoreView({
     try {
       await onForceSync();
       alert('同步完成');
+      fetchCloudBackups();
     } catch (err) {
       alert('同步失敗，請檢查網路連線。');
     } finally {
@@ -11509,6 +11627,48 @@ function MoreView({
                     accept=".json,.xlsx,.xls,.csv" 
                     className="hidden" 
                   />
+
+                  {user && (
+                    <div className="bg-[#5D4037]/5 p-5 rounded-3xl space-y-3 text-[#5D4037]">
+                      <div className="flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest opacity-40">
+                        <History size={12} />
+                        <span>雲端歷史備份 (保留最近 5 次)</span>
+                      </div>
+                      
+                      {isLoadingBackups ? (
+                        <div className="flex items-center justify-center py-2 text-stone-400 text-xs gap-2 font-bold">
+                          <Loader2 size={14} className="animate-spin" />載入備份中...
+                        </div>
+                      ) : cloudBackups.length === 0 ? (
+                        <div className="text-center py-2 text-stone-400 text-xs font-bold">
+                          無歷史備份紀錄 (手動同步後自動建立)
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[160px] overflow-y-auto custom-scrollbar pr-1">
+                          {cloudBackups.map((backup) => {
+                            const date = new Date(backup.timestamp);
+                            const formattedTime = `${date.getFullYear()}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                            return (
+                              <div key={backup.id} className="bg-white/70 p-2.5 rounded-2xl border border-[#5D4037]/5 flex justify-between items-center gap-3 shadow-sm">
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <span className="text-[11px] font-black text-[#5D4037] truncate">${formattedTime}</span>
+                                  <span className="text-[9px] text-stone-400 font-bold">
+                                    明細: ${backup.records?.length || 0} 筆 | 帳戶: ${backup.accounts?.length || 0} 個
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => handleRestoreSpecificBackup(backup)}
+                                  className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl text-[10px] font-black transition-all active:scale-95 border border-sky-100 shrink-0 shadow-sm"
+                                >
+                                  還原此版本
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="bg-[#5D4037]/5 p-5 rounded-3xl space-y-2">
                     <div className="flex items-center gap-2 text-[#5D4037] font-bold text-[10px] uppercase tracking-widest opacity-40">
