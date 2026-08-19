@@ -10043,7 +10043,7 @@ function MoreView({
       fetchCloudBackups();
     } catch (err) {
       console.error('Failed to restore cloud backup:', err);
-      alert('還原失敗，請檢查網路連線。');
+      alert('還原失敗：' + (err.message || err));
     } finally {
       setIsSyncing(false);
     }
@@ -10304,7 +10304,7 @@ function MoreView({
       alert('雲端資料還原成功！');
     } catch (err) {
       console.error('Cloud restore failed:', err);
-      alert('還原失敗，請檢查網路連線後再試。');
+      alert('還原失敗：' + (err.message || err));
     } finally {
       setIsSyncing(false);
     }
