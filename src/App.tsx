@@ -63,6 +63,7 @@ import {
   Loader2,
   GripVertical,
   RefreshCw,
+  Clock,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { 
@@ -159,6 +160,7 @@ interface Transaction {
   note?: string;
   remark?: string;
   date: string;        // 消費日 YYYY-MM-DD
+  time?: string;       // 交易時間 HH:MM
   postingDate?: string; // 入帳日 YYYY-MM-DD
   isPending?: boolean;  // 待入帳
   type: 'income' | 'expense' | 'transfer';
@@ -3842,6 +3844,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return merged.sort((a, b) => {
       const dateDiff = b.date.localeCompare(a.date);
       if (dateDiff !== 0) return dateDiff;
+      const timeA = a.time || '00:00';
+      const timeB = b.time || '00:00';
+      const timeDiff = timeB.localeCompare(timeA);
+      if (timeDiff !== 0) return timeDiff;
       return b.amount - a.amount;
     });
   }, [records, accounts, dateRangeStrings.filter, targetIds]);
@@ -3862,10 +3868,20 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       sortedNormals.sort((a, b) => {
         if (sortMode === 'date-desc' || sortMode === 'posting-desc') {
           const diff = b.date.localeCompare(a.date);
-          return diff !== 0 ? diff : b.amount - a.amount;
+          if (diff !== 0) return diff;
+          const timeA = a.time || '00:00';
+          const timeB = b.time || '00:00';
+          const timeDiff = timeB.localeCompare(timeA);
+          if (timeDiff !== 0) return timeDiff;
+          return b.amount - a.amount;
         } else { // 'date-asc' or 'posting-asc'
           const diff = a.date.localeCompare(b.date);
-          return diff !== 0 ? diff : a.amount - b.amount;
+          if (diff !== 0) return diff;
+          const timeA = a.time || '00:00';
+          const timeB = b.time || '00:00';
+          const timeDiff = timeA.localeCompare(timeB);
+          if (timeDiff !== 0) return timeDiff;
+          return a.amount - b.amount;
         }
       });
       return { paymentRecords: [], normalRecords: sortedNormals };
@@ -3896,16 +3912,36 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     normalRecords.sort((a, b) => {
       if (sortMode === 'date-desc') {
         const diff = b.date.localeCompare(a.date);
-        return diff !== 0 ? diff : b.amount - a.amount;
+        if (diff !== 0) return diff;
+        const timeA = a.time || '00:00';
+        const timeB = b.time || '00:00';
+        const timeDiff = timeB.localeCompare(timeA);
+        if (timeDiff !== 0) return timeDiff;
+        return b.amount - a.amount;
       } else if (sortMode === 'date-asc') {
         const diff = a.date.localeCompare(b.date);
-        return diff !== 0 ? diff : a.amount - b.amount;
+        if (diff !== 0) return diff;
+        const timeA = a.time || '00:00';
+        const timeB = b.time || '00:00';
+        const timeDiff = timeA.localeCompare(timeB);
+        if (timeDiff !== 0) return timeDiff;
+        return a.amount - b.amount;
       } else if (sortMode === 'posting-desc') {
         const diff = (b.postingDate || b.date).localeCompare(a.postingDate || a.date);
-        return diff !== 0 ? diff : b.amount - a.amount;
+        if (diff !== 0) return diff;
+        const timeA = a.time || '00:00';
+        const timeB = b.time || '00:00';
+        const timeDiff = timeB.localeCompare(timeA);
+        if (timeDiff !== 0) return timeDiff;
+        return b.amount - a.amount;
       } else { // 'posting-asc'
         const diff = (a.postingDate || a.date).localeCompare(a.postingDate || a.date);
-        return diff !== 0 ? diff : a.amount - b.amount;
+        if (diff !== 0) return diff;
+        const timeA = a.time || '00:00';
+        const timeB = b.time || '00:00';
+        const timeDiff = timeA.localeCompare(timeB);
+        if (timeDiff !== 0) return timeDiff;
+        return a.amount - b.amount;
       }
     });
     
@@ -4232,6 +4268,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                 </div>
                                 <span className="text-xs font-bold text-stone-300">
                                   {record.postingDate ? `入帳: ${record.postingDate}` : `轉帳: ${record.date}`}
+                                  {record.time && ` ${record.time}`}
                                 </span>
                               </div>
                             );
@@ -4240,6 +4277,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                           <div className="flex items-center gap-2 mt-0.5" style={getFontFamily()}>
                             <span className="text-xs font-bold text-stone-300">
                               {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
+                              {record.time && ` ${record.time}`}
                             </span>
                             {account.type === 'credit' && (!record.postingDate || record.isPending) && (
                               <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-500 rounded-full font-bold">
@@ -5217,18 +5255,30 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                     style={getFontFamily()}
                   />
                 </div>
-                <div className={`flex flex-col gap-1 transition-opacity ${edited.isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-stone-300 uppercase flex items-center gap-1">
-                    <Banknote size={10} /> 入帳日 (信用卡結算)
+                    <Clock size={10} /> 交易時間
                   </label>
                   <input 
-                    type="date"
-                    value={edited.postingDate || edited.date}
-                    onChange={e => setEdited({ ...edited, postingDate: e.target.value, isPending: false })}
+                    type="time"
+                    value={edited.time || ''}
+                    onChange={e => setEdited({ ...edited, time: e.target.value || undefined })}
                     className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                     style={getFontFamily()}
                   />
                 </div>
+              </div>
+              <div className={`flex flex-col gap-1 transition-opacity ${edited.isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                <label className="text-[10px] font-bold text-stone-300 uppercase flex items-center gap-1">
+                  <Banknote size={10} /> 入帳日 (信用卡結算)
+                </label>
+                <input 
+                  type="date"
+                  value={edited.postingDate || edited.date}
+                  onChange={e => setEdited({ ...edited, postingDate: e.target.value, isPending: false })}
+                  className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  style={getFontFamily()}
+                />
               </div>
               <div className="flex items-center justify-end gap-2 pr-2">
                 <span className="text-[11px] font-bold text-stone-400">待入帳 (暫不計入本月結餘)</span>
@@ -8659,7 +8709,15 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
       return d.getFullYear() === y && (d.getMonth() + 1) === m;
     });
     const merged = getMergedRecords(raw, accounts);
-    return merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return merged.sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      const timeA = a.time || '00:00';
+      const timeB = b.time || '00:00';
+      const timeDiff = timeB.localeCompare(timeA);
+      if (timeDiff !== 0) return timeDiff;
+      return b.id.localeCompare(a.id);
+    });
   }, [records, project, currentMonth, accounts]);
 
   const balance = useMemo(() => {
@@ -8773,14 +8831,15 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                             </div>
                             {/* Line 3: Date as subtext YYYY-MM-DD */}
                             <span className="text-[11px] font-medium text-stone-400" style={getFontFamily()}>
-                              入帳日期: {displayDate}
+                              入帳日期: {displayDate}{record.time && ` ${record.time}`}
                             </span>
                           </div>
                         );
                       })()
                     ) : (
-                      <div className="text-[12px] font-medium text-stone-300 truncate font-bold">
-                        {(record.note || '詳細資訊...').replace(/\[固定收支\]/g, '').trim()}
+                      <div className="text-[12px] font-medium text-stone-300 truncate font-bold flex items-center gap-1.5">
+                        <span>{(record.note || '詳細資訊...').replace(/\[固定收支\]/g, '').trim()}</span>
+                        {record.time && <span className="text-stone-400 font-bold">({record.time})</span>}
                       </div>
                     )}
                   </div>
@@ -10990,7 +11049,7 @@ function MoreView({
         }
 
         foreignRows.push([
-          r.date,
+          r.time ? `${r.date} ${r.time}` : r.date,
           r.postingDate || (r.isPending ? '未入帳' : r.date),
           r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳'),
           catMain,
@@ -11010,7 +11069,7 @@ function MoreView({
         ]);
       } else {
         twdRows.push([
-          r.date,
+          r.time ? `${r.date} ${r.time}` : r.date,
           r.postingDate || (r.isPending ? '未入帳' : r.date),
           r.type === 'income' ? '收入' : (r.type === 'expense' ? '支出' : '轉帳'),
           catMain,
@@ -11147,7 +11206,36 @@ function MoreView({
               return !isNaN(d.getTime()) ? formatLocalDate(d) : undefined;
             };
 
+            const parseTime = (raw: any) => {
+              if (!raw) return undefined;
+              if (raw instanceof Date) {
+                const hh = String(raw.getHours()).padStart(2, '0');
+                const mm = String(raw.getMinutes()).padStart(2, '0');
+                if (raw.getHours() === 0 && raw.getMinutes() === 0) return undefined;
+                return `${hh}:${mm}`;
+              }
+              if (typeof raw === 'number') {
+                const dateObj = new Date(Math.round((raw - 25569) * 86400 * 1000));
+                const hh = String(dateObj.getHours()).padStart(2, '0');
+                const mm = String(dateObj.getMinutes()).padStart(2, '0');
+                if (dateObj.getHours() === 0 && dateObj.getMinutes() === 0) return undefined;
+                return `${hh}:${mm}`;
+              }
+              if (typeof raw === 'string') {
+                const parts = raw.trim().split(/\s+/);
+                if (parts.length > 1) {
+                  const timePart = parts[1];
+                  const match = timePart.match(/^(\d{2}):(\d{2})/);
+                  if (match) {
+                    return `${match[1]}:${match[2]}`;
+                  }
+                }
+              }
+              return undefined;
+            };
+
             const consumeDateRaw = getVal(row, ['消費日期', '日期', '日期(yyyy/MM/dd)', 'date']);
+            const time = parseTime(consumeDateRaw);
             const postingDateRaw = getVal(row, ['入帳日期', 'posting date']);
             
             const date = parseDate(consumeDateRaw) || formatLocalDate(new Date());
@@ -11378,7 +11466,8 @@ function MoreView({
               _importProjectName: projectName ? String(projectName) : undefined,
               toAmount: type === 'transfer' ? importedToAmount : undefined,
               exchangeRate: type === 'transfer' ? importedExchangeRate : undefined,
-              transferredDate: resolvedTransferredDate
+              transferredDate: resolvedTransferredDate,
+              time: time
             };
           }).filter(r => r.amount !== 0 || r.category === '初始資金');
 
@@ -12437,6 +12526,12 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
   const [consumptionDate, setConsumptionDate] = useState(selectedDate);
   const [postingDate, setPostingDate] = useState(selectedDate);
+  const [consumptionTime, setConsumptionTime] = useState(() => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  });
   const [isPending, setIsPending] = useState(false);
   const [isDateExpanded, setIsDateExpanded] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || 'p1');
@@ -13099,6 +13194,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       toAmount: resolvedType === 'transfer' ? (parseFloat(toAmount) || Math.abs(finalAmount) * rate) : undefined,
       exchangeRate: resolvedType === 'transfer' ? rate : undefined,
       date: consumptionDate,
+      time: consumptionTime,
       postingDate: isPending ? undefined : postingDate,
       isPending: isPending,
       isInstallment,
@@ -13175,6 +13271,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         toAmount: resolvedType === 'transfer' ? (parseFloat(toAmount) || Math.abs(finalAmount) * rate) : undefined,
         exchangeRate: resolvedType === 'transfer' ? rate : undefined,
         date: consumptionDate,
+        time: consumptionTime,
         postingDate: isPending ? undefined : postingDate,
         isPending: isPending,
         isInstallment,
@@ -13334,7 +13431,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
               style={getFontFamily()}
             >
-              <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037]">
+              <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037] flex-wrap justify-center">
                 <CalendarIcon size={14} className="text-[#FFD54F]" />
                 <span>日期：</span>
                 <input 
@@ -13344,6 +13441,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     setConsumptionDate(e.target.value);
                     setPostingDate(e.target.value);
                   }}
+                  className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
+                  style={getFontFamily()}
+                />
+                <span className="text-stone-300 mx-1">|</span>
+                <Clock size={14} className="text-[#FFD54F]" />
+                <span>時間：</span>
+                <input 
+                  type="time"
+                  value={consumptionTime}
+                  onChange={e => setConsumptionTime(e.target.value)}
                   className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
                   style={getFontFamily()}
                 />
@@ -13358,7 +13465,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               className="bg-[#FFFDF5] p-3 pb-4 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3 w-full" 
               style={getFontFamily()}
             >
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
                     <CalendarIcon size={10} /> 消費日
@@ -13367,7 +13474,18 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     type="date"
                     value={consumptionDate}
                     onChange={e => setConsumptionDate(e.target.value)}
-                    className="bg-white border-2 border-stone-50 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
+                    <Clock size={10} /> 時間
+                  </label>
+                  <input 
+                    type="time"
+                    value={consumptionTime}
+                    onChange={e => setConsumptionTime(e.target.value)}
+                    className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                   />
                 </div>
                 <div className={`flex flex-col gap-1 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
@@ -13378,7 +13496,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     type="date"
                     value={postingDate}
                     onChange={e => setPostingDate(e.target.value)}
-                    className="bg-white border-2 border-stone-50 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                   />
                 </div>
               </div>
