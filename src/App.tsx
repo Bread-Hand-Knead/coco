@@ -3677,12 +3677,16 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   }, [account, accounts, selectedCardFilterId]);
 
   const balanceMap = useMemo(() => {
-    
-    const relevant = records
+    const mergedHistory = getMergedRecords(records, accounts);
+    const relevant = mergedHistory
       .filter(r => (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && r.category !== '初始資金')
       .sort((a, b) => {
         const dateDiff = a.date.localeCompare(b.date);
         if (dateDiff !== 0) return dateDiff;
+        const timeA = a.time || '00:00';
+        const timeB = b.time || '00:00';
+        const timeDiff = timeA.localeCompare(timeB);
+        if (timeDiff !== 0) return timeDiff;
         return a.id.localeCompare(b.id);
       });
       
@@ -3701,6 +3705,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
       }
       map[r.id] = bal;
+      if ((r as any)._mergedRecordIds) {
+        (r as any)._mergedRecordIds.forEach((id: string) => {
+          map[id] = bal;
+        });
+      }
     });
     
     return map;
