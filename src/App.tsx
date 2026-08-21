@@ -11185,16 +11185,16 @@ function MoreView({
             const parseDate = (raw: any) => {
               if (!raw) return undefined;
               if (raw instanceof Date) {
-                const y = raw.getUTCFullYear();
-                const m = String(raw.getUTCMonth() + 1).padStart(2, '0');
-                const day = String(raw.getUTCDate()).padStart(2, '0');
+                const y = raw.getFullYear();
+                const m = String(raw.getMonth() + 1).padStart(2, '0');
+                const day = String(raw.getDate()).padStart(2, '0');
                 return `${y}-${m}-${day}`;
               }
               if (typeof raw === 'number') {
                 const dateObj = new Date(Math.round((raw - 25569) * 86400 * 1000));
-                const y = dateObj.getUTCFullYear();
-                const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-                const day = String(dateObj.getUTCDate()).padStart(2, '0');
+                const y = dateObj.getFullYear();
+                const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const day = String(dateObj.getDate()).padStart(2, '0');
                 return `${y}-${m}-${day}`;
               }
               const dateStr = String(raw).trim().replace(/\//g, '-').replace(/\./g, '-');
@@ -11219,33 +11219,23 @@ function MoreView({
                 const parts = dateStr.split('-');
                 return `${new Date().getFullYear()}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
               }
-              // Fallback to local parsing but avoid shifting by using UTC if formatted as standard ISO
               const d = new Date(dateStr);
-              if (!isNaN(d.getTime())) {
-                if (dateStr.includes('T')) {
-                  const y = d.getUTCFullYear();
-                  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-                  const day = String(d.getUTCDate()).padStart(2, '0');
-                  return `${y}-${m}-${day}`;
-                }
-                return formatLocalDate(d);
-              }
-              return undefined;
+              return !isNaN(d.getTime()) ? formatLocalDate(d) : undefined;
             };
 
             const parseTime = (raw: any) => {
               if (!raw) return undefined;
               if (raw instanceof Date) {
-                const hh = String(raw.getUTCHours()).padStart(2, '0');
-                const mm = String(raw.getUTCMinutes()).padStart(2, '0');
-                if (raw.getUTCHours() === 0 && raw.getUTCMinutes() === 0) return undefined;
+                const hh = String(raw.getHours()).padStart(2, '0');
+                const mm = String(raw.getMinutes()).padStart(2, '0');
+                if (raw.getHours() === 0 && raw.getMinutes() === 0) return undefined;
                 return `${hh}:${mm}`;
               }
               if (typeof raw === 'number') {
                 const dateObj = new Date(Math.round((raw - 25569) * 86400 * 1000));
-                const hh = String(dateObj.getUTCHours()).padStart(2, '0');
-                const mm = String(dateObj.getUTCMinutes()).padStart(2, '0');
-                if (dateObj.getUTCHours() === 0 && dateObj.getUTCMinutes() === 0) return undefined;
+                const hh = String(dateObj.getHours()).padStart(2, '0');
+                const mm = String(dateObj.getMinutes()).padStart(2, '0');
+                if (dateObj.getHours() === 0 && dateObj.getMinutes() === 0) return undefined;
                 return `${hh}:${mm}`;
               }
               if (typeof raw === 'string') {
@@ -11269,7 +11259,11 @@ function MoreView({
             };
 
             const consumeDateRaw = getVal(row, ['消費日期', '日期', '日期(yyyy/MM/dd)', 'date']);
-            const time = parseTime(consumeDateRaw);
+            const excelTimeRaw = getVal(row, ['時間', 'time', '交易時間']);
+            let time = parseTime(excelTimeRaw);
+            if (!time) {
+              time = parseTime(consumeDateRaw);
+            }
             const postingDateRaw = getVal(row, ['入帳日期', 'posting date']);
             
             const date = parseDate(consumeDateRaw) || formatLocalDate(new Date());
