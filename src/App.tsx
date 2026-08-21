@@ -1538,14 +1538,14 @@ export default function App() {
       return cur === 'TWD';
     });
 
-    // Monthly/Weekly/Daily stats now use postingDate
-    const daily = filteredByCurrency.filter(r => (r.postingDate || r.date) === selectedDate);
+    // Monthly/Weekly/Daily stats now use postingDate and exclude initial balance records
+    const daily = filteredByCurrency.filter(r => (r.postingDate || r.date) === selectedDate && r.category !== '初始資金');
     const weekly = filteredByCurrency.filter(r => {
       const pDate = r.postingDate || r.date;
-      return pDate >= startOfWeekStr && pDate <= endOfWeekStr;
+      return pDate >= startOfWeekStr && pDate <= endOfWeekStr && r.category !== '初始資金';
     });
-    const monthly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(monthStr));
-    const yearly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(yearStr));
+    const monthly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(monthStr) && r.category !== '初始資金');
+    const yearly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(yearStr) && r.category !== '初始資金');
     
     return {
       daily: {
