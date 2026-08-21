@@ -4711,8 +4711,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   >
                     <ArrowUpDown size={12} className="text-[#5D4037]/50" />
                     <span>
-                      {sortMode === 'date-desc' && (account.type === 'credit' ? '消費日 - 新到舊' : '日期 - 新到舊')}
-                      {sortMode === 'date-asc' && (account.type === 'credit' ? '消費日 - 舊到新' : '日期 - 舊到新')}
+                      {sortMode === 'date-desc' && '消費日 - 新到舊'}
+                      {sortMode === 'date-asc' && '消費日 - 舊到新'}
                       {sortMode === 'posting-desc' && (account.type === 'credit' ? '入帳日 - 新到舊' : '入帳 - 新到舊')}
                       {sortMode === 'posting-asc' && (account.type === 'credit' ? '入帳日 - 舊到新' : '入帳 - 舊到新')}
                     </span>
@@ -4969,8 +4969,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     { mode: 'posting-desc', label: '入帳日 - 新到舊' },
                     { mode: 'posting-asc', label: '入帳日 - 舊到新' }
                   ] : [
-                    { mode: 'date-desc', label: '日期 - 新到舊' },
-                    { mode: 'date-asc', label: '日期 - 舊到新' },
+                    { mode: 'date-desc', label: '消費日 - 新到舊' },
+                    { mode: 'date-asc', label: '消費日 - 舊到新' },
                     { mode: 'posting-desc', label: '入帳 - 新到舊' },
                     { mode: 'posting-asc', label: '入帳 - 舊到新' }
                   ]).map(opt => (
