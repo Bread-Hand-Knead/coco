@@ -3842,11 +3842,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   const accountRecords = useMemo(() => {
     const targetYearMonth = dateRangeStrings.filter;
     
-    const raw = records.filter(r => 
-      (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
-      r.category !== '初始資金' &&
-      (r.postingDate || r.date).startsWith(targetYearMonth)
-    );
+    const raw = records.filter(r => {
+      if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
+      if (r.category === '初始資金') return false;
+      
+      const filterDate = (sortMode === 'date-desc' || sortMode === 'date-asc') 
+        ? r.date 
+        : (r.postingDate || r.date);
+      return filterDate.startsWith(targetYearMonth);
+    });
     
     const merged = getMergedRecords(raw, accounts);
     
@@ -3859,7 +3863,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       if (timeDiff !== 0) return timeDiff;
       return b.amount - a.amount;
     });
-  }, [records, accounts, dateRangeStrings.filter, targetIds]);
+  }, [records, accounts, dateRangeStrings.filter, targetIds, sortMode]);
 
   const calculatedBalance = useMemo(() => { 
     if (selectedCardFilterId) {
