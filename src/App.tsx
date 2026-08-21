@@ -4292,7 +4292,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                   )}
                                 </div>
                                 <span className="text-xs font-bold text-stone-300">
-                                  {record.postingDate ? `入帳: ${record.postingDate}` : `轉帳: ${record.date}`}
+                                  {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
+                                    ? `入帳: ${record.postingDate}` 
+                                    : `轉帳: ${record.date}`}
                                   {record.time && ` ${record.time}`}
                                 </span>
                               </div>
@@ -4301,7 +4303,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         ) : (
                           <div className="flex items-center gap-2 mt-0.5" style={getFontFamily()}>
                             <span className="text-xs font-bold text-stone-300">
-                              {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
+                              {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
+                                ? `入帳: ${record.postingDate}` 
+                                : `消費: ${record.date}`}
                               {record.time && ` ${record.time}`}
                             </span>
                             {account.type === 'credit' && (!record.postingDate || record.isPending) && (
