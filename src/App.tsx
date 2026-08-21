@@ -3875,7 +3875,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     if (account.type !== 'credit') {
       const sortedNormals = [...accountRecords];
       sortedNormals.sort((a, b) => {
-        if (sortMode === 'date-desc' || sortMode === 'posting-desc') {
+        if (sortMode === 'date-desc') {
           const diff = b.date.localeCompare(a.date);
           if (diff !== 0) return diff;
           const timeA = a.time || '00:00';
@@ -3883,8 +3883,24 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           const timeDiff = timeB.localeCompare(timeA);
           if (timeDiff !== 0) return timeDiff;
           return b.amount - a.amount;
-        } else { // 'date-asc' or 'posting-asc'
+        } else if (sortMode === 'date-asc') {
           const diff = a.date.localeCompare(b.date);
+          if (diff !== 0) return diff;
+          const timeA = a.time || '00:00';
+          const timeB = b.time || '00:00';
+          const timeDiff = timeA.localeCompare(timeB);
+          if (timeDiff !== 0) return timeDiff;
+          return a.amount - b.amount;
+        } else if (sortMode === 'posting-desc') {
+          const diff = (b.postingDate || b.date).localeCompare(a.postingDate || a.date);
+          if (diff !== 0) return diff;
+          const timeA = a.time || '00:00';
+          const timeB = b.time || '00:00';
+          const timeDiff = timeB.localeCompare(timeA);
+          if (timeDiff !== 0) return timeDiff;
+          return b.amount - a.amount;
+        } else { // 'posting-asc'
+          const diff = (a.postingDate || a.date).localeCompare(b.postingDate || b.date);
           if (diff !== 0) return diff;
           const timeA = a.time || '00:00';
           const timeB = b.time || '00:00';
@@ -3944,7 +3960,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         if (timeDiff !== 0) return timeDiff;
         return b.amount - a.amount;
       } else { // 'posting-asc'
-        const diff = (a.postingDate || a.date).localeCompare(a.postingDate || a.date);
+        const diff = (a.postingDate || a.date).localeCompare(b.postingDate || b.date);
         if (diff !== 0) return diff;
         const timeA = a.time || '00:00';
         const timeB = b.time || '00:00';
@@ -4697,8 +4713,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     <span>
                       {sortMode === 'date-desc' && (account.type === 'credit' ? '消費日 - 新到舊' : '日期 - 新到舊')}
                       {sortMode === 'date-asc' && (account.type === 'credit' ? '消費日 - 舊到新' : '日期 - 舊到新')}
-                      {sortMode === 'posting-desc' && '入帳日 - 新到舊'}
-                      {sortMode === 'posting-asc' && '入帳日 - 舊到新'}
+                      {sortMode === 'posting-desc' && (account.type === 'credit' ? '入帳日 - 新到舊' : '入帳 - 新到舊')}
+                      {sortMode === 'posting-asc' && (account.type === 'credit' ? '入帳日 - 舊到新' : '入帳 - 舊到新')}
                     </span>
                   </button>
                   {account.type === 'credit' && selectedCardFilterId && (
@@ -4954,7 +4970,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     { mode: 'posting-asc', label: '入帳日 - 舊到新' }
                   ] : [
                     { mode: 'date-desc', label: '日期 - 新到舊' },
-                    { mode: 'date-asc', label: '日期 - 舊到新' }
+                    { mode: 'date-asc', label: '日期 - 舊到新' },
+                    { mode: 'posting-desc', label: '入帳 - 新到舊' },
+                    { mode: 'posting-asc', label: '入帳 - 舊到新' }
                   ]).map(opt => (
                     <button
                       key={opt.mode}
