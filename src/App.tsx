@@ -11184,10 +11184,18 @@ function MoreView({
             // 1. Resolve Basic Fields with Aliases
             const parseDate = (raw: any) => {
               if (!raw) return undefined;
-              if (raw instanceof Date) return formatLocalDate(raw);
+              if (raw instanceof Date) {
+                const y = raw.getUTCFullYear();
+                const m = String(raw.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(raw.getUTCDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+              }
               if (typeof raw === 'number') {
                 const dateObj = new Date(Math.round((raw - 25569) * 86400 * 1000));
-                return formatLocalDate(dateObj);
+                const y = dateObj.getUTCFullYear();
+                const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(dateObj.getUTCDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
               }
               const dateStr = String(raw).trim().replace(/\//g, '-').replace(/\./g, '-');
               
@@ -11211,33 +11219,50 @@ function MoreView({
                 const parts = dateStr.split('-');
                 return `${new Date().getFullYear()}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
               }
+              // Fallback to local parsing but avoid shifting by using UTC if formatted as standard ISO
               const d = new Date(dateStr);
-              return !isNaN(d.getTime()) ? formatLocalDate(d) : undefined;
+              if (!isNaN(d.getTime())) {
+                if (dateStr.includes('T')) {
+                  const y = d.getUTCFullYear();
+                  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+                  const day = String(d.getUTCDate()).padStart(2, '0');
+                  return `${y}-${m}-${day}`;
+                }
+                return formatLocalDate(d);
+              }
+              return undefined;
             };
 
             const parseTime = (raw: any) => {
               if (!raw) return undefined;
               if (raw instanceof Date) {
-                const hh = String(raw.getHours()).padStart(2, '0');
-                const mm = String(raw.getMinutes()).padStart(2, '0');
-                if (raw.getHours() === 0 && raw.getMinutes() === 0) return undefined;
+                const hh = String(raw.getUTCHours()).padStart(2, '0');
+                const mm = String(raw.getUTCMinutes()).padStart(2, '0');
+                if (raw.getUTCHours() === 0 && raw.getUTCMinutes() === 0) return undefined;
                 return `${hh}:${mm}`;
               }
               if (typeof raw === 'number') {
                 const dateObj = new Date(Math.round((raw - 25569) * 86400 * 1000));
-                const hh = String(dateObj.getHours()).padStart(2, '0');
-                const mm = String(dateObj.getMinutes()).padStart(2, '0');
-                if (dateObj.getHours() === 0 && dateObj.getMinutes() === 0) return undefined;
+                const hh = String(dateObj.getUTCHours()).padStart(2, '0');
+                const mm = String(dateObj.getUTCMinutes()).padStart(2, '0');
+                if (dateObj.getUTCHours() === 0 && dateObj.getUTCMinutes() === 0) return undefined;
                 return `${hh}:${mm}`;
               }
               if (typeof raw === 'string') {
-                const parts = raw.trim().split(/\s+/);
-                if (parts.length > 1) {
-                  const timePart = parts[1];
-                  const match = timePart.match(/^(\d{2}):(\d{2})/);
-                  if (match) {
-                    return `${match[1]}:${match[2]}`;
+                const str = raw.trim();
+                // Match hh:mm or hh:mm:ss with optional am/pm/meridian prefix/suffix
+                const match = str.match(/(?:^|\s|下午|上午|pm|am)(\d{1,2}):(\d{2})(?::(\d{2}))?/i);
+                if (match) {
+                  let hh = parseInt(match[1], 10);
+                  const mm = match[2];
+                  const isPM = str.includes('PM') || str.includes('pm') || str.includes('下午');
+                  const isAM = str.includes('AM') || str.includes('am') || str.includes('上午');
+                  if (isPM && hh < 12) {
+                    hh += 12;
+                  } else if (isAM && hh === 12) {
+                    hh = 0;
                   }
+                  return `${String(hh).padStart(2, '0')}:${mm}`;
                 }
               }
               return undefined;
