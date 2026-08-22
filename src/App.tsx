@@ -605,15 +605,25 @@ const getTransactionTitle = (record: Transaction): string => {
   const cleanRemark = (record.remark || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   const cleanNote = (record.note || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   
+  let baseTitle = '';
   if (record.type === 'transfer' || record._isMergedTransfer) {
-    if (cleanRemark) return cleanRemark;
-    if (cleanNote && cleanNote !== '轉帳' && cleanNote !== '未命名明細') return cleanNote;
-    if (record._isMergedTransfer && record._mergedDisplayName) {
-      return record._mergedDisplayName;
+    if (cleanRemark) baseTitle = cleanRemark;
+    else if (cleanNote && cleanNote !== '轉帳' && cleanNote !== '未命名明細') baseTitle = cleanNote;
+    else if (record._isMergedTransfer && record._mergedDisplayName) {
+      baseTitle = record._mergedDisplayName;
+    } else {
+      baseTitle = '轉帳';
     }
-    return '轉帳';
+  } else {
+    baseTitle = (record.note || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   }
-  return (record.note || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
+
+  if (record.isInstallment && record.currentInstallment && record.totalInstallments) {
+    if (!baseTitle.includes('(分期')) {
+      return `${baseTitle} (分期 ${record.currentInstallment}/${record.totalInstallments})`;
+    }
+  }
+  return baseTitle;
 };
 
 // Firestore sync functions
@@ -3981,9 +3991,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
       if (r.category === '初始資金') return false;
       
-      const filterDate = (sortMode === 'date-desc' || sortMode === 'date-asc') 
-        ? r.date 
-        : (r.postingDate || r.date);
+      const filterDate = r.postingDate || r.date;
       return filterDate.startsWith(targetYearMonth);
     });
     
@@ -5451,6 +5459,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                           {Math.round(Math.abs(edited.amount) / totalInstallments)}
                         </div>
                       </div>
+                    </div>
+                    <div className="p-3 bg-amber-50/80 border border-amber-200/50 rounded-xl text-[11px] font-bold text-amber-800 leading-snug">
+                      💡 編輯此項目將同步更新整組分期計畫的金額、名稱與其他屬性。
                     </div>
                   </motion.div>
                 )}

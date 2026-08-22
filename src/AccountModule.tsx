@@ -344,7 +344,13 @@ export function AccountDetailView({ account, records, onBack, onEdit, onUpdateRe
                   
                   <div className="flex-1 flex flex-col gap-1 min-w-0">
                     <span className="font-black text-lg text-[#5D4037] truncate leading-tight">
-                      {(record.note || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim()}
+                      {(() => {
+                        const base = (record.note || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
+                        if (record.isInstallment && record.currentInstallment && record.totalInstallments) {
+                          return `${base} (分期 ${record.currentInstallment}/${record.totalInstallments})`;
+                        }
+                        return base;
+                      })()}
                     </span>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-stone-300">{record.date}</span>
@@ -530,6 +536,9 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
                           {Math.round(Math.abs(edited.amount) / totalInstallments)}
                         </div>
                       </div>
+                    </div>
+                    <div className="p-3 bg-amber-50/80 border border-amber-200/50 rounded-xl text-[11px] font-bold text-amber-800 leading-snug">
+                      💡 編輯此項目將同步更新整組分期計畫的金額、名稱與其他屬性。
                     </div>
                   </motion.div>
                 )}
