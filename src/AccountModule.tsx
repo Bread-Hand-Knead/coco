@@ -414,6 +414,14 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
 }) {
   const [edited, setEdited] = useState<Transaction>({ ...record });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isInstallment, setIsInstallment] = useState(() => !!record.isInstallment);
+  const [totalInstallments, setTotalInstallments] = useState(() => record.totalInstallments || 12);
+  const [amountStr, setAmountStr] = useState<string>(() => {
+    const amt = record.isInstallment && record.totalInstallments 
+      ? Math.abs(record.amount) * record.totalInstallments 
+      : Math.abs(record.amount);
+    return amt === 0 ? '' : amt.toString();
+  });
 
   return (
     <motion.div 
@@ -465,8 +473,17 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
                 <input 
                   type="number"
-                  value={edited.amount}
-                  onChange={e => setEdited({ ...edited, amount: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  value={amountStr}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setAmountStr(val);
+                    const rawAmt = val === '' ? 0 : parseFloat(val) || 0;
+                    setEdited({ 
+                      ...edited, 
+                      amount: edited.type === 'expense' || edited.type === 'transfer' ? -rawAmt : rawAmt 
+                    });
+                  }}
                   className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
                 />
               </div>
@@ -479,6 +496,46 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註</label>
               <input value={edited.note || ''} onChange={e => setEdited({ ...edited, note: e.target.value })} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all" placeholder="買了什麼？" />
             </div>
+            {/* Installment Section */}
+            {edited.type === 'expense' && (
+              <div className="space-y-4 bg-white/50 p-4 rounded-2xl border border-stone-200/50 shadow-sm" style={getFontFamily()}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[15px] font-bold text-[#5D4037]">分期付款</span>
+                  <button 
+                    type="button"
+                    onClick={() => setIsInstallment(!isInstallment)}
+                    className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isInstallment ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+                
+                {isInstallment && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 overflow-hidden">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
+                        <input 
+                          type="number"
+                          min="1"
+                          max="36"
+                          value={totalInstallments}
+                          onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
+                          className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-stone-300 uppercase">每期金額</label>
+                        <div className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl font-bold text-sm text-[#5D4037]">
+                          {Math.round(Math.abs(edited.amount) / totalInstallments)}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">日期</label>
               <input type="date" value={edited.date} onChange={e => setEdited({ ...edited, date: e.target.value })} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all" />
@@ -491,7 +548,14 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
             </div>
           </div>
           <div className="flex flex-col gap-3 pt-2">
-            <button onClick={() => onSave(edited)} className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all">
+            <button 
+              onClick={() => onSave({
+                ...edited,
+                isInstallment,
+                totalInstallments: isInstallment ? totalInstallments : undefined
+              })} 
+              className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
+            >
               <Check size={24} /> 儲存變更
             </button>
           </div>

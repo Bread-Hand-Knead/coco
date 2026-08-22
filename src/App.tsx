@@ -1640,10 +1640,87 @@ export default function App() {
         );
       }
     } else {
-      if (user) {
-        await syncToCloud('transactions', newRecord, newRecord.id);
+      const wasInstallment = !!oldRecord.isInstallment;
+      const isInstallment = !!newRecord.isInstallment;
+      const oldGroupId = oldRecord.installmentGroupId;
+
+      if (isInstallment) {
+        if (user) {
+          if (wasInstallment && oldGroupId) {
+            const groupRecords = records.filter(r => r.installmentGroupId === oldGroupId);
+            for (const r of groupRecords) {
+              await deleteFromCloud('transactions', r.id);
+            }
+          } else {
+            await deleteFromCloud('transactions', oldRecord.id);
+          }
+        }
+
+        const installmentGroupId = oldGroupId || Date.now().toString();
+        const total = newRecord.totalInstallments || 12;
+        const perAmount = Math.round(Math.abs(newRecord.amount) / total);
+        const startDate = new Date(newRecord.date);
+        
+        const batch = user ? writeBatch(db) : null;
+        const newParts: Transaction[] = [];
+
+        for (let i = 1; i <= total; i++) {
+          const targetYear = startDate.getFullYear();
+          const targetMonth = startDate.getMonth() + (i - 1);
+          const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+          const targetDay = Math.min(startDate.getDate(), maxDays);
+          const currentDate = new Date(targetYear, targetMonth, targetDay);
+          const dateStr = formatLocalDate(currentDate);
+          
+          const id = `${installmentGroupId}-${i}`;
+          const newPart: Transaction = {
+            ...newRecord,
+            id,
+            amount: newRecord.type === 'expense' ? -perAmount : perAmount,
+            note: newRecord.note?.trim(),
+            date: newRecord.date,
+            postingDate: dateStr,
+            currentInstallment: i,
+            totalInstallments: total,
+            installmentGroupId
+          } as any;
+
+          if (batch && user) {
+            batch.set(doc(db, 'users', user.uid, 'transactions', id), cleanData(newPart));
+          } else {
+            newParts.push(newPart);
+          }
+        }
+
+        if (batch && user) {
+          await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/transactions'));
+        } else {
+          setRecords(prev => {
+            const filtered = wasInstallment && oldGroupId
+              ? prev.filter(r => r.installmentGroupId !== oldGroupId)
+              : prev.filter(r => r.id !== oldRecord.id);
+            return [...filtered, ...newParts];
+          });
+        }
+      } else if (wasInstallment && oldGroupId) {
+        if (user) {
+          const groupRecords = records.filter(r => r.installmentGroupId === oldGroupId);
+          for (const r of groupRecords) {
+            await deleteFromCloud('transactions', r.id);
+          }
+          await syncToCloud('transactions', newRecord, newRecord.id);
+        } else {
+          setRecords(prev => [
+            ...prev.filter(r => r.installmentGroupId !== oldGroupId),
+            newRecord
+          ]);
+        }
       } else {
-        setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+        if (user) {
+          await syncToCloud('transactions', newRecord, newRecord.id);
+        } else {
+          setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+        }
       }
     }
   };
@@ -5119,9 +5196,14 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
-  const [amountStr, setAmountStr] = useState<string>(
-    record.amount === 0 ? '' : Math.abs(record.amount).toString()
-  );
+  const [isInstallment, setIsInstallment] = useState(() => !!record.isInstallment);
+  const [totalInstallments, setTotalInstallments] = useState(() => record.totalInstallments || 12);
+  const [amountStr, setAmountStr] = useState<string>(() => {
+    const amt = record.isInstallment && record.totalInstallments 
+      ? Math.abs(record.amount) * record.totalInstallments 
+      : Math.abs(record.amount);
+    return amt === 0 ? '' : amt.toString();
+  });
 
   const fromAcc = accounts.find(a => a.id === edited.accountId);
   const toAcc = accounts.find(a => a.id === edited.toAccountId);
@@ -5335,6 +5417,46 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
               </div>
             </div>
 
+            {/* Installment Section */}
+            {edited.type === 'expense' && (
+              <div className="space-y-4 bg-white/50 p-4 rounded-2xl border border-stone-200/50 shadow-sm" style={getFontFamily()}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[15px] font-bold text-[#5D4037]">分期付款</span>
+                  <button 
+                    type="button"
+                    onClick={() => setIsInstallment(!isInstallment)}
+                    className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isInstallment ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+                
+                {isInstallment && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 overflow-hidden">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
+                        <input 
+                          type="number"
+                          min="1"
+                          max="36"
+                          value={totalInstallments}
+                          onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
+                          className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-stone-300 uppercase">每期金額</label>
+                        <div className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl font-bold text-sm text-[#5D4037]">
+                          {Math.round(Math.abs(edited.amount) / totalInstallments)}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+            )}
+
             <div className="space-y-4 bg-stone-50/50 p-4 rounded-3xl border border-white shadow-sm flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1">
@@ -5540,7 +5662,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                   ...edited,
                   type: resolvedType,
                   amount: finalAmt,
-                  toAccountId: resolvedType === 'transfer' ? finalToAccountId : undefined
+                  toAccountId: resolvedType === 'transfer' ? finalToAccountId : undefined,
+                  isInstallment,
+                  totalInstallments: isInstallment ? totalInstallments : undefined
                 });
               }}
               className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
