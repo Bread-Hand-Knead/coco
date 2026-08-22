@@ -3203,19 +3203,45 @@ function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records
 
   if (!isCredit && !hasInterest) return null;
 
+  const splitBenefits = (benefitsStr: string): string[] => {
+    if (!benefitsStr) return [];
+    return benefitsStr
+      .split(/[,，、;；\s]+/)
+      .map(b => b.trim())
+      .filter(b => b.length > 0);
+  };
+
   return (
-    <div className="mt-2 flex flex-col gap-1 border-t border-stone-100/50 pt-1.5" style={getFontFamily()}>
+    <div className="mt-2 flex flex-col gap-2 border-t border-stone-100/50 pt-2" style={getFontFamily()}>
       {isCredit && (
         <>
           {acc.benefits && (
-            <div className="text-[11px] text-[#5D4037]/80 bg-[#FFD54F]/20 px-2 py-0.5 rounded-lg inline-block self-start font-bold truncate max-w-full" title={acc.benefits} style={getFontFamily()}>
-              🎁 {acc.benefits}
+            <div className="flex flex-wrap gap-1.5 mt-0.5">
+              {splitBenefits(acc.benefits).map((benefit, idx) => (
+                <div 
+                  key={idx} 
+                  className="text-xs md:text-[13px] font-bold text-[#5D4037] bg-[#FFE082]/20 border border-[#FFE082]/50 px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all hover:scale-102"
+                  title={benefit}
+                  style={getFontFamily()}
+                >
+                  <span>🎁</span>
+                  <span>{benefit}</span>
+                </div>
+              ))}
             </div>
           )}
           {(acc.statementDate || acc.closingDay || acc.dueDate) && (
-            <div className="text-[10px] font-bold text-stone-400 flex items-center gap-2 flex-wrap" style={getFontFamily()}>
-              {(acc.statementDate || acc.closingDay) && <span>📅 結帳日: {acc.statementDate || acc.closingDay}日</span>}
-              {acc.dueDate && <span>⏰ 繳款日: {acc.dueDate}日</span>}
+            <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2 mt-1" style={getFontFamily()}>
+              {(acc.statementDate || acc.closingDay) && (
+                <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
+                  📅 結帳日: <strong className="text-[#5D4037]">{acc.statementDate || acc.closingDay}日</strong>
+                </span>
+              )}
+              {acc.dueDate && (
+                <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
+                  ⏰ 繳款日: <strong className="text-[#5D4037]">{acc.dueDate}日</strong>
+                </span>
+              )}
             </div>
           )}
         </>
