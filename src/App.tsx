@@ -2726,16 +2726,23 @@ function AccountSelector({
 
       {/* Selected Account Info Popup */}
       {selectedAcc && (
-        <div className="mx-8 mt-2 p-3.5 bg-[#FFFDF5] border border-[#FBC02D]/20 rounded-2xl flex items-center justify-between text-[#5D4037] shadow-inner animate-fade-in" style={getFontFamily()}>
-          <span className="text-xs font-bold opacity-60">目前選擇帳戶</span>
-          <span className="text-sm font-black flex items-center gap-1.5">
-            <AccountIcon icon={selectedAcc.icon} sizeClassName="w-5 h-5" />
-            <span>{selectedAcc.name}</span>
-            <span className="opacity-30 font-bold">|</span>
-            <span className={selectedAccBalance < 0 ? 'text-red-500 font-black' : 'text-blue-600 font-black'}>
-              {selectedAccBalance < 0 ? '-' : ''}${Math.abs(selectedAccBalance).toLocaleString()}
+        <div className="mx-8 mt-2 flex flex-col gap-2">
+          <div className="p-3.5 bg-[#FFFDF5] border border-[#FBC02D]/20 rounded-2xl flex items-center justify-between text-[#5D4037] shadow-inner animate-fade-in" style={getFontFamily()}>
+            <span className="text-xs font-bold opacity-60">目前選擇帳戶</span>
+            <span className="text-sm font-black flex items-center gap-1.5">
+              <AccountIcon icon={selectedAcc.icon} sizeClassName="w-5 h-5" />
+              <span>{selectedAcc.name}</span>
+              <span className="opacity-30 font-bold">|</span>
+              <span className={selectedAccBalance < 0 ? 'text-red-500 font-black' : 'text-blue-600 font-black'}>
+                {selectedAccBalance < 0 ? '-' : ''}${Math.abs(selectedAccBalance).toLocaleString()}
+              </span>
             </span>
-          </span>
+          </div>
+          {selectedAcc.benefits && (
+            <div className="p-3 bg-[#FFD54F]/10 border border-[#FFD54F]/20 rounded-2xl text-xs font-bold text-[#5D4037] flex items-center gap-2 animate-fade-in" style={getFontFamily()}>
+              <span>💡 優惠提示：{selectedAcc.benefits}</span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -3103,6 +3110,51 @@ function DynamicAccountBalance({
   );
 }
 
+function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records: Transaction[]) {
+  const isCredit = acc.type === 'credit';
+  const hasInterest = acc.interestRate !== undefined;
+
+  if (!isCredit && !hasInterest) return null;
+
+  return (
+    <div className="mt-2 flex flex-col gap-1 border-t border-stone-100/50 pt-1.5" style={getFontFamily()}>
+      {isCredit && (
+        <>
+          {acc.benefits && (
+            <div className="text-[11px] text-[#5D4037]/80 bg-[#FFD54F]/20 px-2 py-0.5 rounded-lg inline-block self-start font-bold truncate max-w-full" title={acc.benefits} style={getFontFamily()}>
+              🎁 {acc.benefits}
+            </div>
+          )}
+          {(acc.statementDate || acc.closingDay || acc.dueDate) && (
+            <div className="text-[10px] font-bold text-stone-400 flex items-center gap-2 flex-wrap" style={getFontFamily()}>
+              {(acc.statementDate || acc.closingDay) && <span>📅 結帳日: {acc.statementDate || acc.closingDay}日</span>}
+              {acc.dueDate && <span>⏰ 繳款日: {acc.dueDate}日</span>}
+            </div>
+          )}
+        </>
+      )}
+      {hasInterest && (
+        <div className="text-[10px] font-bold text-stone-400 flex flex-wrap items-center gap-1.5" style={getFontFamily()}>
+          <span className="text-blue-500 font-bold">％ 年利率: {acc.interestRate}%</span>
+          {acc.interestLimit && <span className="bg-stone-100 text-stone-400 px-1 rounded">額度上限 ${acc.interestLimit.toLocaleString()}</span>}
+          {(() => {
+            const bal = calculateAccountBalance(acc, accounts, records);
+            if (bal <= 0) return null;
+            const effectiveBal = acc.interestLimit ? Math.min(bal, acc.interestLimit) : bal;
+            const rate = acc.interestRate || 0;
+            const monthlyInt = (effectiveBal * rate / 100) / 12;
+            return (
+              <span className="text-[#5D4037]/80 font-black">
+                預估月息: +$ {Math.round(monthlyInt).toLocaleString()}
+              </span>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAccountClick, onAddAccount, balances, currencyMode, onCurrencyModeChange, records }: { 
   accounts: Account[], 
   netAssets: number,
@@ -3436,6 +3488,8 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                           )}
                         </div>
 
+                        {!isBrandGroup && renderAccountMemoAndInterest(acc as Account, accounts, records)}
+
                         {/* Credit card progress bar */}
                         {!isBrandGroup && acc.type === 'credit' && acc.creditLimit && (
                           <div className="w-full">
@@ -3521,6 +3575,8 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                         )}
                                       </div>
 
+                                      {renderAccountMemoAndInterest(l2acc, accounts, records)}
+
                                       {/* Credit card progress bar */}
                                       {l2acc.type === 'credit' && l2acc.creditLimit && (
                                         <div className="w-full">
@@ -3572,6 +3628,8 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
                                                   />
                                                 </div>
                                               </div>
+
+                                              {renderAccountMemoAndInterest(l3acc, accounts, records)}
 
                                               {/* Credit card progress bar */}
                                               {l3acc.type === 'credit' && l3acc.creditLimit && (
@@ -4636,6 +4694,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 );
               })()}
             </div>
+            {!account.isBrandGroup && renderAccountMemoAndInterest(account, accounts, records)}
           </div>
           {!account.isBrandGroup && (
             <button 
@@ -5896,7 +5955,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                   <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定總額度以計算可用信用額度與進度條</p>
                 </div>
 
-                {/* Credit Card Closing Day */}
+                {/* Credit Card Closing Day / Statement Date */}
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡結帳日</label>
                   <div className="relative">
@@ -5904,11 +5963,11 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                       type="number"
                       min="1"
                       max="31"
-                      value={editedAcc.closingDay || ''}
+                      value={editedAcc.statementDate || editedAcc.closingDay || ''}
                       onChange={e => {
                         const val = parseInt(e.target.value);
                         const clampedVal = isNaN(val) ? undefined : Math.min(31, Math.max(1, val));
-                        setEditedAcc({ ...editedAcc, closingDay: clampedVal });
+                        setEditedAcc({ ...editedAcc, statementDate: clampedVal, closingDay: clampedVal });
                       }}
                       className="w-full p-6 bg-white border-2 border-stone-50 rounded-[32px] font-black text-[#5D4037] text-2xl outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300"
                       placeholder="輸入日期 (1-31)"
@@ -5921,6 +5980,92 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                   <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定結帳日以利後續計算帳單週期</p>
                 </div>
 
+                {/* Credit Card Due Date */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">每月繳款日</label>
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={editedAcc.dueDate || ''}
+                      onChange={e => {
+                        const val = parseInt(e.target.value);
+                        const clampedVal = isNaN(val) ? undefined : Math.min(31, Math.max(1, val));
+                        setEditedAcc({ ...editedAcc, dueDate: clampedVal });
+                      }}
+                      className="w-full p-6 bg-white border-2 border-stone-50 rounded-[32px] font-black text-[#5D4037] text-2xl outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300"
+                      placeholder="輸入日期 (1-31)"
+                      style={getFontFamily()}
+                    />
+                    <div className="absolute right-6 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg border-2 border-stone-100 flex items-center justify-center text-stone-300">
+                      <span className="text-sm font-black" style={getFontFamily()}>日</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定繳款日以利帳單提醒</p>
+                </div>
+
+                {/* Credit Card Benefits */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡優惠備忘</label>
+                  <textarea 
+                    value={editedAcc.benefits || ''}
+                    onChange={e => setEditedAcc({ ...editedAcc, benefits: e.target.value })}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] text-sm outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300 min-h-[80px]"
+                    placeholder="例如：網購 3%、演唱會購票優惠"
+                    style={getFontFamily()}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Bank/Deposit Account Fields */}
+            {(editedAcc.type === 'bank' || editedAcc.type === 'deposit') && (
+              <>
+                {/* Interest Rate */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">存款年利率 (%)</label>
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editedAcc.interestRate !== undefined ? editedAcc.interestRate : ''}
+                      onChange={e => {
+                        const val = parseFloat(e.target.value);
+                        setEditedAcc({ ...editedAcc, interestRate: isNaN(val) ? undefined : val });
+                      }}
+                      className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300"
+                      placeholder="例如：1.50"
+                      style={getFontFamily()}
+                    />
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg border-2 border-stone-100 flex items-center justify-center text-stone-300">
+                      <span className="text-sm font-black" style={getFontFamily()}>%</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定年利率以自動估算每月利息</p>
+                </div>
+
+                {/* Interest Limit */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">高利活存額度上限</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg" style={getFontFamily()}>$</span>
+                    <input 
+                      type="number"
+                      min="0"
+                      value={editedAcc.interestLimit !== undefined ? editedAcc.interestLimit : ''}
+                      onChange={e => {
+                        const val = parseFloat(e.target.value);
+                        setEditedAcc({ ...editedAcc, interestLimit: isNaN(val) ? undefined : val });
+                      }}
+                      className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all placeholder:text-stone-300"
+                      placeholder="例如：100,000 (選填)"
+                      style={getFontFamily()}
+                    />
+                  </div>
+                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定最高計息額度上限（選填）</p>
+                </div>
               </>
             )}
           </div>

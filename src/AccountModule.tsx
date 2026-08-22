@@ -20,6 +20,51 @@ import { Account, Transaction, Category } from './types';
 import { HorizontalScrollArea } from './components/Common';
 import { getCategoryIcon, getFontFamily } from './lib/financeUtils';
 
+function renderAccountMemoAndInterest(acc: Account, balances: Record<string, number>, className = "mx-5 mb-4") {
+  const isCredit = acc.type === 'credit';
+  const hasInterest = acc.interestRate !== undefined;
+
+  if (!isCredit && !hasInterest) return null;
+
+  return (
+    <div className={`${className} flex flex-col gap-1 border-t border-stone-100/50 pt-1.5`} style={getFontFamily()}>
+      {isCredit && (
+        <>
+          {acc.benefits && (
+            <div className="text-[11px] text-[#5D4037]/80 bg-[#FFD54F]/20 px-2 py-0.5 rounded-lg inline-block self-start font-bold truncate max-w-full" title={acc.benefits} style={getFontFamily()}>
+              🎁 {acc.benefits}
+            </div>
+          )}
+          {(acc.statementDate || acc.closingDay || acc.dueDate) && (
+            <div className="text-[10px] font-bold text-stone-400 flex items-center gap-2 flex-wrap" style={getFontFamily()}>
+              {(acc.statementDate || acc.closingDay) && <span>📅 結帳日: {acc.statementDate || acc.closingDay}日</span>}
+              {acc.dueDate && <span>⏰ 繳款日: {acc.dueDate}日</span>}
+            </div>
+          )}
+        </>
+      )}
+      {hasInterest && (
+        <div className="text-[10px] font-bold text-stone-400 flex flex-wrap items-center gap-1.5" style={getFontFamily()}>
+          <span className="text-blue-500 font-bold">％ 年利率: {acc.interestRate}%</span>
+          {acc.interestLimit && <span className="bg-stone-100 text-stone-400 px-1 rounded">額度上限 ${acc.interestLimit.toLocaleString()}</span>}
+          {(() => {
+            const bal = balances[acc.id] || 0;
+            if (bal <= 0) return null;
+            const effectiveBal = acc.interestLimit ? Math.min(bal, acc.interestLimit) : bal;
+            const rate = acc.interestRate || 0;
+            const monthlyInt = (effectiveBal * rate / 100) / 12;
+            return (
+              <span className="text-[#5D4037]/80 font-black">
+                預估月息: +$ {Math.round(monthlyInt).toLocaleString()}
+              </span>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const INITIAL_ACCOUNTS: Account[] = [
   { id: 'cash', name: '現金', type: 'cash', icon: '💰', currency: 'TWD', order: 1 },
   { id: 'bank_ts_group', name: '台新銀行', type: 'bank', icon: '🏦', currency: 'TWD', order: 2 },
@@ -170,6 +215,8 @@ export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilitie
                         </div>
                       </div>
 
+                      {renderAccountMemoAndInterest(acc, balances)}
+
                       <AnimatePresence>
                         {hasChildren && isExpanded && (
                           <motion.div 
@@ -182,17 +229,20 @@ export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilitie
                               <div 
                                 key={child.id}
                                 onClick={() => onAccountClick(child)}
-                                className="p-4 bg-white rounded-2xl border border-white shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.95] transition-transform"
+                                className="p-4 bg-white rounded-2xl border border-white shadow-sm flex flex-col gap-1 cursor-pointer active:scale-[0.95] transition-transform"
                               >
-                                <div className="flex items-center gap-3 flex-1">
-                                  <div className="w-10 h-10 bg-stone-50 rounded-full flex-shrink-0 flex items-center justify-center text-xl">{child.icon}</div>
-                                  <div className="flex flex-col">
-                                    <span className="text-[10px] font-bold text-stone-300">{child.name}</span>
-                                    <span className={`text-base font-black ${balances[child.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
-                                      $ {formatAmount(balances[child.id] || 0)}
-                                    </span>
+                                <div className="flex items-center justify-between w-full">
+                                  <div className="flex items-center gap-3 flex-1">
+                                    <div className="w-10 h-10 bg-stone-50 rounded-full flex-shrink-0 flex items-center justify-center text-xl">{child.icon}</div>
+                                    <div className="flex flex-col">
+                                      <span className="text-[10px] font-bold text-stone-300">{child.name}</span>
+                                      <span className={`text-base font-black ${balances[child.id] < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`}>
+                                        $ {formatAmount(balances[child.id] || 0)}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
+                                {renderAccountMemoAndInterest(child, balances, "mt-2")}
                               </div>
                             ))}
                           </motion.div>
@@ -543,11 +593,100 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
               </div>
             </div>
             {(editedAcc.type === 'credit' || editedAcc.name.includes('卡')) && (
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡結帳日</label>
-                <div className="relative">
-                  <input type="number" min="1" max="31" value={editedAcc.closingDay || ''} onChange={e => { const val = parseInt(e.target.value); setEditedAcc({ ...editedAcc, closingDay: isNaN(val) ? undefined : Math.min(31, Math.max(1, val)) }); }} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all" placeholder="輸入日期 (1-31)" />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-stone-300">日</span>
+              <div className="space-y-4 border-t border-dashed border-stone-100 pt-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡優惠備忘</label>
+                  <textarea 
+                    value={editedAcc.benefits || ''} 
+                    onChange={e => setEditedAcc({ ...editedAcc, benefits: e.target.value })} 
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[80px]" 
+                    placeholder="例如：網購 3%、演唱會購票優惠"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">結帳日 (每月)</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="31" 
+                        value={editedAcc.statementDate || editedAcc.closingDay || ''} 
+                        onChange={e => {
+                          const val = parseInt(e.target.value);
+                          const updatedVal = isNaN(val) ? undefined : Math.min(31, Math.max(1, val));
+                          setEditedAcc({ 
+                            ...editedAcc, 
+                            statementDate: updatedVal,
+                            closingDay: updatedVal
+                          });
+                        }} 
+                        className="w-full p-4 pr-8 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all" 
+                        placeholder="1-31" 
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-stone-300">日</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">繳款日 (每月)</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="31" 
+                        value={editedAcc.dueDate || ''} 
+                        onChange={e => {
+                          const val = parseInt(e.target.value);
+                          setEditedAcc({ ...editedAcc, dueDate: isNaN(val) ? undefined : Math.min(31, Math.max(1, val)) });
+                        }} 
+                        className="w-full p-4 pr-8 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all" 
+                        placeholder="1-31" 
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-stone-300">日</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {editedAcc.type === 'bank' && (
+              <div className="space-y-4 border-t border-dashed border-stone-100 pt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">存款年利率 (%)</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min="0" 
+                        value={editedAcc.interestRate || ''} 
+                        onChange={e => {
+                          const val = parseFloat(e.target.value);
+                          setEditedAcc({ ...editedAcc, interestRate: isNaN(val) ? undefined : val });
+                        }} 
+                        className="w-full p-4 pr-8 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all" 
+                        placeholder="0.00" 
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-stone-300">%</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">高利限額 (選填)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-stone-300">$</span>
+                      <input 
+                        type="number" 
+                        min="0" 
+                        value={editedAcc.interestLimit || ''} 
+                        onChange={e => {
+                          const val = parseInt(e.target.value);
+                          setEditedAcc({ ...editedAcc, interestLimit: isNaN(val) ? undefined : val });
+                        }} 
+                        className="w-full p-4 pl-7 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all" 
+                        placeholder="不限" 
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
