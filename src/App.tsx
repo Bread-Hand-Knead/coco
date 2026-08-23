@@ -4017,7 +4017,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
       if (r.category === '初始資金') return false;
       
-      const filterDate = r.postingDate || r.date;
+      const filterDate = (sortMode === 'date-desc' || sortMode === 'date-asc') 
+        ? r.date 
+        : (r.postingDate || r.date);
       return filterDate.startsWith(targetYearMonth);
     });
     
@@ -4256,11 +4258,13 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     };
 
     // Filter transactions only for the selected calendar month (so users see them in the month they occurred)
-    const cardRecords = records.filter(r => 
-      (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
-      r.category !== '初始資金' &&
-      (r.postingDate || r.date).startsWith(targetYearMonth)
-    );
+    const filterBasis = (sortMode === 'date-desc' || sortMode === 'date-asc') ? 'date' : 'posting';
+    const cardRecords = records.filter(r => {
+      if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
+      if (r.category === '初始資金') return false;
+      const filterDate = filterBasis === 'date' ? r.date : (r.postingDate || r.date);
+      return filterDate.startsWith(targetYearMonth);
+    });
 
     // Filter ALL history transactions for this card (to calculate the true statement totals)
     const allHistoryCardRecords = records.filter(r => 
@@ -4292,11 +4296,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       
       if (isTransferIn) {
         // Payments are filtered by calendar month (when the payment actually occurred)
-        if ((r.postingDate || r.date).startsWith(targetYearMonth)) {
+        const filterDate = filterBasis === 'date' ? r.date : (r.postingDate || r.date);
+        if (filterDate.startsWith(targetYearMonth)) {
           transferPayments.push(r);
         }
       } else {
-        const dateStr = r.postingDate || r.date;
+        const dateStr = filterBasis === 'date' ? r.date : (r.postingDate || r.date);
         const { label, key } = getStatementLabelAndKey(dateStr, effectiveClosingDay!);
         
         if (!groups[key]) {
@@ -4385,10 +4390,13 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const targetYearMonth = dateRangeStrings.filter;
 
     const mergedRecords = getMergedRecords(records, accounts);
-    const monthRecords = mergedRecords.filter(r => 
-      (targetYearMonth ? (r.postingDate || r.date).startsWith(targetYearMonth) : true) &&
-      r.category !== '初始資金'
-    );
+    const monthRecords = mergedRecords.filter(r => {
+      if (r.category === '初始資金') return false;
+      const filterDate = (sortMode === 'date-desc' || sortMode === 'date-asc') 
+        ? r.date 
+        : (r.postingDate || r.date);
+      return targetYearMonth ? filterDate.startsWith(targetYearMonth) : true;
+    });
 
     const getBaseBalance = (acc: Account) => {
       let bal = 0;
