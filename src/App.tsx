@@ -9075,42 +9075,42 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
               <h3 className="text-xl font-black text-[#5D4037] text-center">編輯分期付款</h3>
               
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">名稱</label>
+                <label className="text-sm font-black text-stone-500 uppercase tracking-widest px-1">名稱</label>
                 <input 
                   type="text"
                   value={editNote}
                   onChange={e => setEditNote(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-lg text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                   placeholder="分期名稱"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">總金額</label>
+                <label className="text-sm font-black text-stone-500 uppercase tracking-widest px-1">總金額</label>
                 <input 
                   type="number"
                   value={editTotalAmount}
                   onChange={e => setEditTotalAmount(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                   placeholder="總金額"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">分期期數 (1-36)</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">分期期數 (1-36)</label>
                   <input 
                     type="number"
                     min="1"
                     max="36"
                     value={editTotalInstallments}
                     onChange={e => setEditTotalInstallments(parseInt(e.target.value) || 1)}
-                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-lg text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">每期金額</label>
-                  <div className="w-full p-4 bg-stone-50 border border-stone-200/50 rounded-2xl font-black text-xs text-[#5D4037] leading-relaxed">
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">每期金額</label>
+                  <div className="w-full p-4 bg-stone-50 border border-stone-200/50 rounded-2xl font-black text-sm text-[#5D4037] leading-relaxed">
                     {(() => {
                       const totalAmt = Math.abs(parseFloat(editTotalAmount) || 0);
                       const terms = editTotalInstallments;
