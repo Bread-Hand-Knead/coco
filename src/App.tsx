@@ -4023,6 +4023,7 @@ function InvestmentSection({
   const [stockCode, setStockCode] = useState('');
   const [stockShares, setStockShares] = useState('');
   const [stockAvgPrice, setStockAvgPrice] = useState('');
+  const [stockTotalCost, setStockTotalCost] = useState('');
   const [stockLinkedAccount, setStockLinkedAccount] = useState('');
   const [stockNotes, setStockNotes] = useState('');
   const [stockPurchaseDate, setStockPurchaseDate] = useState(() => {
@@ -4034,12 +4035,77 @@ function InvestmentSection({
   const [buyingStock, setBuyingStock] = useState<Stock | null>(null);
   const [buyShares, setBuyShares] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
+  const [buyTotalCost, setBuyTotalCost] = useState('');
   const [buyDate, setBuyDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
   const [buyAccount, setBuyAccount] = useState('');
   const [buyNotes, setBuyNotes] = useState('');
+
+  // Bidirectional change handlers for stock modal
+  const handleStockSharesChange = (val: string) => {
+    setStockShares(val);
+    const sh = parseFloat(val) || 0;
+    const price = parseFloat(stockAvgPrice) || 0;
+    if (sh > 0 && price > 0) {
+      setStockTotalCost(Math.round(sh * price).toString());
+    } else {
+      setStockTotalCost('');
+    }
+  };
+
+  const handleStockAvgPriceChange = (val: string) => {
+    setStockAvgPrice(val);
+    const price = parseFloat(val) || 0;
+    const sh = parseFloat(stockShares) || 0;
+    if (sh > 0 && price > 0) {
+      setStockTotalCost(Math.round(sh * price).toString());
+    } else {
+      setStockTotalCost('');
+    }
+  };
+
+  const handleStockTotalCostChange = (val: string) => {
+    setStockTotalCost(val);
+    const cost = parseFloat(val) || 0;
+    const sh = parseFloat(stockShares) || 0;
+    if (sh > 0 && cost > 0) {
+      setStockAvgPrice(parseFloat((cost / sh).toFixed(4)).toString());
+    }
+  };
+
+  // Bidirectional change handlers for buy modal
+  const handleBuySharesChange = (val: string) => {
+    setBuyShares(val);
+    const sh = parseFloat(val) || 0;
+    const price = parseFloat(buyPrice) || 0;
+    if (sh > 0 && price > 0) {
+      setBuyTotalCost(Math.round(sh * price).toString());
+    } else {
+      setBuyTotalCost('');
+    }
+  };
+
+  const handleBuyPriceChange = (val: string) => {
+    setBuyPrice(val);
+    const price = parseFloat(val) || 0;
+    const sh = parseFloat(buyShares) || 0;
+    if (sh > 0 && price > 0) {
+      setBuyTotalCost(Math.round(sh * price).toString());
+    } else {
+      setBuyTotalCost('');
+    }
+  };
+
+  const handleBuyTotalCostChange = (val: string) => {
+    setBuyTotalCost(val);
+    const cost = parseFloat(val) || 0;
+    const sh = parseFloat(buyShares) || 0;
+    if (sh > 0 && cost > 0) {
+      setBuyPrice(parseFloat((cost / sh).toFixed(4)).toString());
+    }
+  };
 
   // states for dividend operation
   const [dividendingStock, setDividendingStock] = useState<Stock | null>(null);
@@ -4069,6 +4135,7 @@ function InvestmentSection({
     setStockCode('');
     setStockShares('');
     setStockAvgPrice('');
+    setStockTotalCost('');
     const bankAcc = accounts.find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
     setStockLinkedAccount(bankAcc ? bankAcc.id : '');
     setStockPurchaseDate(new Date().toISOString().split('T')[0]);
@@ -4081,6 +4148,7 @@ function InvestmentSection({
     setStockCode(stock.code);
     setStockShares(stock.shares.toString());
     setStockAvgPrice(stock.avgPrice.toString());
+    setStockTotalCost(Math.round(stock.shares * stock.avgPrice).toString());
     setStockLinkedAccount(stock.linkedAccount);
     setStockPurchaseDate(stock.purchaseDate || new Date().toISOString().split('T')[0]);
     setStockNotes(stock.notes || '');
@@ -4121,6 +4189,7 @@ function InvestmentSection({
     setBuyingStock(stock);
     setBuyShares('');
     setBuyPrice(stock.avgPrice.toString());
+    setBuyTotalCost('');
     setBuyDate(new Date().toISOString().split('T')[0]);
     setBuyAccount(stock.linkedAccount);
     setBuyNotes('');
@@ -4139,7 +4208,7 @@ function InvestmentSection({
       return;
     }
 
-    const totalCost = Math.round(bShares * bPrice);
+    const totalCost = parseFloat(buyTotalCost) || Math.round(bShares * bPrice);
     
     // Add transaction (expense)
     onAddRecord({
@@ -4156,7 +4225,7 @@ function InvestmentSection({
     const oldShares = buyingStock.shares;
     const oldAvgPrice = buyingStock.avgPrice;
     const newShares = oldShares + bShares;
-    const newAvgPrice = newShares > 0 ? ((oldShares * oldAvgPrice) + (bShares * bPrice)) / newShares : 0;
+    const newAvgPrice = newShares > 0 ? ((oldShares * oldAvgPrice) + totalCost) / newShares : 0;
 
     const updatedStock: Stock = {
       ...buyingStock,
@@ -4378,7 +4447,7 @@ function InvestmentSection({
                   <input 
                     type="number"
                     value={stockShares}
-                    onChange={e => setStockShares(e.target.value)}
+                    onChange={e => handleStockSharesChange(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                     placeholder="例如: 2000"
                   />
@@ -4388,11 +4457,22 @@ function InvestmentSection({
                   <input 
                     type="number"
                     value={stockAvgPrice}
-                    onChange={e => setStockAvgPrice(e.target.value)}
+                    onChange={e => handleStockAvgPriceChange(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                     placeholder="例如: 85.5"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">投入總成本 (元)</label>
+                <input 
+                  type="number"
+                  value={stockTotalCost}
+                  onChange={e => handleStockTotalCostChange(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#E91E63] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder="可在此直接填入購買總投入金額，系統會自動換算單價"
+                />
               </div>
 
               <div className="space-y-1">
@@ -4475,7 +4555,7 @@ function InvestmentSection({
                   <input 
                     type="number"
                     value={buyShares}
-                    onChange={e => setBuyShares(e.target.value)}
+                    onChange={e => handleBuySharesChange(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                     placeholder="例如: 1000"
                   />
@@ -4485,7 +4565,7 @@ function InvestmentSection({
                   <input 
                     type="number"
                     value={buyPrice}
-                    onChange={e => setBuyPrice(e.target.value)}
+                    onChange={e => handleBuyPriceChange(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                     placeholder="例如: 86.2"
                   />
@@ -4518,10 +4598,14 @@ function InvestmentSection({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">預估扣款總額</label>
-                <div className="w-full p-4 bg-stone-50 border border-stone-200/50 rounded-2xl font-black text-base text-[#E91E63]">
-                  ${Math.round((parseFloat(buyShares) || 0) * (parseFloat(buyPrice) || 0)).toLocaleString()} 元
-                </div>
+                <label className="text-xs font-black text-stone-500 px-1">買入總金額 (元)</label>
+                <input 
+                  type="number"
+                  value={buyTotalCost}
+                  onChange={e => handleBuyTotalCostChange(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#E91E63] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder="可在此直接填入實付總金額，系統會自動換算單價"
+                />
               </div>
 
               <div className="space-y-1">
