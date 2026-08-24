@@ -4130,6 +4130,7 @@ function InvestmentSection({
   }, [records]);
 
   const [showDividendAnalysis, setShowDividendAnalysis] = useState(false);
+  const [dividendDetailTarget, setDividendDetailTarget] = useState<{ type: 'stock' | 'bank'; name: string } | null>(null);
   const [selectedDividendYear, setSelectedDividendYear] = useState<string>('all');
 
   const dividendYears = useMemo(() => {
@@ -4412,20 +4413,27 @@ function InvestmentSection({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-4">
               {/* Stocks Breakdown */}
               <div className="space-y-2">
                 <span className="text-xs font-black text-[#5D4037] flex items-center gap-1">
                   📈 股票股利佔比
                 </span>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar animate-fadeIn">
+                <div className="space-y-1.5 max-h-44 overflow-y-auto no-scrollbar animate-fadeIn">
                   {dividendStats.stockList.length === 0 ? (
                     <p className="text-stone-400 text-[10px] font-bold">暫無統計資料</p>
                   ) : (
                     dividendStats.stockList.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-stone-100/50 text-xs shadow-sm">
-                        <span className="font-bold text-stone-600 truncate max-w-[100px]" title={item.name}>{item.name}</span>
-                        <span className="font-black text-emerald-600">${item.val.toLocaleString()}</span>
+                      <div
+                        key={idx}
+                        onClick={() => setDividendDetailTarget({ type: 'stock', name: item.name })}
+                        className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-stone-100/50 text-xs shadow-sm cursor-pointer hover:border-[#FFD54F]/50 hover:shadow-md transition-all active:scale-[0.99]"
+                      >
+                        <span className="font-bold text-stone-600 min-w-0 flex-1 leading-tight">{item.name}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                          <span className="font-black text-emerald-600">${item.val.toLocaleString()}</span>
+                          <span className="text-stone-300 text-[10px]">›</span>
+                        </div>
                       </div>
                     ))
                   )}
@@ -4437,14 +4445,21 @@ function InvestmentSection({
                 <span className="text-xs font-black text-[#5D4037] flex items-center gap-1">
                   💳 匯入銀行分佈
                 </span>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar animate-fadeIn">
+                <div className="space-y-1.5 max-h-44 overflow-y-auto no-scrollbar animate-fadeIn">
                   {dividendStats.bankList.length === 0 ? (
                     <p className="text-stone-400 text-[10px] font-bold">暫無統計資料</p>
                   ) : (
                     dividendStats.bankList.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-stone-100/50 text-xs shadow-sm">
-                        <span className="font-bold text-stone-600 truncate max-w-[100px]" title={item.name}>{item.name}</span>
-                        <span className="font-black text-[#5D4037]">${item.val.toLocaleString()}</span>
+                      <div
+                        key={idx}
+                        onClick={() => setDividendDetailTarget({ type: 'bank', name: item.name })}
+                        className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-stone-100/50 text-xs shadow-sm cursor-pointer hover:border-[#FFD54F]/50 hover:shadow-md transition-all active:scale-[0.99]"
+                      >
+                        <span className="font-bold text-stone-600 min-w-0 flex-1 leading-tight">{item.name}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                          <span className="font-black text-[#5D4037]">${item.val.toLocaleString()}</span>
+                          <span className="text-stone-300 text-[10px]">›</span>
+                        </div>
                       </div>
                     ))
                   )}
@@ -5001,6 +5016,100 @@ function InvestmentSection({
           }}
         />
       )}
+
+      {/* 6. Modal: 股利明細彈窗（按股票或銀行篩選） */}
+      <AnimatePresence>
+        {dividendDetailTarget && (() => {
+          const isBank = dividendDetailTarget.type === 'bank';
+          const targetLabel = dividendDetailTarget.name;
+
+          const matchedRecords = records
+            .filter(r => {
+              const isDiv = r.type === 'income' && r.note && r.note.startsWith('[股利]');
+              if (!isDiv) return false;
+              if (selectedDividendYear !== 'all' && !r.date.startsWith(selectedDividendYear)) return false;
+              if (isBank) {
+                const acc = accounts.find(a => a.id === r.accountId);
+                const bankName = acc ? `${acc.icon} ${acc.name}` : '未知帳戶';
+                return bankName === targetLabel;
+              } else {
+                const keyword = targetLabel.split(' (')[0].split('(')[0].trim();
+                return r.note.includes(targetLabel) || r.note.includes(keyword);
+              }
+            })
+            .sort((a, b) => b.date.localeCompare(a.date));
+
+          const total = matchedRecords.reduce((s, r) => s + Math.abs(r.amount), 0);
+          const yearLabel = selectedDividendYear === 'all' ? '歷年累計' : `${selectedDividendYear} 年`;
+
+          return (
+            <motion.div
+              key="dividend-detail-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center"
+              onClick={() => setDividendDetailTarget(null)}
+            >
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                onClick={e => e.stopPropagation()}
+                className="bg-[#FFF9E3] rounded-t-[35px] w-full max-w-lg shadow-2xl flex flex-col max-h-[75vh]"
+                style={getFontFamily()}
+              >
+                <div className="px-6 pt-6 pb-4 border-b border-stone-200/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-stone-400 mb-0.5">
+                        {isBank ? '💳 銀行入帳明細' : '📈 股利配息明細'} · {yearLabel}
+                      </p>
+                      <h3 className="text-base font-black text-[#5D4037] leading-snug">{targetLabel}</h3>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-[10px] font-bold text-stone-400">實收股利</p>
+                      <p className="text-xl font-black text-emerald-600">${total.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2.5 no-scrollbar">
+                  {matchedRecords.length === 0 ? (
+                    <p className="text-center text-stone-400 text-xs font-bold py-10">此期間暫無股利紀錄</p>
+                  ) : (
+                    matchedRecords.map(r => {
+                      const acc = accounts.find(a => a.id === r.accountId);
+                      return (
+                        <div key={r.id} className="bg-white rounded-2xl border border-stone-100 p-4 shadow-sm flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-[#5D4037] leading-snug">{r.note}</p>
+                            <div className="flex items-center gap-2 mt-1 text-[10px] text-stone-400 font-bold">
+                              <span>{r.date.replace(/-/g, '/')}</span>
+                              {acc && <><span>•</span><span>{acc.icon} {acc.name}</span></>}
+                            </div>
+                          </div>
+                          <span className="font-black text-emerald-600 text-sm flex-shrink-0">
+                            +${Math.abs(r.amount).toLocaleString()}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <div className="px-6 pb-6 pt-2">
+                  <button
+                    onClick={() => setDividendDetailTarget(null)}
+                    className="w-full py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm"
+                  >
+                    關閉明細
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
     </div>
   );
 }
