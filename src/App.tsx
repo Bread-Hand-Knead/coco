@@ -1604,35 +1604,51 @@ export default function App() {
   }, [stocks, user]);
 
   const handleSaveStock = async (stock: Stock) => {
+    // 立即進行本地樂觀更新，確保 UI 即時重新計算
+    setStocks(prev => {
+      const idx = prev.findIndex(s => s.id === stock.id);
+      let next: Stock[];
+      if (idx >= 0) {
+        next = [...prev];
+        next[idx] = stock;
+      } else {
+        next = [...prev, stock];
+      }
+      try {
+        localStorage.setItem('coco_stocks', JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save stocks to localStorage:', e);
+      }
+      return next;
+    });
+
     if (user) {
       try {
         await setDoc(doc(db, 'users', user.uid, 'stocks', stock.id), cleanData(stock));
       } catch (error) {
         console.error('Failed to save stock in Firestore:', error);
       }
-    } else {
-      setStocks(prev => {
-        const idx = prev.findIndex(s => s.id === stock.id);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = stock;
-          return next;
-        } else {
-          return [...prev, stock];
-        }
-      });
     }
   };
 
   const handleDeleteStock = async (stockId: string) => {
+    // 立即進行本地樂觀更新，確保 UI 即時重新計算
+    setStocks(prev => {
+      const next = prev.filter(s => s.id !== stockId);
+      try {
+        localStorage.setItem('coco_stocks', JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save stocks to localStorage:', e);
+      }
+      return next;
+    });
+
     if (user) {
       try {
         await deleteDoc(doc(db, 'users', user.uid, 'stocks', stockId));
       } catch (error) {
         console.error('Failed to delete stock in Firestore:', error);
       }
-    } else {
-      setStocks(prev => prev.filter(s => s.id !== stockId));
     }
   };
 
@@ -3394,9 +3410,10 @@ function AccountCardMeta({ acc, accounts, records }: { acc: Account; accounts: A
           )}
 
           {/* 回饋權益 — 可摺疊 */}
-          {benefits.length > 0 && (
+          {Boolean(benefits.length > 0) && (
             <div>
               <button
+                type="button"
                 onClick={e => { e.stopPropagation(); setBenefitsOpen(o => !o); }}
                 className="flex items-center gap-1 text-[11px] font-bold text-[#5D4037]/70 hover:text-[#5D4037] transition-colors"
               >
@@ -3422,10 +3439,10 @@ function AccountCardMeta({ acc, accounts, records }: { acc: Account; accounts: A
           )}
         </>
       )}
-      {hasInterest && (
+      {Boolean(hasInterest) && (
         <div className="text-[10px] font-bold text-stone-400 flex flex-wrap items-center gap-1.5" style={getFontFamily()}>
           <span className="text-blue-500 font-bold">％ 年利率: {acc.interestRate}%</span>
-          {acc.interestLimit != null && acc.interestLimit > 0 && (
+          {Boolean(acc.interestLimit != null && acc.interestLimit > 0) && (
             <span className="bg-stone-100 text-stone-400 px-1 rounded">額度上限 ${acc.interestLimit.toLocaleString()}</span>
           )}
           {(() => {
@@ -3842,7 +3859,7 @@ function AccountsView({
                         {!isBrandGroup && renderAccountMemoAndInterest(acc as Account, accounts, records)}
 
                         {/* Credit card progress bar */}
-                        {!isBrandGroup && acc.type === 'credit' && acc.creditLimit && (
+                        {!isBrandGroup && acc.type === 'credit' && Boolean(acc.creditLimit && acc.creditLimit > 0) && (
                           <div className="w-full">
                             <CreditLimitBar account={acc as Account} accounts={accounts} records={records} />
                           </div>
@@ -3929,7 +3946,7 @@ function AccountsView({
                                       {renderAccountMemoAndInterest(l2acc, accounts, records)}
 
                                       {/* Credit card progress bar */}
-                                      {l2acc.type === 'credit' && l2acc.creditLimit && (
+                                      {l2acc.type === 'credit' && Boolean(l2acc.creditLimit && l2acc.creditLimit > 0) && (
                                         <div className="w-full">
                                           <CreditLimitBar account={l2acc} accounts={accounts} records={records} />
                                         </div>
@@ -3983,7 +4000,7 @@ function AccountsView({
                                               {renderAccountMemoAndInterest(l3acc, accounts, records)}
 
                                               {/* Credit card progress bar */}
-                                              {l3acc.type === 'credit' && l3acc.creditLimit && (
+                                              {l3acc.type === 'credit' && Boolean(l3acc.creditLimit && l3acc.creditLimit > 0) && (
                                                 <div className="w-full">
                                                   <CreditLimitBar account={l3acc} accounts={accounts} records={records} />
                                                 </div>
@@ -4992,17 +5009,21 @@ function InvestmentSection({
                       <div 
                         key={r.id}
                         onClick={() => setEditingRecord(r)}
-                        className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-sm cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md transition-all active:scale-[0.99]"
+                        className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-sm cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md transition-all active:scale-[0.99] gap-4"
                       >
-                        <div className="flex flex-col gap-1 min-w-0 flex-1 pr-2">
-                          <span className="text-xs font-bold text-[#5D4037] truncate">{r.note}</span>
-                          <div className="flex items-center gap-2 text-[10px] text-stone-400 font-bold">
+                        <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                          <span className="text-sm font-black text-[#5D4037] leading-snug truncate">{r.note}</span>
+                          <div className="flex items-center gap-2 text-xs sm:text-sm text-stone-600 font-bold">
                             <span>{r.date.replace(/-/g, '/')}</span>
-                            <span>•</span>
-                            <span>{acc ? `${acc.icon} ${acc.name}` : '未知帳戶'}</span>
+                            {acc && (
+                              <>
+                                <span className="text-stone-300">•</span>
+                                <span className="flex items-center gap-1 text-[#5D4037]/80">{acc.icon} {acc.name}</span>
+                              </>
+                            )}
                           </div>
                         </div>
-                        <span className={`text-sm font-black flex-shrink-0 ${isIncome ? 'text-emerald-500' : 'text-[#E91E63]'}`}>
+                        <span className={`text-base sm:text-lg font-black flex-shrink-0 ${isIncome ? 'text-emerald-500' : 'text-[#E91E63]'}`}>
                           {isIncome ? '+' : '-'}${Math.abs(r.amount).toLocaleString()}
                         </span>
                       </div>
@@ -5105,15 +5126,20 @@ function InvestmentSection({
                     matchedRecords.map(r => {
                       const acc = accounts.find(a => a.id === r.accountId);
                       return (
-                        <div key={r.id} className="bg-white rounded-2xl border border-stone-100 p-4 shadow-sm flex items-center justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-bold text-[#5D4037] leading-snug">{r.note}</p>
-                            <div className="flex items-center gap-2 mt-1 text-[10px] text-stone-400 font-bold">
+                        <div key={r.id} className="bg-white rounded-2xl border border-stone-100 p-4 shadow-sm flex items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1 flex flex-col gap-1.5">
+                            <p className="text-sm font-black text-[#5D4037] leading-snug">{r.note}</p>
+                            <div className="flex items-center gap-2 text-xs sm:text-sm text-stone-600 font-bold">
                               <span>{r.date.replace(/-/g, '/')}</span>
-                              {acc && <><span>•</span><span>{acc.icon} {acc.name}</span></>}
+                              {acc && (
+                                <>
+                                  <span className="text-stone-300">•</span>
+                                  <span className="flex items-center gap-1 text-[#5D4037]/80">{acc.icon} {acc.name}</span>
+                                </>
+                              )}
                             </div>
                           </div>
-                          <span className="font-black text-emerald-600 text-sm flex-shrink-0">
+                          <span className="font-black text-emerald-600 text-base sm:text-lg flex-shrink-0">
                             +${Math.abs(r.amount).toLocaleString()}
                           </span>
                         </div>
