@@ -3355,9 +3355,10 @@ function DynamicAccountBalance({
   );
 }
 
-function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records: Transaction[]) {
+function AccountCardMeta({ acc, accounts, records }: { acc: Account; accounts: Account[]; records: Transaction[] }) {
   const isCredit = acc.type === 'credit';
   const hasInterest = acc.interestRate !== undefined;
+  const [benefitsOpen, setBenefitsOpen] = useState(false);
 
   if (!isCredit && !hasInterest) return null;
 
@@ -3369,36 +3370,53 @@ function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records
       .filter(b => b.length > 0);
   };
 
+  const benefits = isCredit && acc.benefits ? splitBenefits(acc.benefits) : [];
+  const hasDateInfo = Boolean(acc.statementDate || acc.closingDay || acc.dueDate);
+
   return (
     <div className="mt-2 flex flex-col gap-2 border-t border-stone-100/50 pt-2" style={getFontFamily()}>
       {isCredit && (
         <>
-          {acc.benefits && (
-            <div className="flex flex-wrap gap-1.5 mt-0.5">
-              {splitBenefits(acc.benefits).map((benefit, idx) => (
-                <div 
-                  key={idx} 
-                  className="text-xs md:text-[13px] font-bold text-[#5D4037] bg-[#FFE082]/20 border border-[#FFE082]/50 px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all hover:scale-102"
-                  title={benefit}
-                  style={getFontFamily()}
-                >
-                  <span>🎁</span>
-                  <span>{benefit}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {(acc.statementDate || acc.closingDay || acc.dueDate) && (
-            <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2 mt-1" style={getFontFamily()}>
-              {(acc.statementDate || acc.closingDay) && (
+          {/* 結帳日 / 繳款日 — 固定顯示 */}
+          {hasDateInfo && (
+            <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2" style={getFontFamily()}>
+              {Boolean(acc.statementDate || acc.closingDay) && (
                 <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
                   📅 結帳日: <strong className="text-[#5D4037]">{acc.statementDate || acc.closingDay}日</strong>
                 </span>
               )}
-              {acc.dueDate && (
+              {Boolean(acc.dueDate) && (
                 <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
                   ⏰ 繳款日: <strong className="text-[#5D4037]">{acc.dueDate}日</strong>
                 </span>
+              )}
+            </div>
+          )}
+
+          {/* 回饋權益 — 可摺疊 */}
+          {benefits.length > 0 && (
+            <div>
+              <button
+                onClick={e => { e.stopPropagation(); setBenefitsOpen(o => !o); }}
+                className="flex items-center gap-1 text-[11px] font-bold text-[#5D4037]/70 hover:text-[#5D4037] transition-colors"
+              >
+                <span>💡 卡片回饋權益</span>
+                <span className={`transition-transform duration-200 ${benefitsOpen ? 'rotate-180' : ''}`}>▾</span>
+              </button>
+              {benefitsOpen && (
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {benefits.map((benefit, idx) => (
+                    <div
+                      key={idx}
+                      className="text-xs md:text-[13px] font-bold text-[#5D4037] bg-[#FFE082]/20 border border-[#FFE082]/50 px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all"
+                      title={benefit}
+                      style={getFontFamily()}
+                    >
+                      <span>🎁</span>
+                      <span>{benefit}</span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -3407,7 +3425,9 @@ function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records
       {hasInterest && (
         <div className="text-[10px] font-bold text-stone-400 flex flex-wrap items-center gap-1.5" style={getFontFamily()}>
           <span className="text-blue-500 font-bold">％ 年利率: {acc.interestRate}%</span>
-          {acc.interestLimit && <span className="bg-stone-100 text-stone-400 px-1 rounded">額度上限 ${acc.interestLimit.toLocaleString()}</span>}
+          {acc.interestLimit != null && acc.interestLimit > 0 && (
+            <span className="bg-stone-100 text-stone-400 px-1 rounded">額度上限 ${acc.interestLimit.toLocaleString()}</span>
+          )}
           {(() => {
             const bal = calculateAccountBalance(acc, accounts, records);
             if (bal <= 0) return null;
@@ -3424,6 +3444,10 @@ function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records
       )}
     </div>
   );
+}
+
+function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records: Transaction[]) {
+  return <AccountCardMeta acc={acc} accounts={accounts} records={records} />;
 }
 
 function AccountsView({ 
