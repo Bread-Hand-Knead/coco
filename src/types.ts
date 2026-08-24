@@ -69,3 +69,12 @@ export interface FixedRecord {
   autoEntry: boolean;
   lastProcessedDate?: string;
 }
+
+export interface Stock {
+  id: string;
+  code: string;           // 股票代號/名稱 (例如: 006208 富邦台50)
+  shares: number;         // 持有股數
+  avgPrice: number;       // 平均買入單價
+  linkedAccount: string;  // 綁定之證券交割銀行帳戶 ID
+  notes?: string;         // 備註說明
+}

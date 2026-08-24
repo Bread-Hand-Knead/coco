@@ -192,7 +192,16 @@ interface Transaction {
   _mergedDisplayName?: string;
 }
 
-type CurrencyMode = 'TWD' | 'FOREIGN' | null;
+type CurrencyMode = 'TWD' | 'FOREIGN' | 'INVESTMENT' | null;
+
+export interface Stock {
+  id: string;
+  code: string;           // 股票代號/名稱 (例如: 006208 富邦台50)
+  shares: number;         // 持有股數
+  avgPrice: number;       // 平均買入單價
+  linkedAccount: string;  // 綁定之證券交割銀行帳戶 ID
+  notes?: string;         // 備註說明
+}
 
 interface Account {
   id: string;
@@ -670,7 +679,11 @@ export default function App() {
   }, [rawProjects]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [isProjectSortModalOpen, setIsProjectSortModalOpen] = useState(false);
-  const [currencyMode, setCurrencyMode] = useState<'TWD' | 'FOREIGN' | null>('TWD');
+  const [currencyMode, setCurrencyMode] = useState<CurrencyMode>('TWD');
+  const [stocks, setStocks] = useState<Stock[]>(() => {
+    const local = localStorage.getItem('coco_stocks');
+    return local ? JSON.parse(local) : [];
+  });
 
   // --- History Navigation Sync for Hardware Back Button ---
   useEffect(() => {
@@ -889,6 +902,11 @@ export default function App() {
       setTemplates(data);
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/templates`));
 
+    const unsubStocks = onSnapshot(collection(db, 'users', user.uid, 'stocks'), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as Stock);
+      setStocks(data);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/stocks`));
+
     const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
       const data = snapshot.data();
       if (data?.monthlyBudget) setMonthlyBudget(data.monthlyBudget);
@@ -902,6 +920,7 @@ export default function App() {
       unsubFixed();
       unsubInstallments();
       unsubTemplates();
+      unsubStocks();
       unsubProfile();
     };
   }, [user]);
@@ -1576,6 +1595,45 @@ export default function App() {
       }
     };
   }, [records, selectedDate, currencyMode]);
+
+  useEffect(() => {
+    if (!user) {
+      localStorage.setItem('coco_stocks', JSON.stringify(stocks));
+    }
+  }, [stocks, user]);
+
+  const handleSaveStock = async (stock: Stock) => {
+    if (user) {
+      try {
+        await setDoc(doc(db, 'users', user.uid, 'stocks', stock.id), cleanData(stock));
+      } catch (error) {
+        console.error('Failed to save stock in Firestore:', error);
+      }
+    } else {
+      setStocks(prev => {
+        const idx = prev.findIndex(s => s.id === stock.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = stock;
+          return next;
+        } else {
+          return [...prev, stock];
+        }
+      });
+    }
+  };
+
+  const handleDeleteStock = async (stockId: string) => {
+    if (user) {
+      try {
+        await deleteDoc(doc(db, 'users', user.uid, 'stocks', stockId));
+      } catch (error) {
+        console.error('Failed to delete stock in Firestore:', error);
+      }
+    } else {
+      setStocks(prev => prev.filter(s => s.id !== stockId));
+    }
+  };
 
   const handleSaveRecord = async (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => {
     if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
@@ -2383,13 +2441,7 @@ export default function App() {
             )}
             {currentView === 'accounts' && (
               <AccountsView 
-                accounts={accounts.filter(a => {
-                  const cur = a.currency || 'TWD';
-                  if (!currencyMode) return true;
-                  // If mode is FOREIGN, show ANY non-TWD account
-                  // If mode is TWD, show only TWD accounts
-                  return currencyMode === 'FOREIGN' ? cur !== 'TWD' : cur === 'TWD';
-                })} 
+                accounts={accounts} 
                 netAssets={netAssets}
                 totalAssets={totalAssets}
                 totalLiabilities={totalLiabilities}
@@ -2402,6 +2454,11 @@ export default function App() {
                 currencyMode={currencyMode}
                 onCurrencyModeChange={setCurrencyMode}
                 records={records}
+                stocks={stocks}
+                onSaveStock={handleSaveStock}
+                onDeleteStock={handleDeleteStock}
+                onAddRecord={handleSaveRecord}
+                categories={categories}
               />
             )}
             {currentView === 'accountDetail' && selectedAccountForDetail && (
@@ -3365,7 +3422,23 @@ function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records
   );
 }
 
-function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAccountClick, onAddAccount, balances, currencyMode, onCurrencyModeChange, records }: { 
+function AccountsView({ 
+  accounts, 
+  netAssets, 
+  totalAssets, 
+  totalLiabilities, 
+  onAccountClick, 
+  onAddAccount, 
+  balances, 
+  currencyMode, 
+  onCurrencyModeChange, 
+  records,
+  stocks,
+  onSaveStock,
+  onDeleteStock,
+  onAddRecord,
+  categories
+}: { 
   accounts: Account[], 
   netAssets: number,
   totalAssets: number,
@@ -3373,9 +3446,14 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
   onAccountClick: (acc: Account) => void,
   onAddAccount: () => void,
   balances: Record<string, number>,
-  currencyMode: 'TWD' | 'FOREIGN',
-  onCurrencyModeChange: (mode: 'TWD' | 'FOREIGN') => void,
-  records: Transaction[]
+  currencyMode: CurrencyMode,
+  onCurrencyModeChange: (mode: CurrencyMode) => void,
+  records: Transaction[],
+  stocks: Stock[],
+  onSaveStock: (stock: Stock) => void,
+  onDeleteStock: (stockId: string) => void,
+  onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
+  categories: Category[]
 }) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [showAmounts, setShowAmounts] = useState(true);
@@ -3398,14 +3476,22 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
     other: '其他'
   };
 
+  const displayedAccounts = useMemo(() => {
+    return accounts.filter(a => {
+      const cur = a.currency || 'TWD';
+      if (!currencyMode || currencyMode === 'INVESTMENT') return true;
+      return currencyMode === 'FOREIGN' ? cur !== 'TWD' : cur === 'TWD';
+    });
+  }, [accounts, currencyMode]);
+
   const groupedAccounts = useMemo(() => {
     // Sort all accounts by order first
-    const sortedRawAccounts = [...accounts].sort((a, b) => (a.order || 0) - (b.order || 0));
+    const sortedRawAccounts = [...displayedAccounts].sort((a, b) => (a.order || 0) - (b.order || 0));
     
     // An account is "Top Level" in this view if it has no parent OR its parent is not in the current list
     const topLevelAccounts = sortedRawAccounts.filter(a => {
       if (!a.parentId) return true;
-      return !accounts.some(p => p.id === a.parentId);
+      return !displayedAccounts.some(p => p.id === a.parentId);
     });
 
     const groups: Partial<Record<Account['type'], any[]>> = {};
@@ -3524,7 +3610,7 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
     }
 
     return groups;
-  }, [accounts]);
+  }, [displayedAccounts]);
 
   const formatAmount = (val: number) => {
     if (!showAmounts) return '****';
@@ -3539,23 +3625,41 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
     >
       {/* Currency Switching Toggle */}
       <div className="px-6 pt-6">
-        <div className="bg-white/50 p-1 rounded-2xl border-2 border-white shadow-sm flex" style={getFontFamily()}>
+        <div className="bg-white/50 p-1 rounded-2xl border-2 border-white shadow-sm flex gap-1" style={getFontFamily()}>
           <button 
             onClick={() => onCurrencyModeChange('TWD')}
-            className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${currencyMode === 'TWD' ? 'bg-[#5D4037] text-[#FFD54F] shadow-md' : 'text-stone-400'}`}
+            className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${currencyMode === 'TWD' ? 'bg-[#5D4037] text-[#FFD54F] shadow-md' : 'text-stone-400 hover:text-[#5D4037]/70'}`}
           >
             台幣 (TWD)
           </button>
           <button 
             onClick={() => onCurrencyModeChange('FOREIGN')}
-            className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${currencyMode === 'FOREIGN' ? 'bg-[#5D4037] text-[#FFD54F] shadow-md' : 'text-stone-400'}`}
+            className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${currencyMode === 'FOREIGN' ? 'bg-[#5D4037] text-[#FFD54F] shadow-md' : 'text-stone-400 hover:text-[#5D4037]/70'}`}
           >
             外幣
+          </button>
+          <button 
+            onClick={() => onCurrencyModeChange('INVESTMENT')}
+            className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${currencyMode === 'INVESTMENT' ? 'bg-[#5D4037] text-[#FFD54F] shadow-md' : 'text-stone-400 hover:text-[#5D4037]/70'}`}
+          >
+            投資
           </button>
         </div>
       </div>
 
-      {/* Top Dashboard (CW Money Style) */}
+      {currencyMode === 'INVESTMENT' ? (
+        <InvestmentSection 
+          records={records}
+          accounts={accounts}
+          stocks={stocks}
+          onSaveStock={onSaveStock}
+          onDeleteStock={onDeleteStock}
+          onAddRecord={onAddRecord}
+          categories={categories}
+        />
+      ) : (
+        <>
+          {/* Top Dashboard (CW Money Style) */}
       <div className="px-6 py-8 bg-[#FFF9E3]">
         <div className="flex justify-between items-start mb-2" style={getFontFamily()}>
           <div className="flex flex-col gap-1">
@@ -3869,7 +3973,624 @@ function AccountsView({ accounts, netAssets, totalAssets, totalLiabilities, onAc
       </div>
 
       <div className="h-[120px] w-full" />
+      </>
+      )}
     </motion.div>
+  );
+}
+
+function InvestmentSection({
+  records,
+  accounts,
+  stocks,
+  onSaveStock,
+  onDeleteStock,
+  onAddRecord,
+  categories
+}: {
+  records: Transaction[],
+  accounts: Account[],
+  stocks: Stock[],
+  onSaveStock: (stock: Stock) => void,
+  onDeleteStock: (stockId: string) => void,
+  onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
+  categories: Category[]
+}) {
+  // states for stock add/edit
+  const [editingStock, setEditingStock] = useState<Stock | null>(null);
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false);
+  const [stockCode, setStockCode] = useState('');
+  const [stockShares, setStockShares] = useState('');
+  const [stockAvgPrice, setStockAvgPrice] = useState('');
+  const [stockLinkedAccount, setStockLinkedAccount] = useState('');
+  const [stockNotes, setStockNotes] = useState('');
+
+  // states for buy operation
+  const [buyingStock, setBuyingStock] = useState<Stock | null>(null);
+  const [buyShares, setBuyShares] = useState('');
+  const [buyPrice, setBuyPrice] = useState('');
+  const [buyDate, setBuyDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [buyAccount, setBuyAccount] = useState('');
+  const [buyNotes, setBuyNotes] = useState('');
+
+  // states for dividend operation
+  const [dividendingStock, setDividendingStock] = useState<Stock | null>(null);
+  const [dividendAmount, setDividendAmount] = useState('');
+  const [dividendHash, setDividendHash] = useState('');
+  const [dividendDate, setDividendDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [dividendAccount, setDividendAccount] = useState('');
+  const [dividendNotes, setDividendNotes] = useState('');
+
+  // overview stats
+  const totalPrincipal = useMemo(() => {
+    return stocks.reduce((sum, s) => sum + (s.shares * s.avgPrice), 0);
+  }, [stocks]);
+
+  const totalDividends = useMemo(() => {
+    return records
+      .filter(r => r.type === 'income' && r.note && r.note.startsWith('[股利]'))
+      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+  }, [records]);
+
+  // helpers
+  const handleOpenStockAdd = () => {
+    setEditingStock(null);
+    setStockCode('');
+    setStockShares('');
+    setStockAvgPrice('');
+    const bankAcc = accounts.find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
+    setStockLinkedAccount(bankAcc ? bankAcc.id : '');
+    setStockNotes('');
+    setIsStockModalOpen(true);
+  };
+
+  const handleOpenStockEdit = (stock: Stock) => {
+    setEditingStock(stock);
+    setStockCode(stock.code);
+    setStockShares(stock.shares.toString());
+    setStockAvgPrice(stock.avgPrice.toString());
+    setStockLinkedAccount(stock.linkedAccount);
+    setStockNotes(stock.notes || '');
+    setIsStockModalOpen(true);
+  };
+
+  const handleSaveStockSubmit = () => {
+    if (!stockCode.trim()) {
+      alert('請輸入股票代號或名稱！');
+      return;
+    }
+    const sharesNum = parseFloat(stockShares) || 0;
+    const priceNum = parseFloat(stockAvgPrice) || 0;
+    if (sharesNum < 0 || priceNum < 0) {
+      alert('股數與均價不能小於零！');
+      return;
+    }
+    if (!stockLinkedAccount) {
+      alert('請選擇交割銀行帳戶！');
+      return;
+    }
+
+    const newStock: Stock = {
+      id: editingStock ? editingStock.id : Date.now().toString(),
+      code: stockCode.trim(),
+      shares: sharesNum,
+      avgPrice: priceNum,
+      linkedAccount: stockLinkedAccount,
+      notes: stockNotes.trim() || undefined
+    };
+
+    onSaveStock(newStock);
+    setIsStockModalOpen(false);
+  };
+
+  const handleOpenBuy = (stock: Stock) => {
+    setBuyingStock(stock);
+    setBuyShares('');
+    setBuyPrice(stock.avgPrice.toString());
+    setBuyDate(new Date().toISOString().split('T')[0]);
+    setBuyAccount(stock.linkedAccount);
+    setBuyNotes('');
+  };
+
+  const handleBuySubmit = () => {
+    if (!buyingStock) return;
+    const bShares = parseFloat(buyShares) || 0;
+    const bPrice = parseFloat(buyPrice) || 0;
+    if (bShares <= 0 || bPrice <= 0) {
+      alert('請輸入有效的股數與單價！');
+      return;
+    }
+    if (!buyAccount) {
+      alert('請選擇交割帳戶！');
+      return;
+    }
+
+    const totalCost = Math.round(bShares * bPrice);
+    
+    // Add transaction (expense)
+    onAddRecord({
+      amount: -totalCost,
+      category: '投資',
+      note: `[買入] ${buyingStock.code} ${bShares}股 @ ${bPrice}${buyNotes.trim() ? ' (' + buyNotes.trim() + ')' : ''}`,
+      date: buyDate,
+      postingDate: buyDate,
+      type: 'expense',
+      accountId: buyAccount
+    });
+
+    // Update stock details
+    const oldShares = buyingStock.shares;
+    const oldAvgPrice = buyingStock.avgPrice;
+    const newShares = oldShares + bShares;
+    const newAvgPrice = newShares > 0 ? ((oldShares * oldAvgPrice) + (bShares * bPrice)) / newShares : 0;
+
+    const updatedStock: Stock = {
+      ...buyingStock,
+      shares: newShares,
+      avgPrice: parseFloat(newAvgPrice.toFixed(4)),
+      linkedAccount: buyAccount
+    };
+
+    onSaveStock(updatedStock);
+    setBuyingStock(null);
+  };
+
+  const handleOpenDividend = (stock: Stock) => {
+    setDividendingStock(stock);
+    setDividendAmount('');
+    setDividendDate(new Date().toISOString().split('T')[0]);
+    setDividendAccount(stock.linkedAccount);
+    setDividendNotes('');
+  };
+
+  const handleDividendSubmit = () => {
+    if (!dividendingStock) return;
+    const divAmt = parseFloat(dividendAmount) || 0;
+    if (divAmt <= 0) {
+      alert('請輸入有效的股利金額！');
+      return;
+    }
+    if (!dividendAccount) {
+      alert('請選擇匯入銀行帳戶！');
+      return;
+    }
+
+    // Add transaction (income)
+    onAddRecord({
+      amount: divAmt,
+      category: '投資收入',
+      note: `[股利] ${dividendingStock.code} 股利入帳${dividendNotes.trim() ? ' (' + dividendNotes.trim() + ')' : ''}`,
+      date: dividendDate,
+      postingDate: dividendDate,
+      type: 'income',
+      accountId: dividendAccount
+    });
+
+    setDividendingStock(null);
+  };
+
+  return (
+    <div className="flex-1 px-6 py-6 space-y-6 animate-fadeIn" style={getFontFamily()}>
+      {/* Overview Card */}
+      <div className="bg-gradient-to-br from-[#5D4037] to-[#4E342E] text-white p-6 rounded-[35px] shadow-lg flex justify-between relative overflow-hidden">
+        {/* Soft background circles */}
+        <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full" />
+        <div className="absolute -left-10 -top-10 w-24 h-24 bg-white/5 rounded-full" />
+
+        <div className="flex-1 flex flex-col justify-between z-10 gap-1">
+          <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">股票總投入本金</span>
+          <span className="text-3xl font-black text-[#FFD54F]">${totalPrincipal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+        </div>
+        <div className="w-[1px] bg-white/10 mx-6 self-stretch" />
+        <div className="flex-1 flex flex-col justify-between z-10 gap-1 text-right">
+          <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">已領取總股利</span>
+          <span className="text-3xl font-black text-emerald-400">${totalDividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+        </div>
+      </div>
+
+      {/* Holdings Section Header */}
+      <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3">
+        <div className="flex items-center gap-2">
+          <Briefcase size={20} className="text-[#5D4037]" />
+          <h3 className="text-lg font-black text-[#5D4037]">持有股份</h3>
+        </div>
+        <button 
+          onClick={handleOpenStockAdd}
+          className="bg-[#5D4037] text-[#FFD54F] hover:bg-[#4E342E] transition-all px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1 active:scale-95 shadow-sm"
+        >
+          <Plus size={14} /> 新增持股
+        </button>
+      </div>
+
+      {/* Holdings List */}
+      <div className="space-y-4">
+        {stocks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-4 bg-white/30 rounded-[30px] border-2 border-dashed border-stone-200/55 p-6">
+            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-stone-300 shadow-sm">
+              <Coins size={30} />
+            </div>
+            <p className="text-stone-400 font-bold text-sm">目前沒有持有任何股票，點擊上方按鈕新增！</p>
+          </div>
+        ) : (
+          stocks.map(s => {
+            const cost = s.shares * s.avgPrice;
+            const linkedAcc = accounts.find(a => a.id === s.linkedAccount);
+            
+            return (
+              <div 
+                key={s.id} 
+                className="bg-white p-5 rounded-[30px] border-2 border-white shadow-sm flex flex-col gap-4 relative"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <span className="text-lg font-black text-[#5D4037] tracking-tight">{s.code}</span>
+                  <div className="flex items-center gap-1.5">
+                    <button 
+                      onClick={() => handleOpenStockEdit(s)}
+                      className="p-2 text-stone-300 hover:text-[#FFD54F] transition-colors"
+                      title="編輯持股"
+                    >
+                      <Pencil size={18} />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (window.confirm(`確定要刪除持股 ${s.code} 嗎？此操作僅刪除持股記錄，已建立的交易明細將被保留。`)) {
+                          onDeleteStock(s.id);
+                        }
+                      }}
+                      className="p-2 text-stone-300 hover:text-rose-500 transition-colors"
+                      title="刪除持股"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Details Grid */}
+                <div className="grid grid-cols-3 gap-2 bg-[#FFFDF5]/60 p-3.5 rounded-2xl border border-stone-100/50">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">持有股份</span>
+                    <span className="text-sm font-black text-[#5D4037]">
+                      {s.shares.toLocaleString()} 股
+                      {s.shares >= 1000 && <span className="text-[10px] text-stone-400 font-medium block">({(s.shares / 1000).toFixed(2)} 張)</span>}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">平均買價</span>
+                    <span className="text-sm font-black text-[#5D4037]">${s.avgPrice.toLocaleString()}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">投入成本</span>
+                    <span className="text-sm font-black text-[#E91E63]">${Math.round(cost).toLocaleString()}</span>
+                  </div>
+                </div>
+
+                {/* Bottom Row (Linked Account & Note) */}
+                <div className="flex flex-col gap-1 px-1">
+                  <div className="flex items-center gap-1 text-[11px] font-bold text-stone-400">
+                    <span>💳 交割帳戶：</span>
+                    <span className="text-[#5D4037]/80">{linkedAcc ? `${linkedAcc.icon} ${linkedAcc.name}` : '未指定'}</span>
+                  </div>
+                  {s.notes && (
+                    <div className="text-[11px] font-medium text-stone-400 italic">
+                      💡 {s.notes}
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2 border-t border-stone-100/60 pt-3">
+                  <button 
+                    onClick={() => handleOpenBuy(s)}
+                    className="flex-1 py-2.5 bg-stone-50 hover:bg-[#FFD54F]/10 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
+                  >
+                    <Plus size={12} /> 新增買入
+                  </button>
+                  <button 
+                    onClick={() => handleOpenDividend(s)}
+                    className="flex-1 py-2.5 bg-stone-50 hover:bg-emerald-50 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
+                  >
+                    <Coins size={12} className="text-emerald-500" /> 股利入帳
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* 1. Modal: Add/Edit Stock */}
+      <AnimatePresence>
+        {isStockModalOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setIsStockModalOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFF9E3] w-full max-w-sm rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-4 max-h-[85vh] overflow-y-auto no-scrollbar"
+              style={getFontFamily()}
+            >
+              <h3 className="text-xl font-black text-[#5D4037] text-center">
+                {editingStock ? '編輯持股' : '新增持股'}
+              </h3>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">股票名稱 / 代碼</label>
+                <input 
+                  type="text"
+                  value={stockCode}
+                  onChange={e => setStockCode(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder="例如: 006208 富邦台50"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">持股數量 (股)</label>
+                  <input 
+                    type="number"
+                    value={stockShares}
+                    onChange={e => setStockShares(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    placeholder="例如: 2000"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">平均買價 (元)</label>
+                  <input 
+                    type="number"
+                    value={stockAvgPrice}
+                    onChange={e => setStockAvgPrice(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    placeholder="例如: 85.5"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">證券交割帳戶</label>
+                <select 
+                  value={stockLinkedAccount}
+                  onChange={e => setStockLinkedAccount(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                >
+                  <option value="">選擇銀行帳戶</option>
+                  {accounts
+                    .filter(a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment')
+                    .map(a => (
+                      <option key={a.id} value={a.id}>{a.icon} {a.name} ({a.currency})</option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">備註說明</label>
+                <textarea 
+                  value={stockNotes}
+                  onChange={e => setStockNotes(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] resize-none h-20"
+                  placeholder="可在此填寫您的投資備忘說明"
+                />
+              </div>
+
+              <div className="flex w-full gap-3 mt-4">
+                <button 
+                  onClick={() => setIsStockModalOpen(false)}
+                  className="flex-1 py-4 bg-stone-100 hover:bg-stone-200 text-[#5D4037] rounded-2xl font-bold transition-all text-sm"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleSaveStockSubmit}
+                  className="flex-1 py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm"
+                >
+                  儲存持股
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 2. Modal: Buy Stock */}
+      <AnimatePresence>
+        {buyingStock && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setBuyingStock(null)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFF9E3] w-full max-w-sm rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-4 max-h-[85vh] overflow-y-auto no-scrollbar"
+              style={getFontFamily()}
+            >
+              <h3 className="text-xl font-black text-[#5D4037] text-center">買入股票</h3>
+              <p className="text-[#5D4037] text-sm font-bold text-center bg-stone-100/50 p-2.5 rounded-xl border border-stone-200/30">
+                持股對象：<span className="font-black text-[#E91E63]">{buyingStock.code}</span>
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">買入股數 (股)</label>
+                  <input 
+                    type="number"
+                    value={buyShares}
+                    onChange={e => setBuyShares(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    placeholder="例如: 1000"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">買入單價 (元)</label>
+                  <input 
+                    type="number"
+                    value={buyPrice}
+                    onChange={e => setBuyPrice(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    placeholder="例如: 86.2"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">交割扣款帳戶</label>
+                <select 
+                  value={buyAccount}
+                  onChange={e => setBuyAccount(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                >
+                  {accounts
+                    .filter(a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment')
+                    .map(a => (
+                      <option key={a.id} value={a.id}>{a.icon} {a.name} ({a.currency})</option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">買入日期</label>
+                <input 
+                  type="date"
+                  value={buyDate}
+                  onChange={e => setBuyDate(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">預估扣款總額</label>
+                <div className="w-full p-4 bg-stone-50 border border-stone-200/50 rounded-2xl font-black text-base text-[#E91E63]">
+                  ${Math.round((parseFloat(buyShares) || 0) * (parseFloat(buyPrice) || 0)).toLocaleString()} 元
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">補充說明</label>
+                <input 
+                  type="text"
+                  value={buyNotes}
+                  onChange={e => setBuyNotes(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder="選填備註說明"
+                />
+              </div>
+
+              <div className="flex w-full gap-3 mt-4">
+                <button 
+                  onClick={() => setBuyingStock(null)}
+                  className="flex-1 py-4 bg-stone-100 hover:bg-stone-200 text-[#5D4037] rounded-2xl font-bold transition-all text-sm"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleBuySubmit}
+                  className="flex-1 py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm"
+                >
+                  確認買入
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 3. Modal: Add Dividend */}
+      <AnimatePresence>
+        {dividendingStock && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setDividendingStock(null)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFF9E3] w-full max-w-sm rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-4 max-h-[85vh] overflow-y-auto no-scrollbar"
+              style={getFontFamily()}
+            >
+              <h3 className="text-xl font-black text-[#5D4037] text-center">股利入帳</h3>
+              <p className="text-[#5D4037] text-sm font-bold text-center bg-stone-100/50 p-2.5 rounded-xl border border-stone-200/30">
+                持股對象：<span className="font-black text-[#E91E63]">{dividendingStock.code}</span>
+              </p>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">實收股利金額 (元)</label>
+                <input 
+                  type="number"
+                  value={dividendAmount}
+                  onChange={e => setDividendAmount(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder="例如: 5000"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">匯入銀行帳戶</label>
+                <select 
+                  value={dividendAccount}
+                  onChange={e => setDividendAccount(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                >
+                  {accounts
+                    .filter(a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment')
+                    .map(a => (
+                      <option key={a.id} value={a.id}>{a.icon} {a.name} ({a.currency})</option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">入帳日期</label>
+                <input 
+                  type="date"
+                  value={dividendDate}
+                  onChange={e => setDividendDate(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">備註說明</label>
+                <input 
+                  type="text"
+                  value={dividendNotes}
+                  onChange={e => setDividendNotes(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder="選填備註說明"
+                />
+              </div>
+
+              <div className="flex w-full gap-3 mt-4">
+                <button 
+                  onClick={() => setDividendingStock(null)}
+                  className="flex-1 py-4 bg-stone-100 hover:bg-stone-200 text-[#5D4037] rounded-2xl font-bold transition-all text-sm"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleDividendSubmit}
+                  className="flex-1 py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm"
+                >
+                  確認入帳
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
