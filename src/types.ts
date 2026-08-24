@@ -76,5 +76,6 @@ export interface Stock {
   shares: number;         // 持有股數
   avgPrice: number;       // 平均買入單價
   linkedAccount: string;  // 綁定之證券交割銀行帳戶 ID
+  purchaseDate?: string;  // 購買日期
   notes?: string;         // 備註說明
 }

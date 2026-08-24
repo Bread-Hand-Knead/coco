@@ -200,6 +200,7 @@ export interface Stock {
   shares: number;         // 持有股數
   avgPrice: number;       // 平均買入單價
   linkedAccount: string;  // 綁定之證券交割銀行帳戶 ID
+  purchaseDate?: string;  // 購買日期
   notes?: string;         // 備註說明
 }
 
@@ -4004,6 +4005,10 @@ function InvestmentSection({
   const [stockAvgPrice, setStockAvgPrice] = useState('');
   const [stockLinkedAccount, setStockLinkedAccount] = useState('');
   const [stockNotes, setStockNotes] = useState('');
+  const [stockPurchaseDate, setStockPurchaseDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
 
   // states for buy operation
   const [buyingStock, setBuyingStock] = useState<Stock | null>(null);
@@ -4046,6 +4051,7 @@ function InvestmentSection({
     setStockAvgPrice('');
     const bankAcc = accounts.find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
     setStockLinkedAccount(bankAcc ? bankAcc.id : '');
+    setStockPurchaseDate(new Date().toISOString().split('T')[0]);
     setStockNotes('');
     setIsStockModalOpen(true);
   };
@@ -4056,6 +4062,7 @@ function InvestmentSection({
     setStockShares(stock.shares.toString());
     setStockAvgPrice(stock.avgPrice.toString());
     setStockLinkedAccount(stock.linkedAccount);
+    setStockPurchaseDate(stock.purchaseDate || new Date().toISOString().split('T')[0]);
     setStockNotes(stock.notes || '');
     setIsStockModalOpen(true);
   };
@@ -4082,6 +4089,7 @@ function InvestmentSection({
       shares: sharesNum,
       avgPrice: priceNum,
       linkedAccount: stockLinkedAccount,
+      purchaseDate: stockPurchaseDate,
       notes: stockNotes.trim() || undefined
     };
 
@@ -4273,9 +4281,17 @@ function InvestmentSection({
 
                 {/* Bottom Row (Linked Account & Note) */}
                 <div className="flex flex-col gap-1 px-1">
-                  <div className="flex items-center gap-1 text-[11px] font-bold text-stone-400">
-                    <span>💳 交割帳戶：</span>
-                    <span className="text-[#5D4037]/80">{linkedAcc ? `${linkedAcc.icon} ${linkedAcc.name}` : '未指定'}</span>
+                  <div className="flex flex-wrap items-center justify-between gap-y-1 text-[11px] font-bold text-stone-400">
+                    <div className="flex items-center">
+                      <span>💳 交割帳戶：</span>
+                      <span className="text-[#5D4037]/80">{linkedAcc ? `${linkedAcc.icon} ${linkedAcc.name}` : '未指定'}</span>
+                    </div>
+                    {s.purchaseDate && (
+                      <div className="flex items-center">
+                        <span>📅 購買日期：</span>
+                        <span className="text-[#5D4037]/80">{s.purchaseDate.replace(/-/g, '/')}</span>
+                      </div>
+                    )}
                   </div>
                   {s.notes && (
                     <div className="text-[11px] font-medium text-stone-400 italic">
@@ -4371,6 +4387,16 @@ function InvestmentSection({
                       <option key={a.id} value={a.id}>{a.icon} {a.name} ({a.currency})</option>
                     ))}
                 </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">購買日期</label>
+                <input 
+                  type="date"
+                  value={stockPurchaseDate}
+                  onChange={e => setStockPurchaseDate(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                />
               </div>
 
               <div className="space-y-1">
