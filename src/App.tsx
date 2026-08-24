@@ -1735,6 +1735,89 @@ export default function App() {
     }
   };
 
+  const handleUpdateInstallmentGroup = async (
+    groupId: string, 
+    newNote: string, 
+    newTotalAmount: number, 
+    newTotalInstallments: number
+  ) => {
+    const groupRecords = records.filter(r => r.installmentGroupId === groupId);
+    if (groupRecords.length === 0) return;
+    
+    const first = groupRecords[0];
+    const perAmount = Math.round(newTotalAmount / newTotalInstallments);
+    const startDate = new Date(first.date);
+
+    if (user) {
+      try {
+        const batch = writeBatch(db);
+        
+        groupRecords.forEach(r => {
+          batch.delete(doc(db, 'users', user.uid, 'transactions', r.id));
+        });
+
+        for (let i = 1; i <= newTotalInstallments; i++) {
+          const targetYear = startDate.getFullYear();
+          const targetMonth = startDate.getMonth() + (i - 1);
+          const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+          const targetDay = Math.min(startDate.getDate(), maxDays);
+          const currentDate = new Date(targetYear, targetMonth, targetDay);
+          const dateStr = formatLocalDate(currentDate);
+
+          const id = `${groupId}-${i}`;
+          const newPart: Transaction = {
+            ...first,
+            id,
+            amount: first.amount < 0 ? -perAmount : perAmount,
+            note: newNote.trim(),
+            date: first.date,
+            postingDate: dateStr,
+            currentInstallment: i,
+            totalInstallments: newTotalInstallments,
+            installmentGroupId: groupId
+          } as any;
+          
+          batch.set(doc(db, 'users', user.uid, 'transactions', id), cleanData(newPart));
+        }
+
+        await batch.commit();
+      } catch (error) {
+        console.error('Update installment group sync failed:', error);
+        alert('更新分期付款群組失敗，請稍後重試。');
+        return;
+      }
+    }
+
+    const newParts: Transaction[] = [];
+    for (let i = 1; i <= newTotalInstallments; i++) {
+      const targetYear = startDate.getFullYear();
+      const targetMonth = startDate.getMonth() + (i - 1);
+      const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+      const targetDay = Math.min(startDate.getDate(), maxDays);
+      const currentDate = new Date(targetYear, targetMonth, targetDay);
+      const dateStr = formatLocalDate(currentDate);
+
+      const id = `${groupId}-${i}`;
+      const newPart: Transaction = {
+        ...first,
+        id,
+        amount: first.amount < 0 ? -perAmount : perAmount,
+        note: newNote.trim(),
+        date: first.date,
+        postingDate: dateStr,
+        currentInstallment: i,
+        totalInstallments: newTotalInstallments,
+        installmentGroupId: groupId
+      } as any;
+      newParts.push(newPart);
+    }
+
+    setRecords(prev => {
+      const filtered = prev.filter(r => r.installmentGroupId !== groupId);
+      return [...filtered, ...newParts];
+    });
+  };
+
   const handleReorderRecords = async (updatedRecords: Transaction[]) => {
     if (user) {
       try {
@@ -2458,6 +2541,7 @@ export default function App() {
                     return [...filtered, settlementRecord];
                   });
                 }}
+                onUpdateGroup={handleUpdateInstallmentGroup}
               />
             )}
             {currentView === 'search' && (
@@ -5405,6 +5489,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                   type="number"
                   placeholder="0"
                   value={amountStr}
+                  disabled={!!record.isInstallment}
                   onChange={e => {
                     const val = e.target.value;
                     setAmountStr(val);
@@ -5414,7 +5499,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                       amount: edited.type === 'expense' || edited.type === 'transfer' ? -rawAmt : rawAmt 
                     });
                   }}
-                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  className={`w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                 />
               </div>
             </div>
@@ -5432,8 +5517,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註 (買了什麼？)</label>
               <textarea 
                 value={edited.note || ''}
+                disabled={!!record.isInstallment}
                 onChange={e => setEdited({ ...edited, note: e.target.value })}
-                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[100px] resize-none whitespace-pre-wrap break-all"
+                className={`w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[100px] resize-none whitespace-pre-wrap break-all ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                 placeholder="買了什麼？"
                 style={getFontFamily()}
               />
@@ -5466,8 +5552,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                   <span className="text-[15px] font-bold text-[#5D4037]">分期付款</span>
                   <button 
                     type="button"
+                    disabled={!!record.isInstallment}
                     onClick={() => setIsInstallment(!isInstallment)}
-                    className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
+                    className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'} ${record.isInstallment ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isInstallment ? 'left-7' : 'left-1'}`} />
                   </button>
@@ -5483,8 +5570,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                           min="1"
                           max="36"
                           value={totalInstallments}
+                          disabled={!!record.isInstallment}
                           onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
-                          className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                          className={`w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                         />
                       </div>
                       <div className="space-y-2">
@@ -5495,7 +5583,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                       </div>
                     </div>
                     <div className="p-3 bg-amber-50/80 border border-amber-200/50 rounded-xl text-[11px] font-bold text-amber-800 leading-snug">
-                      💡 編輯此項目將同步更新整組分期計畫的金額、名稱與其他屬性。
+                      {record.isInstallment 
+                        ? '💡 此項目為分期付款明細。欲修改分期計畫的名稱、總金額、期數，請前往「分期付款管理」頁面進行編輯。'
+                        : '💡 編輯此項目將同步更新整組分期計畫的金額、名稱與其他屬性。'}
                     </div>
                   </motion.div>
                 )}
@@ -8686,15 +8776,54 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
   );
 }
 
-function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }: { 
+function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, onUpdateGroup }: { 
   records: Transaction[], 
   onDeleteGroup: (groupId: string) => void,
-  onEarlySettlement: (groupId: string, remainingAmount: number, firstRecord: Transaction) => void
+  onEarlySettlement: (groupId: string, remainingAmount: number, firstRecord: Transaction) => void,
+  onUpdateGroup: (groupId: string, newNote: string, newTotalAmount: number, newTotalInstallments: number) => void
 }) {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSettleConfirmOpen, setIsSettleConfirmOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [settleInfo, setSettleInfo] = useState<{ amount: number, first: Transaction } | null>(null);
+
+  const [editingGroup, setEditingGroup] = useState<Transaction[] | null>(null);
+  const [editNote, setEditNote] = useState('');
+  const [editTotalAmount, setEditTotalAmount] = useState('');
+  const [editTotalInstallments, setEditTotalInstallments] = useState(12);
+
+  useEffect(() => {
+    if (editingGroup) {
+      const first = editingGroup[0];
+      setEditNote(first.note?.split(' (分期')[0] || '');
+      setEditTotalAmount((Math.abs(first.amount) * (first.totalInstallments || 1)).toString());
+      setEditTotalInstallments(first.totalInstallments || 12);
+    }
+  }, [editingGroup]);
+
+  const handleSaveEdit = () => {
+    if (!editingGroup) return;
+    const first = editingGroup[0];
+    const groupId = first.installmentGroupId!;
+    const amt = parseFloat(editTotalAmount) || 0;
+    if (amt <= 0) {
+      alert('請輸入有效的金額！');
+      return;
+    }
+    const terms = editTotalInstallments;
+    if (terms < 1 || terms > 36) {
+      alert('期數必須介於 1 到 36 之間！');
+      return;
+    }
+    const trimmedNote = editNote.trim();
+    if (!trimmedNote) {
+      alert('請輸入名稱！');
+      return;
+    }
+
+    onUpdateGroup(groupId, trimmedNote, amt, terms);
+    setEditingGroup(null);
+  };
 
   const installmentGroups = useMemo(() => {
     const groups: { [key: string]: Transaction[] } = {};
@@ -8761,15 +8890,23 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
                       起始日：{first.date.replace(/-/g, '/')}
                     </span>
                   </div>
-                  <button 
-                    onClick={() => {
-                      setSelectedGroupId(first.installmentGroupId!);
-                      setIsConfirmOpen(true);
-                    }}
-                    className="p-2 text-stone-200 hover:text-rose-400 transition-colors"
-                  >
-                    <Trash2 size={24} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => setEditingGroup(group)}
+                      className="p-2 text-stone-200 hover:text-[#FFD54F] transition-colors"
+                    >
+                      <Pencil size={20} />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setSelectedGroupId(first.installmentGroupId!);
+                        setIsConfirmOpen(true);
+                      }}
+                      className="p-2 text-stone-200 hover:text-rose-400 transition-colors"
+                    >
+                      <Trash2 size={24} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -8895,6 +9032,82 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement }
                   className="py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg shadow-stone-200"
                 >
                   確定
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editingGroup && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setEditingGroup(null)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFF9E3] w-full max-w-sm rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-5 max-h-[85vh] overflow-y-auto no-scrollbar"
+              style={getFontFamily()}
+            >
+              <h3 className="text-xl font-black text-[#5D4037] text-center">編輯分期付款</h3>
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">名稱</label>
+                <input 
+                  type="text"
+                  value={editNote}
+                  onChange={e => setEditNote(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder="分期名稱"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">總金額</label>
+                <input 
+                  type="number"
+                  value={editTotalAmount}
+                  onChange={e => setEditTotalAmount(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder="總金額"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">分期期數 (1-36)</label>
+                  <input 
+                    type="number"
+                    min="1"
+                    max="36"
+                    value={editTotalInstallments}
+                    onChange={e => setEditTotalInstallments(parseInt(e.target.value) || 1)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">每期金額</label>
+                  <div className="w-full p-4 bg-stone-50 border border-stone-200/50 rounded-2xl font-black text-sm text-[#5D4037]">
+                    {Math.round((parseFloat(editTotalAmount) || 0) / editTotalInstallments).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex w-full gap-3 mt-4">
+                <button 
+                  onClick={() => setEditingGroup(null)}
+                  className="flex-1 py-4 bg-stone-100 hover:bg-stone-200 text-[#5D4037] rounded-2xl font-bold transition-all text-sm"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleSaveEdit}
+                  className="flex-1 py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm"
+                >
+                  儲存變更
                 </button>
               </div>
             </motion.div>

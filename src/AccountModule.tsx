@@ -507,6 +507,7 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
                   type="number"
                   placeholder="0"
                   value={amountStr}
+                  disabled={!!record.isInstallment}
                   onChange={e => {
                     const val = e.target.value;
                     setAmountStr(val);
@@ -516,7 +517,7 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
                       amount: edited.type === 'expense' || edited.type === 'transfer' ? -rawAmt : rawAmt 
                     });
                   }}
-                  className="w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  className={`w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                 />
               </div>
             </div>
@@ -526,7 +527,13 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註</label>
-              <input value={edited.note || ''} onChange={e => setEdited({ ...edited, note: e.target.value })} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all" placeholder="買了什麼？" />
+              <input 
+                value={edited.note || ''} 
+                disabled={!!record.isInstallment}
+                onChange={e => setEdited({ ...edited, note: e.target.value })} 
+                className={`w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`} 
+                placeholder="買了什麼？" 
+              />
             </div>
             {/* Installment Section */}
             {edited.type === 'expense' && (
@@ -535,8 +542,9 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
                   <span className="text-[15px] font-bold text-[#5D4037]">分期付款</span>
                   <button 
                     type="button"
+                    disabled={!!record.isInstallment}
                     onClick={() => setIsInstallment(!isInstallment)}
-                    className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
+                    className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'} ${record.isInstallment ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isInstallment ? 'left-7' : 'left-1'}`} />
                   </button>
@@ -552,8 +560,9 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
                           min="1"
                           max="36"
                           value={totalInstallments}
+                          disabled={!!record.isInstallment}
                           onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
-                          className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                          className={`w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                         />
                       </div>
                       <div className="space-y-2">
@@ -564,7 +573,9 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
                       </div>
                     </div>
                     <div className="p-3 bg-amber-50/80 border border-amber-200/50 rounded-xl text-[11px] font-bold text-amber-800 leading-snug">
-                      💡 編輯此項目將同步更新整組分期計畫的金額、名稱與其他屬性。
+                      {record.isInstallment 
+                        ? '💡 此項目為分期付款明細。欲修改分期計畫的名稱、總金額、期數，請前往「分期付款管理」頁面進行編輯。'
+                        : '💡 編輯此項目將同步更新整組分期計畫的金額、名稱與其他屬性。'}
                     </div>
                   </motion.div>
                 )}
