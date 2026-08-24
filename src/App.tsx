@@ -2460,6 +2460,9 @@ export default function App() {
                 onDeleteStock={handleDeleteStock}
                 onAddRecord={handleSaveRecord}
                 categories={categories}
+                projects={projects}
+                onUpdateRecord={handleUpdateRecord}
+                onDeleteRecord={handleDeleteRecord}
               />
             )}
             {currentView === 'accountDetail' && selectedAccountForDetail && (
@@ -3438,7 +3441,10 @@ function AccountsView({
   onSaveStock,
   onDeleteStock,
   onAddRecord,
-  categories
+  categories,
+  projects,
+  onUpdateRecord,
+  onDeleteRecord
 }: { 
   accounts: Account[], 
   netAssets: number,
@@ -3454,7 +3460,10 @@ function AccountsView({
   onSaveStock: (stock: Stock) => void,
   onDeleteStock: (stockId: string) => void,
   onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
-  categories: Category[]
+  categories: Category[],
+  projects: Project[],
+  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onDeleteRecord: (record: Transaction) => void
 }) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [showAmounts, setShowAmounts] = useState(true);
@@ -3657,6 +3666,9 @@ function AccountsView({
           onDeleteStock={onDeleteStock}
           onAddRecord={onAddRecord}
           categories={categories}
+          projects={projects}
+          onUpdateRecord={onUpdateRecord}
+          onDeleteRecord={onDeleteRecord}
         />
       ) : (
         <>
@@ -3987,7 +3999,10 @@ function InvestmentSection({
   onSaveStock,
   onDeleteStock,
   onAddRecord,
-  categories
+  categories,
+  projects,
+  onUpdateRecord,
+  onDeleteRecord
 }: {
   records: Transaction[],
   accounts: Account[],
@@ -3995,11 +4010,15 @@ function InvestmentSection({
   onSaveStock: (stock: Stock) => void,
   onDeleteStock: (stockId: string) => void,
   onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
-  categories: Category[]
+  categories: Category[],
+  projects: Project[],
+  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onDeleteRecord: (record: Transaction) => void
 }) {
   // states for stock add/edit
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
   const [selectedStockForDetail, setSelectedStockForDetail] = useState<Stock | null>(null);
+  const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [stockCode, setStockCode] = useState('');
   const [stockShares, setStockShares] = useState('');
@@ -4721,7 +4740,14 @@ function InvestmentSection({
                     return (
                       <div 
                         key={r.id}
-                        className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-sm"
+                        onClick={() => {
+                          if (r.id.startsWith('virtual-')) {
+                            alert('初始持股為系統回推的虛擬明細，若需修改請點選卡片右上角編輯按鈕修正持股資料！');
+                          } else {
+                            setEditingRecord(r);
+                          }
+                        }}
+                        className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-sm cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md transition-all active:scale-[0.99]"
                       >
                         <div className="flex flex-col gap-1 min-w-0 flex-1 pr-2">
                           <span className="text-xs font-bold text-[#5D4037] truncate">{r.note}</span>
@@ -4751,6 +4777,24 @@ function InvestmentSection({
           </div>
         )}
       </AnimatePresence>
+
+      {/* 5. Modal: Edit Record details */}
+      {editingRecord && (
+        <EditRecordModal
+          record={editingRecord}
+          accounts={accounts}
+          projects={projects}
+          onClose={() => setEditingRecord(null)}
+          onSave={(updated) => {
+            onUpdateRecord(editingRecord, updated);
+            setEditingRecord(null);
+          }}
+          onDelete={() => {
+            onDeleteRecord(editingRecord);
+            setEditingRecord(null);
+          }}
+        />
+      )}
     </div>
   );
 }
