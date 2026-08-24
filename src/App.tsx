@@ -8809,7 +8809,8 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
     if (editingGroup) {
       const first = editingGroup[0];
       setEditNote(first.note?.split(' (分期')[0] || '');
-      setEditTotalAmount((Math.abs(first.amount) * (first.totalInstallments || 1)).toString());
+      const actualTotalAmount = editingGroup.reduce((sum, r) => sum + Math.abs(r.amount), 0);
+      setEditTotalAmount(actualTotalAmount.toString());
       setEditTotalInstallments(first.totalInstallments || 12);
     }
   }, [editingGroup]);
@@ -8883,9 +8884,15 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
           installmentGroups.map(group => {
             const first = group[0];
             const isSettled = first.status === 'settled' || group.some(r => r.isCompleted);
-            const totalAmount = first.amount * (first.totalInstallments || 1);
-            const perAmount = first.amount;
+            const totalAmount = group.reduce((sum, r) => sum + r.amount, 0);
             const total = first.totalInstallments || 1;
+            
+            const amounts = group.map(r => r.amount);
+            const minAmt = Math.min(...amounts);
+            const maxAmt = Math.max(...amounts);
+            const perAmountStr = minAmt === maxAmt
+              ? `${minAmt < 0 ? '-' : ''}$${Math.abs(minAmt).toLocaleString()}`
+              : `${minAmt < 0 ? '-' : ''}$${Math.abs(minAmt).toLocaleString()} ~ ${maxAmt < 0 ? '-' : ''}$${Math.abs(maxAmt).toLocaleString()}`;
             
             const today = new Date().toISOString().split('T')[0];
             const paidCount = isSettled ? total : group.filter(r => (r.postingDate || r.date) <= today).length;
@@ -8926,13 +8933,13 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                   <div className="flex flex-col">
                     <span className="text-xs font-bold text-stone-300">總金額</span>
                     <span className="text-[18px] font-black text-[#E91E63]">
-                      ${totalAmount.toLocaleString()}
+                      {totalAmount < 0 ? '-' : ''}${Math.abs(totalAmount).toLocaleString()}
                     </span>
                   </div>
                   <div className="flex flex-col">
                     <span className="text-xs font-bold text-stone-300">每期金額</span>
                     <span className="text-[18px] font-black text-[#E91E63]">
-                      ${perAmount.toLocaleString()}
+                      {perAmountStr}
                     </span>
                   </div>
                 </div>
