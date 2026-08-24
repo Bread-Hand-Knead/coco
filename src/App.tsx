@@ -4771,45 +4771,9 @@ function InvestmentSection({
                 <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block mb-1">交易歷史紀錄</span>
                 {(() => {
                   const keyword = selectedStockForDetail.code.split(' (')[0].trim();
-                  const realRecords = records
-                    .filter(r => r.note && r.note.includes(keyword));
-
-                  // 計算已記錄交易中的買入總股數與總成本
-                  let txSharesSum = 0;
-                  let txCostSum = 0;
-                  realRecords.forEach(r => {
-                    if (r.type === 'expense' && r.note && r.note.includes('[買入]')) {
-                      const match = r.note.match(/\s(\d+(\.\d+)?)\s*股/);
-                      if (match) {
-                        const sh = parseFloat(match[1]) || 0;
-                        txSharesSum += sh;
-                        txCostSum += Math.abs(r.amount);
-                      }
-                    }
-                  });
-
-                  // 股數差額作為初始建倉/持股展示
-                  const remainderShares = selectedStockForDetail.shares - txSharesSum;
-                  const displayList = [...realRecords];
-
-                  if (remainderShares > 0) {
-                    const totalCost = selectedStockForDetail.shares * selectedStockForDetail.avgPrice;
-                    const remainderCost = Math.max(0, totalCost - txCostSum);
-                    const remainderAvgPrice = remainderCost / remainderShares;
-
-                    displayList.push({
-                      id: `virtual-initial-${selectedStockForDetail.id}`,
-                      amount: -remainderCost,
-                      category: '投資',
-                      note: `[買入] ${selectedStockForDetail.code} ${remainderShares}股 @ ${parseFloat(remainderAvgPrice.toFixed(4))} (初始持股)`,
-                      date: selectedStockForDetail.purchaseDate || '2026-08-24',
-                      postingDate: selectedStockForDetail.purchaseDate || '2026-08-24',
-                      type: 'expense',
-                      accountId: selectedStockForDetail.linkedAccount
-                    } as any);
-                  }
-
-                  const sortedList = displayList.sort((a, b) => b.date.localeCompare(a.date));
+                  const sortedList = records
+                    .filter(r => r.note && r.note.includes(keyword))
+                    .sort((a, b) => b.date.localeCompare(a.date));
 
                   if (sortedList.length === 0) {
                     return (
@@ -4824,13 +4788,7 @@ function InvestmentSection({
                     return (
                       <div 
                         key={r.id}
-                        onClick={() => {
-                          if (r.id.startsWith('virtual-')) {
-                            alert('初始持股為系統回推的虛擬明細，若需修改請點選卡片右上角編輯按鈕修正持股資料！');
-                          } else {
-                            setEditingRecord(r);
-                          }
-                        }}
+                        onClick={() => setEditingRecord(r)}
                         className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-sm cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md transition-all active:scale-[0.99]"
                       >
                         <div className="flex flex-col gap-1 min-w-0 flex-1 pr-2">
