@@ -8906,7 +8906,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col">
                     <span className="text-xl font-black text-[#5D4037]">{first.note?.split(' (分期')[0]}</span>
-                    <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">
+                    <span className="text-[13px] font-bold text-stone-400 mt-1 uppercase tracking-wide">
                       起始日：{first.date.replace(/-/g, '/')}
                     </span>
                   </div>
