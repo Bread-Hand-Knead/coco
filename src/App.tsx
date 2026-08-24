@@ -1580,12 +1580,15 @@ export default function App() {
   const handleSaveRecord = async (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => {
     if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
       const installmentGroupId = Date.now().toString();
-      const perAmount = Math.round(record.amount / record.totalInstallments);
+      const totalAmtAbs = Math.abs(record.amount);
+      const totalTerms = record.totalInstallments;
+      const baseAmt = Math.floor(totalAmtAbs / totalTerms);
+      const remainderAmt = totalAmtAbs - (baseAmt * totalTerms);
       const startDate = new Date(record.date);
       
       const batch = user ? writeBatch(db) : null;
 
-      for (let i = 1; i <= record.totalInstallments; i++) {
+      for (let i = 1; i <= totalTerms; i++) {
         const targetYear = startDate.getFullYear();
         const targetMonth = startDate.getMonth() + (i - 1);
         const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
@@ -1593,11 +1596,14 @@ export default function App() {
         const currentDate = new Date(targetYear, targetMonth, targetDay);
         const dateStr = formatLocalDate(currentDate);
         
+        const currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+        const finalAmt = record.amount < 0 ? -currentAmtAbs : currentAmtAbs;
+
         const id = `${installmentGroupId}-${i}`;
         const newPart: Transaction = {
           ...record,
           id,
-          amount: perAmount,
+          amount: finalAmt,
           note: record.note?.trim(),
           date: record.date,
           postingDate: dateStr,
@@ -1654,21 +1660,17 @@ export default function App() {
       const isInstallment = !!newRecord.isInstallment;
       const oldGroupId = oldRecord.installmentGroupId;
 
-      if (isInstallment) {
+      if (isInstallment && !wasInstallment) {
+        // Converting a normal transaction to a new installment group
         if (user) {
-          if (wasInstallment && oldGroupId) {
-            const groupRecords = records.filter(r => r.installmentGroupId === oldGroupId);
-            for (const r of groupRecords) {
-              await deleteFromCloud('transactions', r.id);
-            }
-          } else {
-            await deleteFromCloud('transactions', oldRecord.id);
-          }
+          await deleteFromCloud('transactions', oldRecord.id);
         }
 
         const installmentGroupId = oldGroupId || Date.now().toString();
         const total = newRecord.totalInstallments || 12;
-        const perAmount = Math.round(Math.abs(newRecord.amount) / total);
+        const totalAmtAbs = Math.abs(newRecord.amount);
+        const baseAmt = Math.floor(totalAmtAbs / total);
+        const remainderAmt = totalAmtAbs - (baseAmt * total);
         const startDate = new Date(newRecord.date);
         
         const batch = user ? writeBatch(db) : null;
@@ -1682,11 +1684,14 @@ export default function App() {
           const currentDate = new Date(targetYear, targetMonth, targetDay);
           const dateStr = formatLocalDate(currentDate);
           
+          const currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+          const finalAmt = (newRecord.type === 'expense' || newRecord.type === 'transfer') ? -currentAmtAbs : currentAmtAbs;
+
           const id = `${installmentGroupId}-${i}`;
           const newPart: Transaction = {
             ...newRecord,
             id,
-            amount: newRecord.type === 'expense' ? -perAmount : perAmount,
+            amount: finalAmt,
             note: newRecord.note?.trim(),
             date: newRecord.date,
             postingDate: dateStr,
@@ -1706,13 +1711,12 @@ export default function App() {
           await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/transactions'));
         } else {
           setRecords(prev => {
-            const filtered = wasInstallment && oldGroupId
-              ? prev.filter(r => r.installmentGroupId !== oldGroupId)
-              : prev.filter(r => r.id !== oldRecord.id);
+            const filtered = prev.filter(r => r.id !== oldRecord.id);
             return [...filtered, ...newParts];
           });
         }
-      } else if (wasInstallment && oldGroupId) {
+      } else if (!isInstallment && wasInstallment && oldGroupId) {
+        // Converting an installment back to a normal single transaction
         if (user) {
           const groupRecords = records.filter(r => r.installmentGroupId === oldGroupId);
           for (const r of groupRecords) {
@@ -1726,6 +1730,7 @@ export default function App() {
           ]);
         }
       } else {
+        // Just update this single transaction (includes existing installment records and normal records)
         if (user) {
           await syncToCloud('transactions', newRecord, newRecord.id);
         } else {
@@ -1744,8 +1749,10 @@ export default function App() {
     const groupRecords = records.filter(r => r.installmentGroupId === groupId);
     if (groupRecords.length === 0) return;
     
-    const first = groupRecords[0];
-    const perAmount = Math.round(newTotalAmount / newTotalInstallments);
+    const first = groupRecords.find(r => r.currentInstallment === 1) || groupRecords[0];
+    const totalAmtAbs = Math.abs(newTotalAmount);
+    const baseAmt = Math.floor(totalAmtAbs / newTotalInstallments);
+    const remainderAmt = totalAmtAbs - (baseAmt * newTotalInstallments);
     const startDate = new Date(first.date);
 
     if (user) {
@@ -1764,11 +1771,14 @@ export default function App() {
           const currentDate = new Date(targetYear, targetMonth, targetDay);
           const dateStr = formatLocalDate(currentDate);
 
+          const currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+          const finalAmt = first.amount < 0 ? -currentAmtAbs : currentAmtAbs;
+
           const id = `${groupId}-${i}`;
           const newPart: Transaction = {
             ...first,
             id,
-            amount: first.amount < 0 ? -perAmount : perAmount,
+            amount: finalAmt,
             note: newNote.trim(),
             date: first.date,
             postingDate: dateStr,
@@ -1797,11 +1807,14 @@ export default function App() {
       const currentDate = new Date(targetYear, targetMonth, targetDay);
       const dateStr = formatLocalDate(currentDate);
 
+      const currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+      const finalAmt = first.amount < 0 ? -currentAmtAbs : currentAmtAbs;
+
       const id = `${groupId}-${i}`;
       const newPart: Transaction = {
         ...first,
         id,
-        amount: first.amount < 0 ? -perAmount : perAmount,
+        amount: finalAmt,
         note: newNote.trim(),
         date: first.date,
         postingDate: dateStr,
@@ -9090,8 +9103,18 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">每期金額</label>
-                  <div className="w-full p-4 bg-stone-50 border border-stone-200/50 rounded-2xl font-black text-sm text-[#5D4037]">
-                    {Math.round((parseFloat(editTotalAmount) || 0) / editTotalInstallments).toLocaleString()}
+                  <div className="w-full p-4 bg-stone-50 border border-stone-200/50 rounded-2xl font-black text-xs text-[#5D4037] leading-relaxed">
+                    {(() => {
+                      const totalAmt = Math.abs(parseFloat(editTotalAmount) || 0);
+                      const terms = editTotalInstallments;
+                      const base = Math.floor(totalAmt / terms);
+                      const remainder = totalAmt - (base * terms);
+                      if (remainder === 0) {
+                        return `$${base.toLocaleString()}`;
+                      } else {
+                        return `${remainder} 期 $${(base + 1).toLocaleString()} + ${terms - remainder} 期 $${base.toLocaleString()}`;
+                      }
+                    })()}
                   </div>
                 </div>
               </div>
