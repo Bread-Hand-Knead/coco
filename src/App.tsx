@@ -3999,6 +3999,7 @@ function InvestmentSection({
 }) {
   // states for stock add/edit
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
+  const [selectedStockForDetail, setSelectedStockForDetail] = useState<Stock | null>(null);
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [stockCode, setStockCode] = useState('');
   const [stockShares, setStockShares] = useState('');
@@ -4233,21 +4234,23 @@ function InvestmentSection({
             return (
               <div 
                 key={s.id} 
-                className="bg-white p-5 rounded-[30px] border-2 border-white shadow-sm flex flex-col gap-4 relative"
+                onClick={() => setSelectedStockForDetail(s)}
+                className="bg-white p-5 rounded-[30px] border-2 border-white shadow-sm flex flex-col gap-4 relative cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md transition-all active:scale-[0.99]"
               >
                 {/* Header */}
                 <div className="flex items-center justify-between">
                   <span className="text-lg font-black text-[#5D4037] tracking-tight">{s.code}</span>
                   <div className="flex items-center gap-1.5">
                     <button 
-                      onClick={() => handleOpenStockEdit(s)}
+                      onClick={(e) => { e.stopPropagation(); handleOpenStockEdit(s); }}
                       className="p-2 text-stone-300 hover:text-[#FFD54F] transition-colors"
                       title="編輯持股"
                     >
                       <Pencil size={18} />
                     </button>
                     <button 
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         if (window.confirm(`確定要刪除持股 ${s.code} 嗎？此操作僅刪除持股記錄，已建立的交易明細將被保留。`)) {
                           onDeleteStock(s.id);
                         }
@@ -4303,13 +4306,13 @@ function InvestmentSection({
                 {/* Action Buttons */}
                 <div className="flex gap-2 border-t border-stone-100/60 pt-3">
                   <button 
-                    onClick={() => handleOpenBuy(s)}
+                    onClick={(e) => { e.stopPropagation(); handleOpenBuy(s); }}
                     className="flex-1 py-2.5 bg-stone-50 hover:bg-[#FFD54F]/10 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
                   >
                     <Plus size={12} /> 新增買入
                   </button>
                   <button 
-                    onClick={() => handleOpenDividend(s)}
+                    onClick={(e) => { e.stopPropagation(); handleOpenDividend(s); }}
                     className="flex-1 py-2.5 bg-stone-50 hover:bg-emerald-50 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
                   >
                     <Coins size={12} className="text-emerald-500" /> 股利入帳
@@ -4612,6 +4615,102 @@ function InvestmentSection({
                   確認入帳
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 4. Modal: Stock Transaction Details */}
+      <AnimatePresence>
+        {selectedStockForDetail && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setSelectedStockForDetail(null)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFF9E3] w-full max-w-md rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-6 max-h-[85vh]"
+              style={getFontFamily()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3">
+                <h3 className="text-xl font-black text-[#5D4037]">
+                  {selectedStockForDetail.code} 明細
+                </h3>
+                <button 
+                  onClick={() => setSelectedStockForDetail(null)} 
+                  className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+                >
+                  <X size={18} className="text-stone-400" />
+                </button>
+              </div>
+
+              {/* Overview Stats */}
+              <div className="grid grid-cols-3 gap-4 bg-[#FFFDF5]/70 p-4 rounded-3xl border border-stone-100/50 text-center">
+                <div>
+                  <span className="text-[10px] font-bold text-stone-400 block mb-0.5">持股數量</span>
+                  <span className="text-base font-black text-[#5D4037]">{selectedStockForDetail.shares.toLocaleString()} 股</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-stone-400 block mb-0.5">平均買價</span>
+                  <span className="text-base font-black text-[#5D4037]">${selectedStockForDetail.avgPrice.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-stone-400 block mb-0.5">投入成本</span>
+                  <span className="text-base font-black text-[#E91E63]">${Math.round(selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Transaction List */}
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar">
+                <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block mb-1">交易歷史紀錄</span>
+                {(() => {
+                  const keyword = selectedStockForDetail.code.split(' (')[0].trim();
+                  const relatedRecords = records
+                    .filter(r => r.note && r.note.includes(keyword))
+                    .sort((a, b) => b.date.localeCompare(a.date));
+
+                  if (relatedRecords.length === 0) {
+                    return (
+                      <p className="text-stone-400 text-center py-8 text-xs font-bold">目前暫無此股票之交易明細</p>
+                    );
+                  }
+
+                  return relatedRecords.map(r => {
+                    const acc = accounts.find(a => a.id === r.accountId);
+                    const isIncome = r.type === 'income';
+                    
+                    return (
+                      <div 
+                        key={r.id}
+                        className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-sm"
+                      >
+                        <div className="flex flex-col gap-1 min-w-0 flex-1 pr-2">
+                          <span className="text-xs font-bold text-[#5D4037] truncate">{r.note}</span>
+                          <div className="flex items-center gap-2 text-[10px] text-stone-400 font-bold">
+                            <span>{r.date.replace(/-/g, '/')}</span>
+                            <span>•</span>
+                            <span>{acc ? `${acc.icon} ${acc.name}` : '未知帳戶'}</span>
+                          </div>
+                        </div>
+                        <span className={`text-sm font-black flex-shrink-0 ${isIncome ? 'text-emerald-500' : 'text-[#E91E63]'}`}>
+                          {isIncome ? '+' : '-'}${Math.abs(r.amount).toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              {/* Close Button */}
+              <button 
+                onClick={() => setSelectedStockForDetail(null)}
+                className="w-full py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm mt-2"
+              >
+                關閉明細
+              </button>
             </motion.div>
           </div>
         )}
