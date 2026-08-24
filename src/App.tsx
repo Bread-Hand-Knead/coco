@@ -4233,6 +4233,7 @@ function InvestmentSection({
       return;
     }
 
+    const isNew = !editingStock;
     const newStock: Stock = {
       id: editingStock ? editingStock.id : Date.now().toString(),
       code: stockCode.trim(),
@@ -4244,6 +4245,21 @@ function InvestmentSection({
     };
 
     onSaveStock(newStock);
+
+    // 如果是新建立持股且初始股數大於 0，同步在交易歷史中寫入一筆初始買入明細
+    if (isNew && sharesNum > 0) {
+      const cost = parseFloat(stockTotalCost) || Math.round(sharesNum * priceNum);
+      onAddRecord({
+        amount: -cost,
+        category: '投資',
+        note: `[買入] ${newStock.code} ${sharesNum}股 @ ${priceNum} (初始持股)`,
+        date: stockPurchaseDate || new Date().toISOString().split('T')[0],
+        postingDate: stockPurchaseDate || new Date().toISOString().split('T')[0],
+        type: 'expense',
+        accountId: stockLinkedAccount
+      });
+    }
+
     setIsStockModalOpen(false);
   };
 
@@ -4920,7 +4936,7 @@ function InvestmentSection({
                 {(() => {
                   const keyword = selectedStockForDetail.code.split(' (')[0].trim();
                   const sortedList = records
-                    .filter(r => r.note && r.note.includes(keyword))
+                    .filter(r => r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword)))
                     .sort((a, b) => b.date.localeCompare(a.date));
 
                   if (sortedList.length === 0) {
