@@ -4129,6 +4129,42 @@ function InvestmentSection({
       .reduce((sum, r) => sum + Math.abs(r.amount), 0);
   }, [records]);
 
+  const [showDividendAnalysis, setShowDividendAnalysis] = useState(false);
+
+  const dividendStats = useMemo(() => {
+    const stockMap: Record<string, number> = {};
+    const bankMap: Record<string, number> = {};
+
+    records.forEach(r => {
+      if (r.type === 'income' && r.note && r.note.startsWith('[股利]')) {
+        const amt = Math.abs(r.amount);
+        
+        // 比對股票代號或名稱
+        const matchedStock = stocks.find(s => {
+          const keyword = s.code.split(' (')[0].trim();
+          return r.note.includes(keyword);
+        });
+        const stockName = matchedStock ? matchedStock.code : '其他股票';
+        stockMap[stockName] = (stockMap[stockName] || 0) + amt;
+
+        // 比對入帳銀行帳戶
+        const acc = accounts.find(a => a.id === r.accountId);
+        const bankName = acc ? `${acc.icon} ${acc.name}` : '未知帳戶';
+        bankMap[bankName] = (bankMap[bankName] || 0) + amt;
+      }
+    });
+
+    const stockList = Object.entries(stockMap)
+      .map(([name, val]) => ({ name, val }))
+      .sort((a, b) => b.val - a.val);
+
+    const bankList = Object.entries(bankMap)
+      .map(([name, val]) => ({ name, val }))
+      .sort((a, b) => b.val - a.val);
+
+    return { stockList, bankList };
+  }, [records, stocks, accounts]);
+
   // helpers
   const handleOpenStockAdd = () => {
     setEditingStock(null);
@@ -4286,10 +4322,72 @@ function InvestmentSection({
         </div>
         <div className="w-[1px] bg-white/10 mx-6 self-stretch" />
         <div className="flex-1 flex flex-col justify-between z-10 gap-1 text-right">
-          <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">已領取總股利</span>
+          <div className="flex items-center justify-end gap-1.5">
+            <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">已領取總股利</span>
+            {totalDividends > 0 && (
+              <button 
+                onClick={() => setShowDividendAnalysis(!showDividendAnalysis)}
+                className="bg-white/15 hover:bg-white/25 active:scale-95 text-[10px] font-black px-2 py-0.5 rounded-full transition-all text-white flex items-center gap-0.5"
+              >
+                {showDividendAnalysis ? '收起' : '分析'}
+              </button>
+            )}
+          </div>
           <span className="text-3xl font-black text-emerald-400">${totalDividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
         </div>
       </div>
+
+      {/* Collapsible Dividend Analysis Dashboard */}
+      <AnimatePresence>
+        {showDividendAnalysis && totalDividends > 0 && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }} 
+            animate={{ opacity: 1, height: 'auto' }} 
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-[#FFFDF5]/80 border border-stone-200/50 p-5 rounded-[30px] shadow-inner space-y-4 overflow-hidden"
+          >
+            <div className="grid grid-cols-2 gap-6">
+              {/* Stocks Breakdown */}
+              <div className="space-y-2">
+                <span className="text-xs font-black text-[#5D4037] flex items-center gap-1">
+                  📈 股票股利佔比
+                </span>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar animate-fadeIn">
+                  {dividendStats.stockList.length === 0 ? (
+                    <p className="text-stone-400 text-[10px] font-bold">暫無統計資料</p>
+                  ) : (
+                    dividendStats.stockList.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-stone-100/50 text-xs shadow-sm">
+                        <span className="font-bold text-stone-600 truncate max-w-[100px]" title={item.name}>{item.name}</span>
+                        <span className="font-black text-emerald-600">${item.val.toLocaleString()}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Banks Breakdown */}
+              <div className="space-y-2">
+                <span className="text-xs font-black text-[#5D4037] flex items-center gap-1">
+                  💳 匯入銀行分佈
+                </span>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar animate-fadeIn">
+                  {dividendStats.bankList.length === 0 ? (
+                    <p className="text-stone-400 text-[10px] font-bold">暫無統計資料</p>
+                  ) : (
+                    dividendStats.bankList.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-stone-100/50 text-xs shadow-sm">
+                        <span className="font-bold text-stone-600 truncate max-w-[100px]" title={item.name}>{item.name}</span>
+                        <span className="font-black text-[#5D4037]">${item.val.toLocaleString()}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Holdings Section Header */}
       <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3">
