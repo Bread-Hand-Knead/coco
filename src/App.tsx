@@ -4130,6 +4130,29 @@ function InvestmentSection({
   }, [records]);
 
   const [showDividendAnalysis, setShowDividendAnalysis] = useState(false);
+  const [selectedDividendYear, setSelectedDividendYear] = useState<string>('all');
+
+  const dividendYears = useMemo(() => {
+    const yearsSet = new Set<string>();
+    records.forEach(r => {
+      if (r.type === 'income' && r.note && r.note.startsWith('[股利]')) {
+        const year = r.date.split('-')[0];
+        if (year) yearsSet.add(year);
+      }
+    });
+    return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+  }, [records]);
+
+  const filteredYearTotal = useMemo(() => {
+    return records
+      .filter(r => {
+        const isDiv = r.type === 'income' && r.note && r.note.startsWith('[股利]');
+        if (!isDiv) return false;
+        if (selectedDividendYear === 'all') return true;
+        return r.date.startsWith(selectedDividendYear);
+      })
+      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+  }, [records, selectedDividendYear]);
 
   const dividendStats = useMemo(() => {
     const stockMap: Record<string, number> = {};
@@ -4137,6 +4160,9 @@ function InvestmentSection({
 
     records.forEach(r => {
       if (r.type === 'income' && r.note && r.note.startsWith('[股利]')) {
+        if (selectedDividendYear !== 'all' && !r.date.startsWith(selectedDividendYear)) {
+          return;
+        }
         const amt = Math.abs(r.amount);
         
         // 比對股票代號或名稱
@@ -4163,7 +4189,7 @@ function InvestmentSection({
       .sort((a, b) => b.val - a.val);
 
     return { stockList, bankList };
-  }, [records, stocks, accounts]);
+  }, [records, stocks, accounts, selectedDividendYear]);
 
   // helpers
   const handleOpenStockAdd = () => {
@@ -4346,6 +4372,30 @@ function InvestmentSection({
             exit={{ opacity: 0, height: 0 }}
             className="bg-[#FFFDF5]/80 border border-stone-200/50 p-5 rounded-[30px] shadow-inner space-y-4 overflow-hidden"
           >
+            {/* Year Selector */}
+            <div className="flex items-center gap-2 border-b border-stone-200/40 pb-3 flex-wrap">
+              <span className="text-xs font-black text-stone-500">篩選年份：</span>
+              <button 
+                onClick={() => setSelectedDividendYear('all')}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all active:scale-95 ${selectedDividendYear === 'all' ? 'bg-[#5D4037] text-white shadow-sm' : 'bg-white border border-stone-200/60 text-stone-500 hover:text-[#5D4037]'}`}
+              >
+                全部
+              </button>
+              {dividendYears.map(yr => (
+                <button 
+                  key={yr}
+                  onClick={() => setSelectedDividendYear(yr)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all active:scale-95 ${selectedDividendYear === yr ? 'bg-[#5D4037] text-white shadow-sm' : 'bg-white border border-stone-200/60 text-stone-500 hover:text-[#5D4037]'}`}
+                >
+                  {yr}年
+                </button>
+              ))}
+              <div className="ml-auto text-xs font-bold text-stone-500">
+                {selectedDividendYear === 'all' ? '歷年累計' : `${selectedDividendYear} 年`}股利：
+                <span className="font-black text-emerald-600 ml-1 text-sm">${filteredYearTotal.toLocaleString()}</span>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-6">
               {/* Stocks Breakdown */}
               <div className="space-y-2">
