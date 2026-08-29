@@ -2851,17 +2851,39 @@ function AccountSelector({
 }: AccountSelectorProps) {
   const { groupedList, singleList } = getGroupedAndUngrouped(accounts);
 
+  // 判斷帳戶是否為父層母帳戶（即是否有其他帳戶以它為 parentId）
+  const isParentAccount = (accId: string) => accounts.some(a => a.parentId === accId);
+
+  // 過濾掉母帳戶，僅保留最底層子帳戶及無子帳戶之獨立帳戶
+  const leafSingles = singleList.filter(acc => !isParentAccount(acc.id));
+  const tempGrouped = groupedList.map(g => ({
+    ...g,
+    accounts: g.accounts.filter(acc => !isParentAccount(acc.id))
+  })).filter(g => g.accounts.length > 0);
+
+  // 若群組內過濾後只剩下一個帳戶，則將其提升至單一帳戶列表，避免多點擊一次
+  const finalSingles = [...leafSingles];
+  const finalGrouped: typeof tempGrouped = [];
+
+  tempGrouped.forEach(g => {
+    if (g.accounts.length === 1) {
+      finalSingles.push(g.accounts[0]);
+    } else if (g.accounts.length > 1) {
+      finalGrouped.push(g);
+    }
+  });
+
   const selectedAcc = currentSelectedId ? accounts.find(a => a.id === currentSelectedId) : null;
   const selectedAccBalance = selectedAcc ? calculateAccountBalance(selectedAcc, accounts, records) : 0;
 
-  // Merge lists to render: singles first, then groups
+  // 合併列表進行渲染：單一帳戶在前，群組帳戶在後
   const items: (
     | { type: 'single'; account: Account }
     | { type: 'group'; bankName: string; accounts: Account[] }
   )[] = [];
 
-  singleList.forEach(acc => items.push({ type: 'single', account: acc }));
-  groupedList.forEach(g => items.push({ type: 'group', bankName: g.bankName, accounts: g.accounts }));
+  finalSingles.forEach(acc => items.push({ type: 'single', account: acc }));
+  finalGrouped.forEach(g => items.push({ type: 'group', bankName: g.bankName, accounts: g.accounts }));
 
   return (
     <div className="space-y-2">
@@ -2936,7 +2958,7 @@ function AccountSelector({
       </HorizontalScrollArea>
 
       {/* Expanded Sub-Accounts Row */}
-      {groupedList.map(group => {
+      {finalGrouped.map(group => {
         const isExpanded = !!expandedState[group.bankName];
         if (!isExpanded) return null;
         const activeSub = group.accounts.find(a => a.id === currentSelectedId);
