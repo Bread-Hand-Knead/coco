@@ -5696,13 +5696,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         noteLower.includes('cashback') || 
         noteLower.includes('reward');
 
-      const hasKeywords = 
-        (noteText.includes('自動') && noteText.includes('扣繳')) || 
-        (noteText.includes('自動') && noteText.includes('繳款')) || 
-        (noteText.includes('自動') && noteText.includes('扣款')) ||
-        noteText.includes('轉帳扣繳') ||
-        noteText.includes('扣繳信用卡款');
-      const isTransferIn = !isFeedback && (((r.type === 'transfer' && (r.toAccountId === effectiveParentId || effectiveChildrenIds.includes(r.toAccountId!))) || hasKeywords));
+      const isTransferInCard = r.type === 'transfer' && 
+        r.toAccountId && 
+        (r.toAccountId === effectiveParentId || effectiveChildrenIds.includes(r.toAccountId));
+      const isTransferIn = isTransferInCard && !isFeedback;
       
       if (isTransferIn) {
         // Payments are filtered by calendar month (when the payment actually occurred)
