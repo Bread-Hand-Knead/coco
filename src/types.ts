@@ -23,6 +23,7 @@ export interface Transaction {
   exchangeRate?: number;
   fee?: number;
   transferredDate?: string;
+  isPrepay?: boolean;
 }
 
 export interface Account {

@@ -42,6 +42,7 @@ import {
   Layers,
   Search,
   Star,
+  Sparkles,
   Mic,
   Gift,
   Lightbulb,
@@ -669,6 +670,7 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [monthlyBudget, setMonthlyBudget] = useState<number>(30000);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
+  const [isAiSplitModalOpen, setIsAiSplitModalOpen] = useState(false);
   const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
   const [historyFilter, setHistoryFilter] = useState<{ type: 'day' | 'week' | 'month' | 'year', date: string }>({ type: 'day', date: selectedDate });
   const [templates, setTemplates] = useState<Template[]>(INITIAL_TEMPLATES);
@@ -1568,14 +1570,14 @@ export default function App() {
       return cur === 'TWD';
     });
 
-    // Monthly/Weekly/Daily stats now use postingDate and exclude initial balance records
-    const daily = filteredByCurrency.filter(r => (r.postingDate || r.date) === selectedDate && r.category !== '初始資金');
+    // Monthly/Weekly/Daily stats now use postingDate and exclude initial balance records and prepayments
+    const daily = filteredByCurrency.filter(r => (r.postingDate || r.date) === selectedDate && r.category !== '初始資金' && !r.isPrepay);
     const weekly = filteredByCurrency.filter(r => {
       const pDate = r.postingDate || r.date;
-      return pDate >= startOfWeekStr && pDate <= endOfWeekStr && r.category !== '初始資金';
+      return pDate >= startOfWeekStr && pDate <= endOfWeekStr && r.category !== '初始資金' && !r.isPrepay;
     });
-    const monthly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(monthStr) && r.category !== '初始資金');
-    const yearly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(yearStr) && r.category !== '初始資金');
+    const monthly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(monthStr) && r.category !== '初始資金' && !r.isPrepay);
+    const yearly = filteredByCurrency.filter(r => (r.postingDate || r.date).startsWith(yearStr) && r.category !== '初始資金' && !r.isPrepay);
     
     return {
       daily: {
@@ -1704,6 +1706,24 @@ export default function App() {
     }
     if (!keepOpen) {
       setIsRecordModalOpen(false);
+    }
+  };
+
+  const handleSaveBatchRecords = async (newTransactions: Omit<Transaction, 'id'>[]) => {
+    const timestamp = Date.now();
+    const finalTransactions = newTransactions.map((tx, index) => ({
+      ...tx,
+      id: `rec_${timestamp}_${Math.random().toString(36).substr(2, 9)}_${index}`
+    }));
+
+    if (user) {
+      const batch = writeBatch(db);
+      finalTransactions.forEach(tx => {
+        batch.set(doc(db, 'users', user.uid, 'transactions', tx.id), cleanData(tx));
+      });
+      await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/ai-split-transactions'));
+    } else {
+      setRecords(prev => [...prev, ...finalTransactions]);
     }
   };
 
@@ -2680,6 +2700,7 @@ export default function App() {
                 setFixedRecords={setFixedRecords}
                 onUpdateTemplates={handleUpdateTemplates}
                 onUpdateCategories={handleUpdateCategories}
+                onOpenAiSplit={() => setIsAiSplitModalOpen(true)}
               />
             )}
           </AnimatePresence>
@@ -2707,6 +2728,21 @@ export default function App() {
               onSave={handleSaveRecord}
               selectedDate={selectedDate}
               records={records}
+              onOpenAiSplit={() => { setIsRecordModalOpen(false); setIsAiSplitModalOpen(true); }}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* AI Split Modal */}
+        <AnimatePresence>
+          {isAiSplitModalOpen && (
+            <AiSplitModal 
+              isOpen={isAiSplitModalOpen}
+              onClose={() => setIsAiSplitModalOpen(false)}
+              accounts={accounts}
+              categories={categories}
+              user={user}
+              onSaveBatch={handleSaveBatchRecords}
             />
           )}
         </AnimatePresence>
@@ -5906,6 +5942,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                 已轉帳
                               </span>
                             )}
+                            {record.isPrepay && (
+                              <span className="text-[10px] px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full font-bold">
+                                代墊
+                              </span>
+                            )}
                             {account.parentId === undefined && record.accountId !== account.id && (
                               <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
                                 {accounts.find(a => a.id === record.accountId)?.name}
@@ -8036,6 +8077,11 @@ function CalendarView({ records, accounts, categories, onBack }: { records: Tran
                   <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
                     {accounts.find(a => a.id === record.accountId)?.name}
                   </span>
+                  {record.isPrepay && (
+                    <span className="text-[10px] px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full font-bold">
+                      代墊
+                    </span>
+                  )}
                 </div>
               )}
               
@@ -10623,7 +10669,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   }, [records, project, currentMonth, accounts]);
 
   const balance = useMemo(() => {
-    const expense = filteredRecords.filter(r => r.type === 'expense' && r.postingDate).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+    const expense = filteredRecords.filter(r => r.type === 'expense' && r.postingDate && !r.isPrepay).reduce((sum, r) => sum + Math.abs(r.amount), 0);
     const income = filteredRecords.filter(r => r.type === 'income' && r.postingDate).reduce((sum, r) => sum + Math.abs(r.amount), 0);
     return income - expense;
   }, [filteredRecords]);
@@ -10909,7 +10955,7 @@ function BudgetManagementPage({
     return monthlyRecords
       .filter(r => {
         const pDate = r.postingDate || r.date;
-        return pDate.startsWith(monthStr) && r.category !== '初始資金' && r.type === 'expense';
+        return pDate.startsWith(monthStr) && r.category !== '初始資金' && r.type === 'expense' && !r.isPrepay;
       })
       .reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
   }, [records, monthStr, currencyMode]);
@@ -10926,7 +10972,7 @@ function BudgetManagementPage({
 
     monthlyRecords.forEach(r => {
       const pDate = r.postingDate || r.date;
-      if (pDate.startsWith(monthStr) && r.category !== '初始資金' && r.type === 'expense') {
+      if (pDate.startsWith(monthStr) && r.category !== '初始資金' && r.type === 'expense' && !r.isPrepay) {
         const parentCat = r.category.split(' > ')[0];
         const amount = Math.abs(r.amount) + (r.fee || 0);
         map[parentCat] = (map[parentCat] || 0) + amount;
@@ -10948,7 +10994,7 @@ function BudgetManagementPage({
       .filter(r => {
         const pDate = r.postingDate || r.date;
         if (!pDate.startsWith(monthStr)) return false;
-        if (r.type !== 'expense') return false;
+        if (r.type !== 'expense' || r.isPrepay) return false;
         const rCat = r.category.split(' > ')[0];
         return rCat === catName;
       })
@@ -10967,7 +11013,7 @@ function BudgetManagementPage({
       .filter(r => {
         const pDate = r.postingDate || r.date;
         if (!pDate.startsWith(monthStr)) return false;
-        if (r.type !== 'expense') return false;
+        if (r.type !== 'expense' || r.isPrepay) return false;
         const parts = r.category.split(' > ');
         return parts[0] === parentCatName && parts[1] === subCatName;
       })
@@ -11894,7 +11940,8 @@ function MoreView({
   setTemplates,
   setFixedRecords,
   onUpdateTemplates,
-  onUpdateCategories
+  onUpdateCategories,
+  onOpenAiSplit
 }: { 
   records: Transaction[], 
   accounts: Account[], 
@@ -11912,7 +11959,8 @@ function MoreView({
   setTemplates: (t: Template[]) => void,
   setFixedRecords: (fr: FixedRecord[]) => void,
   onUpdateTemplates: (t: Template[]) => void,
-  onUpdateCategories: (c: Category[]) => void
+  onUpdateCategories: (c: Category[]) => void,
+  onOpenAiSplit: () => void
 }) {
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [importPreview, setImportPreview] = useState<{ transactions: Transaction[], total: number } | null>(null);
@@ -13725,6 +13773,16 @@ function MoreView({
           <ChevronRight size={20} className="text-stone-300" />
         </button>
         <button 
+          onClick={onOpenAiSplit}
+          className="flex items-center justify-between py-3 border-b border-stone-50 text-left w-full active:opacity-60"
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-[#5D4037]">AI 智慧明細拆分工具</span>
+            <span className="text-[9px] px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full font-black">AI</span>
+          </div>
+          <ChevronRight size={20} className="text-stone-300" />
+        </button>
+        <button 
           onClick={handleManualSync}
           disabled={isSyncing}
           className="flex items-center justify-between py-3 border-b border-stone-50 text-left w-full active:opacity-60"
@@ -14412,7 +14470,7 @@ function HorizontalScrollArea({
   );
 }
 
-function RecordModal({ accounts, categories, templates, projects, initialProjectId, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate, records }: { 
+function RecordModal({ accounts, categories, templates, projects, initialProjectId, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate, records, onOpenAiSplit }: { 
   accounts: Account[], 
   categories: Category[],
   templates: Template[], 
@@ -14423,7 +14481,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   onClose: () => void, 
   onSave: (r: any, keepOpen?: boolean) => void,
   selectedDate: string,
-  records: Transaction[]
+  records: Transaction[],
+  onOpenAiSplit: () => void
 }) {
   const [tab, setTab] = useState<'template' | 'expense' | 'income' | 'transfer'>('template');
   const [amount, setAmount] = useState('0');
@@ -15340,6 +15399,17 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
           </div>
         )}
       </label>
+
+      {/* AI 智慧拆分 button */}
+      <button
+        type="button"
+        onClick={onOpenAiSplit}
+        className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
+        style={getFontFamily()}
+      >
+        <Sparkles size={26} className="text-[#0369A1] group-hover:scale-110 transition-transform" />
+        <span className="text-[9px] font-black text-[#0369A1]">AI 智慧拆分</span>
+      </button>
 
       <div className="flex-1 flex flex-col gap-2 min-w-0">
         <AnimatePresence mode="wait">
@@ -16297,5 +16367,481 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+const filterTaiwanTerms = (text: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/刷新/g, '更新')
+    .replace(/優化/g, '改善')
+    .replace(/質量/g, '品質')
+    .replace(/屏幕/g, '螢幕')
+    .replace(/視頻/g, '影片')
+    .replace(/保存/g, '儲存')
+    .replace(/開小差/g, '分心');
+};
+
+interface AiSplitModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  accounts: Account[];
+  categories: Category[];
+  user: User | null;
+  onSaveBatch: (records: any[]) => Promise<void>;
+}
+
+function AiSplitModal({ isOpen, onClose, accounts, categories, user, onSaveBatch }: AiSplitModalProps) {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [rawText, setRawText] = useState('');
+  const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
+  const [transactionDate, setTransactionDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  const [isParsing, setIsParsing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [parsedItems, setParsedItems] = useState<{ name: string; amount: number; category: string; isPrepay: boolean }[]>([]);
+
+  // Get only expense categories
+  const expenseCategories = useMemo(() => {
+    const list: string[] = [];
+    categories
+      .filter(c => c.type === 'expense')
+      .forEach(cat => {
+        list.push(cat.name);
+        if (cat.sub && cat.sub.length > 0) {
+          cat.sub.forEach(sub => {
+            list.push(`${cat.name} > ${sub}`);
+          });
+        }
+      });
+    return list.length > 0 ? list : ['其他'];
+  }, [categories]);
+
+  const handleSaveApiKey = () => {
+    localStorage.setItem('gemini_api_key', apiKeyInput.trim());
+    alert('API 金鑰已儲存！');
+  };
+
+  const getApiKey = () => {
+    return import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
+  };
+
+  const handleParseText = async () => {
+    const key = getApiKey().trim();
+    if (!key) {
+      alert('請先設定 Gemini API 金鑰！');
+      return;
+    }
+    if (!rawText.trim()) {
+      alert('請輸入明細文字！');
+      return;
+    }
+
+    setIsParsing(true);
+    try {
+      const categoriesString = expenseCategories.join('\n');
+      const prompt = `你是一個專業的記帳助理。請幫我將這段發票、收據或消費文字，拆分成多個獨立的支出品項。
+
+這段明細的文字是：
+"""
+${rawText}
+"""
+
+可用支出分類清單（請務必只從以下清單中選擇最符合的「主分類 > 子分類」或「主分類」填入，若都不符合請填「其他」）：
+${categoriesString}
+
+請輸出一個標準的 JSON 陣列，不可以包含任何解釋、Markdown格式（如 \`\`\`json）或前導後導文字。格式如下：
+[
+  {
+    "name": "品項名稱",
+    "amount": 100, // 正整數金額
+    "category": "選擇的分類", // 必須是可用支出分類清單中的一項，例如 "飲食 > 晚餐"
+    "isPrepay": false // 如果明細中提到是「幫別人買、家裡代墊、代付、代購、代墊」等，請設為 true，否則為 false
+  }
+]
+
+請注意：
+1. 輸出必須為標準的 JSON 陣列，可以直接被 JSON.parse 解析。
+2. 品項名稱請徹底改善非台灣用語，例如將「視頻」改為「影片」，「屏幕」改為「螢幕」等。`;
+
+      const requestBody = {
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      };
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`API 請求失敗: ${res.status} - ${errText}`);
+      }
+
+      const resJson = await res.json();
+      const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!responseText) {
+        throw new Error('Gemini API 未回傳任何文字結果，請確認金鑰是否正確。');
+      }
+
+      let items = JSON.parse(responseText);
+      if (!Array.isArray(items)) {
+        throw new Error('回傳結果不是合法的陣列結構。');
+      }
+
+      // Filter and clean items
+      items = items.map((item: any) => ({
+        name: filterTaiwanTerms(item.name || '未命名項目'),
+        amount: Math.abs(parseInt(item.amount) || 0),
+        category: expenseCategories.includes(item.category) ? item.category : (expenseCategories[0] || '其他'),
+        isPrepay: !!item.isPrepay
+      }));
+
+      setParsedItems(items);
+      setStep(2);
+    } catch (err: any) {
+      console.error('AI split failed:', err);
+      alert('解析失敗：' + (err.message || '請確認網路連線或 API 金鑰是否正確。'));
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleUpdateItem = (index: number, key: string, value: any) => {
+    setParsedItems(prev => prev.map((item, i) => i === index ? { ...item, [key]: value } : item));
+  };
+
+  const handleDeleteItem = (index: number) => {
+    setParsedItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddItem = () => {
+    setParsedItems(prev => [
+      ...prev,
+      {
+        name: '新項目',
+        amount: 0,
+        category: expenseCategories[0] || '其他',
+        isPrepay: false
+      }
+    ]);
+  };
+
+  const { personalExpenses, prepayTotal, totalDeduction } = useMemo(() => {
+    let prepay = 0;
+    const personalMap: Record<string, number> = {};
+    
+    parsedItems.forEach(item => {
+      if (item.isPrepay) {
+        prepay += item.amount;
+      } else {
+        const cat = item.category.split(' > ')[0] || '其他';
+        personalMap[cat] = (personalMap[cat] || 0) + item.amount;
+      }
+    });
+
+    const total = parsedItems.reduce((sum, item) => sum + item.amount, 0);
+    const personalSummary = Object.entries(personalMap)
+      .map(([cat, amt]) => `${cat}: $${amt.toLocaleString()}`)
+      .join(' | ');
+
+    return {
+      personalExpenses: personalSummary,
+      prepayTotal: prepay,
+      totalDeduction: total
+    };
+  }, [parsedItems]);
+
+  const handleConfirmSave = async () => {
+    if (parsedItems.length === 0) {
+      alert('無可儲存的明細品項！');
+      return;
+    }
+
+    const confirm = window.confirm(`確認要將這 ${parsedItems.length} 筆項目儲存並入帳嗎？\n總扣款金額為 NT$ ${totalDeduction.toLocaleString()}`);
+    if (!confirm) return;
+
+    setIsSaving(true);
+    try {
+      const recordsToSave = parsedItems.map(item => ({
+        amount: -item.amount, // Expense is negative
+        category: filterTaiwanTerms(item.category),
+        note: filterTaiwanTerms(item.name),
+        date: transactionDate,
+        postingDate: transactionDate,
+        type: 'expense' as const,
+        accountId: selectedAccountId,
+        isPrepay: item.isPrepay
+      }));
+
+      await onSaveBatch(recordsToSave);
+      onClose();
+    } catch (err: any) {
+      console.error('Batch save failed:', err);
+      alert('儲存失敗：' + (err.message || '未知錯誤'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-[#FFF9E3] rounded-[40px] w-full max-w-lg shadow-2xl relative flex flex-col max-h-[90vh] overflow-hidden"
+        style={getFontFamily()}
+      >
+        {/* Header */}
+        <div className="px-6 py-6 pb-4 flex items-center justify-between border-b border-[#5D4037]/10 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 bg-white rounded-2xl flex items-center justify-center shadow-sm flex-shrink-0">
+              <Sparkles size={18} className="text-[#0369A1]" />
+            </div>
+            <h3 className="text-lg font-black text-[#5D4037]" style={getFontFamily()}>AI 智慧明細拆分工具</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-[#5D4037] hover:bg-black/5 rounded-full"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 custom-scrollbar">
+          {step === 1 ? (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] font-bold text-[#5D4037]/70 uppercase ml-1">1. 貼上發票或明細文字</label>
+                <textarea
+                  value={rawText}
+                  onChange={e => setRawText(e.target.value)}
+                  placeholder="請在此貼上整筆發票品項、LINE 或網購明細文字。&#10;例如：&#10;7-11 購買清單：&#10;- 美式咖啡 45 元&#10;- 雞肉沙拉 65 元 (代墊)&#10;- 面紙 30 元"
+                  className="w-full h-40 p-4 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F] transition-all resize-none"
+                  style={getFontFamily()}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-bold text-[#5D4037]/70 uppercase ml-1">2. 扣款帳戶</label>
+                  <select
+                    value={selectedAccountId}
+                    onChange={e => setSelectedAccountId(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F]"
+                    style={getFontFamily()}
+                  >
+                    {accounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>{acc.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[12px] font-bold text-[#5D4037]/70 uppercase ml-1">3. 交易日期</label>
+                  <input
+                    type="date"
+                    value={transactionDate}
+                    onChange={e => setTransactionDate(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F]"
+                    style={getFontFamily()}
+                  />
+                </div>
+              </div>
+
+              {/* API Key Setup */}
+              {!import.meta.env.VITE_GEMINI_API_KEY && (
+                <div className="bg-[#5D4037]/5 p-4 rounded-3xl space-y-2 border border-[#5D4037]/10">
+                  <label className="text-[11px] font-bold text-[#5D4037]/70 uppercase tracking-wide block ml-1">Gemini API 金鑰設定</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={apiKeyInput}
+                      onChange={e => setApiKeyInput(e.target.value)}
+                      placeholder="輸入 AI 金鑰 (API Key)"
+                      className="flex-1 px-3 py-2 bg-white border border-[#5D4037]/10 rounded-xl text-xs font-bold text-[#5D4037] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveApiKey}
+                      className="px-4 py-2 bg-[#5D4037] text-white rounded-xl text-xs font-bold active:scale-95 transition-all"
+                    >
+                      儲存
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-stone-400 font-bold ml-1">金鑰僅會儲存在您的本機瀏覽器，不會外流。</p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleParseText}
+                disabled={isParsing || !rawText.trim()}
+                className="w-full py-4 bg-[#5D4037] text-white rounded-2xl font-black text-base shadow-lg active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isParsing ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    AI 智慧解析中...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={18} />
+                    開始 AI 智慧拆分
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center px-1">
+                <span className="text-[12px] font-bold text-[#5D4037]/70">4. 逐筆核對與分類</span>
+                <button
+                  type="button"
+                  onClick={handleAddItem}
+                  className="px-3 py-1 bg-white hover:bg-stone-50 border border-[#5D4037]/20 rounded-xl text-xs font-bold text-[#5D4037] active:scale-95 transition-all"
+                >
+                  ＋ 新增項目
+                </button>
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1 custom-scrollbar">
+                {parsedItems.map((item, index) => (
+                  <div
+                    key={index}
+                    className="bg-white/70 p-3.5 rounded-2xl border border-[#5D4037]/10 flex flex-col gap-3 shadow-sm relative group animate-fade-in"
+                  >
+                    {/* Delete item button */}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteItem(index)}
+                      className="absolute top-2.5 right-2.5 p-1 text-stone-300 hover:text-rose-500 rounded-full transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+
+                    <div className="grid grid-cols-5 gap-2 pr-6">
+                      {/* Name */}
+                      <div className="col-span-3 flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-stone-400">品項名稱</label>
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={e => handleUpdateItem(index, 'name', e.target.value)}
+                          className="w-full px-2 py-1.5 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none"
+                        />
+                      </div>
+                      {/* Amount */}
+                      <div className="col-span-2 flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-stone-400">金額</label>
+                        <input
+                          type="number"
+                          value={item.amount}
+                          onChange={e => handleUpdateItem(index, 'amount', parseInt(e.target.value) || 0)}
+                          className="w-full px-2 py-1.5 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 border-t border-stone-100 pt-2.5">
+                      {/* Category select */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-bold text-stone-400">分類：</span>
+                        <select
+                          value={item.category}
+                          onChange={e => handleUpdateItem(index, 'category', e.target.value)}
+                          className="bg-white border border-stone-200 rounded-xl px-2.5 py-1 text-xs font-bold text-[#5D4037] outline-none"
+                          style={getFontFamily()}
+                        >
+                          {expenseCategories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Attributable Prepay Switch */}
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateItem(index, 'isPrepay', !item.isPrepay)}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-[10px] transition-all border ${
+                          item.isPrepay
+                            ? 'bg-sky-50 border-sky-200 text-sky-700 shadow-sm font-black'
+                            : 'bg-stone-50 border-stone-100 text-stone-400'
+                        }`}
+                      >
+                        {item.isPrepay ? '家裡代墊' : '自己的支出'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bottom Live Summary Card */}
+              <div className="bg-[#5D4037]/5 p-4 rounded-3xl space-y-2 border border-[#5D4037]/10 text-xs text-[#5D4037]">
+                <div className="flex justify-between items-start gap-3">
+                  <span className="font-bold shrink-0 opacity-60">個人支出分佈:</span>
+                  <span className="font-black text-right truncate max-w-[280px]" title={personalExpenses}>
+                    {personalExpenses || '無'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="font-bold opacity-60">家裡代墊待收總額:</span>
+                  <span className="font-black text-sky-700">NT$ {prepayTotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-[#5D4037]/10 pt-2 font-bold">
+                  <span className="opacity-80">全單總扣款金額:</span>
+                  <span className="text-base font-black text-amber-800">NT$ {totalDeduction.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Step 2 Actions */}
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="py-3 bg-white border border-[#5D4037]/20 text-[#5D4037] rounded-2xl font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                >
+                  重新解析
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSave}
+                  disabled={isSaving || parsedItems.length === 0}
+                  className="col-span-2 py-3 bg-[#5D4037] text-white rounded-2xl font-black text-sm active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-md"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      儲存入帳中...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={16} />
+                      確認入帳
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-3 bg-white/20 text-center border-t border-[#5D4037]/5 flex-shrink-0">
+          <p className="text-[9px] font-bold text-[#5D4037]/30 tracking-widest uppercase">AI Smart Split Tool</p>
+        </div>
+      </motion.div>
+    </div>
   );
 }
