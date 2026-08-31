@@ -654,7 +654,7 @@ const cleanData = (obj: any) => {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar' | 'accountDetail' | 'history' | 'fixedRecords' | 'projects' | 'budget' | 'categories' | 'installments' | 'search'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar' | 'accountDetail' | 'history' | 'fixedRecords' | 'projects' | 'budget' | 'categories' | 'installments' | 'search' | 'prepayments'>('home');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isCategoryActionMenuOpen, setIsCategoryActionMenuOpen] = useState(false);
@@ -2391,6 +2391,11 @@ export default function App() {
                     label="分期付款管理" 
                     onClick={() => { setCurrentView('installments'); setIsDrawerOpen(false); }} 
                   />
+                  <DrawerItem 
+                    icon={<Coins size={20} />} 
+                    label="代墊/待收款清單" 
+                    onClick={() => { setCurrentView('prepayments'); setIsDrawerOpen(false); }} 
+                  />
                   
                   <div className="my-4 border-t border-stone-50" />
                   
@@ -2606,6 +2611,16 @@ export default function App() {
             )}
             {currentView === 'categories' && <CategoryManagementPage categories={categories} onSave={handleUpdateCategories} onBack={() => setCurrentView('home')} />}
             {currentView === 'categoryManage' && <CategoryManagePage categories={categories} onSave={handleUpdateCategories} onBack={() => setCurrentView('categories')} onMoveSubCategory={handleMoveSubCategory} />}
+            {currentView === 'prepayments' && (
+              <PrepaymentsView 
+                records={records}
+                accounts={accounts}
+                projects={projects}
+                categories={categories}
+                onBack={() => setCurrentView('more')}
+                onUpdateRecord={handleUpdateRecord}
+              />
+            )}
             {currentView === 'installments' && (
               <InstallmentManagementPage 
                 records={records} 
@@ -6908,6 +6923,27 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                 <ChevronRight size={18} className="text-stone-300" />
               </div>
             </div>
+
+            {/* Prepayment (代墊) Section */}
+            {edited.type === 'expense' && (
+              <div className="space-y-4 bg-white/50 p-4 rounded-2xl border border-stone-200/50 shadow-sm" style={getFontFamily()}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[15px] font-bold text-[#5D4037] flex items-center gap-1">
+                    🔹 代墊 / 不計入個人支出
+                  </span>
+                  <button 
+                    type="button"
+                    onClick={() => setEdited({ ...edited, isPrepay: !edited.isPrepay })}
+                    className={`w-12 h-6 rounded-full transition-all relative ${edited.isPrepay ? 'bg-sky-500' : 'bg-stone-200'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${edited.isPrepay ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+                <div className="text-[10px] font-bold text-stone-400 leading-snug">
+                  開啟後，此款項將標記為「家裡代墊」，會扣除帳戶餘額但不計入個人消費與預算扣額。
+                </div>
+              </div>
+            )}
 
             {/* Installment Section */}
             {edited.type === 'expense' && (
@@ -11756,11 +11792,11 @@ function ReportsView({ records, projects, categories }: {
     });
 
     const income = periodRecords.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0);
-    const expense = periodRecords.filter(r => r.type === 'expense').reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
+    const expense = periodRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
     
     // Category Pie Data
     const catMap: Record<string, number> = {};
-    periodRecords.filter(r => r.type === 'expense').forEach(r => {
+    periodRecords.filter(r => r.type === 'expense' && !r.isPrepay).forEach(r => {
       const cat = r.category.split(' > ')[0];
       catMap[cat] = (catMap[cat] || 0) + (Math.abs(r.amount) + (r.fee || 0));
     });
@@ -11778,7 +11814,7 @@ function ReportsView({ records, projects, categories }: {
         name: format(m, 'MMM'),
         fullName: format(m, 'yyyy/MM'),
         income: mRecords.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
-        expense: mRecords.filter(r => r.type === 'expense').reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0),
+        expense: mRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0),
       };
     });
 
@@ -16381,6 +16417,120 @@ const filterTaiwanTerms = (text: string): string => {
     .replace(/保存/g, '儲存')
     .replace(/開小差/g, '分心');
 };
+
+function PrepaymentsView({ 
+  records, 
+  accounts, 
+  projects,
+  categories, 
+  onBack, 
+  onUpdateRecord 
+}: { 
+  records: Transaction[], 
+  accounts: Account[], 
+  projects: Project[],
+  categories: Category[], 
+  onBack: () => void,
+  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction) => void
+}) {
+  const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
+
+  // Filter prepay transactions
+  const prepayRecords = useMemo(() => {
+    return records.filter(r => r.isPrepay === true).sort((a, b) => b.date.localeCompare(a.date));
+  }, [records]);
+
+  const totalReceivable = useMemo(() => {
+    return prepayRecords.reduce((sum, r) => sum + Math.abs(r.amount), 0);
+  }, [prepayRecords]);
+
+  return (
+    <div className="flex flex-col gap-4 px-4 py-6 min-h-full pb-24 overflow-y-auto w-full max-w-md mx-auto" style={getFontFamily()}>
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-2 flex-shrink-0">
+        <button onClick={onBack} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+          <ChevronLeft className="w-6 h-6 text-[#5D4037]" />
+        </button>
+        <h3 className="text-xl font-black text-[#5D4037]" style={getFontFamily()}>代墊 / 待收款清單</h3>
+      </div>
+
+      {/* Summary Card */}
+      <div className="bg-gradient-to-r from-sky-400 to-sky-600 rounded-[30px] p-6 text-white shadow-lg flex flex-col gap-2">
+        <span className="text-xs font-bold opacity-80">代墊待收總額</span>
+        <span className="text-3xl font-black">NT$ {totalReceivable.toLocaleString()}</span>
+        <div className="flex justify-between items-center mt-2 border-t border-white/20 pt-2 text-xs opacity-90">
+          <span>待收筆數：</span>
+          <span className="font-black">{prepayRecords.length} 筆</span>
+        </div>
+      </div>
+
+      {/* Prepay List */}
+      <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-4">
+        <span className="font-black text-sm text-[#5D4037] mb-2 block">待收明細</span>
+        {prepayRecords.length > 0 ? (
+          <div className="space-y-4">
+            {prepayRecords.map(r => {
+              const accName = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
+              return (
+                <div 
+                  key={r.id}
+                  onClick={() => setEditingRecord(r)}
+                  className="flex items-center gap-4 py-3 border-b border-stone-50 last:border-0 cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
+                >
+                  <div className="w-12 h-12 bg-sky-50 rounded-xl flex-shrink-0 flex items-center justify-center text-xl shadow-sm border border-white">
+                    {getCategoryIcon(r.category, r.type, categories)}
+                  </div>
+                  
+                  <div className="flex-1 min-w-0 flex flex-col gap-1">
+                    <span className="font-black text-[#5D4037] truncate">{r.note || '未命名明細'}</span>
+                    <div className="flex items-center gap-1.5 text-[10px] text-stone-400 font-bold">
+                      <span>{r.date}</span>
+                      <span>•</span>
+                      <span>{accName}</span>
+                      <span>•</span>
+                      <span>{r.category}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <span className="font-black text-sky-600 text-base">
+                      $ {Math.abs(r.amount).toLocaleString()}
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.5 bg-sky-50 text-sky-600 rounded-full font-bold border border-sky-100">
+                      待收
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-10 text-stone-300 font-bold text-sm">
+            目前無任何代墊待收款項 🎉
+          </div>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {editingRecord && (
+          <EditRecordModal 
+            record={editingRecord}
+            accounts={accounts}
+            projects={projects}
+            onClose={() => setEditingRecord(null)}
+            onSave={(updated) => {
+              onUpdateRecord(editingRecord, updated);
+              setEditingRecord(null);
+            }}
+            onDelete={() => {
+              setEditingRecord(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 interface AiSplitModalProps {
   isOpen: boolean;
