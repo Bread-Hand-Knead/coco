@@ -16478,8 +16478,14 @@ function PrepaymentsView({
   }, [records]);
 
   const totalReceivable = useMemo(() => {
-    return prepayRecords.reduce((sum, r) => sum + Math.abs(r.amount), 0);
-  }, [prepayRecords]);
+    return records
+      .filter(r => r.isPrepay === true && r.type === 'expense' && !r.isSettled)
+      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+  }, [records]);
+
+  const pendingCount = useMemo(() => {
+    return records.filter(r => r.isPrepay === true && r.type === 'expense' && !r.isSettled).length;
+  }, [records]);
 
   return (
     <div className="flex flex-col gap-4 px-4 py-6 min-h-full pb-24 overflow-y-auto w-full max-w-md mx-auto" style={getFontFamily()}>
@@ -16497,7 +16503,7 @@ function PrepaymentsView({
         <span className="text-3xl font-black">NT$ {totalReceivable.toLocaleString()}</span>
         <div className="flex justify-between items-center mt-2 border-t border-white/20 pt-2 text-xs opacity-90">
           <span>待收筆數：</span>
-          <span className="font-black">{prepayRecords.length} 筆</span>
+          <span className="font-black">{pendingCount} 筆</span>
         </div>
       </div>
 
@@ -16508,18 +16514,19 @@ function PrepaymentsView({
           <div className="space-y-4">
             {prepayRecords.map(r => {
               const accName = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
+              const isSettled = r.isSettled === true || r.type === 'income';
               return (
                 <div 
                   key={r.id}
                   onClick={() => setEditingRecord(r)}
-                  className="flex items-center gap-4 py-3 border-b border-stone-50 last:border-0 cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
+                  className={`flex items-center gap-4 py-3 border-b border-stone-50 last:border-0 cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-all duration-300 ${isSettled ? 'opacity-50 bg-stone-100/40' : ''}`}
                 >
-                  <div className="w-12 h-12 bg-sky-50 rounded-xl flex-shrink-0 flex items-center justify-center text-xl shadow-sm border border-white">
+                  <div className={`w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center text-xl shadow-sm border border-white ${isSettled ? 'bg-stone-100 opacity-60' : 'bg-sky-50'}`}>
                     {getCategoryIcon(r.category, r.type, categories)}
                   </div>
                   
                   <div className="flex-1 min-w-0 flex flex-col gap-1">
-                    <span className="font-black text-[#5D4037] truncate">{r.note || '未命名明細'}</span>
+                    <span className={`font-black text-[#5D4037] truncate ${isSettled ? 'line-through text-stone-400' : ''}`}>{r.note || '未命名明細'}</span>
                     <div className="flex items-center gap-1.5 text-[10px] text-stone-400 font-bold">
                       <span>{r.date}</span>
                       <span>•</span>
@@ -16530,12 +16537,25 @@ function PrepaymentsView({
                   </div>
 
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <span className="font-black text-sky-600 text-base">
-                      $ {Math.abs(r.amount).toLocaleString()}
+                    <span className={`font-black text-base ${isSettled ? 'line-through text-stone-400 font-bold' : (r.type === 'income' ? 'text-teal-600' : 'text-sky-600')}`}>
+                      {r.type === 'income' ? '+' : ''}$ {Math.abs(r.amount).toLocaleString()}
                     </span>
-                    <span className="text-[9px] px-1.5 py-0.5 bg-sky-50 text-sky-600 rounded-full font-bold border border-sky-100">
-                      待收
-                    </span>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (r.type === 'expense') {
+                          onUpdateRecord(r, { ...r, isSettled: !r.isSettled });
+                        }
+                      }}
+                      disabled={r.type === 'income'}
+                      className={`text-[9px] px-2 py-0.5 rounded-full font-bold border transition-all active:scale-95 ${
+                        isSettled 
+                          ? 'bg-stone-100 text-stone-400 border-stone-200' 
+                          : 'bg-sky-50 text-sky-600 border-sky-100 hover:bg-sky-100'
+                      } ${r.type === 'income' ? 'cursor-default' : ''}`}
+                    >
+                      {r.type === 'income' ? '已沖銷' : (isSettled ? '已結清' : '待收')}
+                    </button>
                   </div>
                 </div>
               );

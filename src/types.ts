@@ -24,6 +24,7 @@ export interface Transaction {
   fee?: number;
   transferredDate?: string;
   isPrepay?: boolean;
+  isSettled?: boolean;
 }
 
 export interface Account {
