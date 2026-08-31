@@ -5487,13 +5487,27 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const merged = getMergedRecords(raw, accounts);
     
     return merged.sort((a, b) => {
-      const dateDiff = b.date.localeCompare(a.date);
-      if (dateDiff !== 0) return dateDiff;
-      const timeA = a.time || '00:00';
-      const timeB = b.time || '00:00';
-      const timeDiff = timeB.localeCompare(timeA);
-      if (timeDiff !== 0) return timeDiff;
-      return b.amount - a.amount;
+      if (sortMode === 'date-desc') {
+        const tsA = getTimestamp(a.date, a.time);
+        const tsB = getTimestamp(b.date, b.time);
+        if (tsB !== tsA) return tsB - tsA;
+        return b.amount - a.amount;
+      } else if (sortMode === 'date-asc') {
+        const tsA = getTimestamp(a.date, a.time);
+        const tsB = getTimestamp(b.date, b.time);
+        if (tsA !== tsB) return tsA - tsB;
+        return a.amount - b.amount;
+      } else if (sortMode === 'posting-desc') {
+        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        if (ptsB !== ptsA) return ptsB - ptsA;
+        return b.amount - a.amount;
+      } else { // 'posting-asc'
+        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        if (ptsA !== ptsB) return ptsA - ptsB;
+        return a.amount - b.amount;
+      }
     });
   }, [records, accounts, dateRangeStrings.filter, targetIds, sortMode]);
 
@@ -5512,36 +5526,24 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       const sortedNormals = [...accountRecords];
       sortedNormals.sort((a, b) => {
         if (sortMode === 'date-desc') {
-          const diff = b.date.localeCompare(a.date);
-          if (diff !== 0) return diff;
-          const timeA = a.time || '00:00';
-          const timeB = b.time || '00:00';
-          const timeDiff = timeB.localeCompare(timeA);
-          if (timeDiff !== 0) return timeDiff;
+          const tsA = getTimestamp(a.date, a.time);
+          const tsB = getTimestamp(b.date, b.time);
+          if (tsB !== tsA) return tsB - tsA;
           return b.amount - a.amount;
         } else if (sortMode === 'date-asc') {
-          const diff = a.date.localeCompare(b.date);
-          if (diff !== 0) return diff;
-          const timeA = a.time || '00:00';
-          const timeB = b.time || '00:00';
-          const timeDiff = timeA.localeCompare(timeB);
-          if (timeDiff !== 0) return timeDiff;
+          const tsA = getTimestamp(a.date, a.time);
+          const tsB = getTimestamp(b.date, b.time);
+          if (tsA !== tsB) return tsA - tsB;
           return a.amount - b.amount;
         } else if (sortMode === 'posting-desc') {
-          const diff = (b.postingDate || b.date).localeCompare(a.postingDate || a.date);
-          if (diff !== 0) return diff;
-          const timeA = a.time || '00:00';
-          const timeB = b.time || '00:00';
-          const timeDiff = timeB.localeCompare(timeA);
-          if (timeDiff !== 0) return timeDiff;
+          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+          if (ptsB !== ptsA) return ptsB - ptsA;
           return b.amount - a.amount;
         } else { // 'posting-asc'
-          const diff = (a.postingDate || a.date).localeCompare(b.postingDate || b.date);
-          if (diff !== 0) return diff;
-          const timeA = a.time || '00:00';
-          const timeB = b.time || '00:00';
-          const timeDiff = timeA.localeCompare(timeB);
-          if (timeDiff !== 0) return timeDiff;
+          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+          if (ptsA !== ptsB) return ptsA - ptsB;
           return a.amount - b.amount;
         }
       });
@@ -5572,36 +5574,24 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     // Apply sortMode to normalRecords
     normalRecords.sort((a, b) => {
       if (sortMode === 'date-desc') {
-        const diff = b.date.localeCompare(a.date);
-        if (diff !== 0) return diff;
-        const timeA = a.time || '00:00';
-        const timeB = b.time || '00:00';
-        const timeDiff = timeB.localeCompare(timeA);
-        if (timeDiff !== 0) return timeDiff;
+        const tsA = getTimestamp(a.date, a.time);
+        const tsB = getTimestamp(b.date, b.time);
+        if (tsB !== tsA) return tsB - tsA;
         return b.amount - a.amount;
       } else if (sortMode === 'date-asc') {
-        const diff = a.date.localeCompare(b.date);
-        if (diff !== 0) return diff;
-        const timeA = a.time || '00:00';
-        const timeB = b.time || '00:00';
-        const timeDiff = timeA.localeCompare(timeB);
-        if (timeDiff !== 0) return timeDiff;
+        const tsA = getTimestamp(a.date, a.time);
+        const tsB = getTimestamp(b.date, b.time);
+        if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
       } else if (sortMode === 'posting-desc') {
-        const diff = (b.postingDate || b.date).localeCompare(a.postingDate || a.date);
-        if (diff !== 0) return diff;
-        const timeA = a.time || '00:00';
-        const timeB = b.time || '00:00';
-        const timeDiff = timeB.localeCompare(timeA);
-        if (timeDiff !== 0) return timeDiff;
+        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        if (ptsB !== ptsA) return ptsB - ptsA;
         return b.amount - a.amount;
       } else { // 'posting-asc'
-        const diff = (a.postingDate || a.date).localeCompare(b.postingDate || b.date);
-        if (diff !== 0) return diff;
-        const timeA = a.time || '00:00';
-        const timeB = b.time || '00:00';
-        const timeDiff = timeA.localeCompare(timeB);
-        if (timeDiff !== 0) return timeDiff;
+        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        if (ptsA !== ptsB) return ptsA - ptsB;
         return a.amount - b.amount;
       }
     });
@@ -5777,17 +5767,25 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const statementList = Object.values(groups).map(g => {
       const sortedRecords = getMergedRecords(g.records, accounts).sort((a, b) => {
         if (sortMode === 'date-desc') {
-          const diff = b.date.localeCompare(a.date);
-          return diff !== 0 ? diff : b.amount - a.amount;
+          const tsA = getTimestamp(a.date, a.time);
+          const tsB = getTimestamp(b.date, b.time);
+          if (tsB !== tsA) return tsB - tsA;
+          return b.amount - a.amount;
         } else if (sortMode === 'date-asc') {
-          const diff = a.date.localeCompare(b.date);
-          return diff !== 0 ? diff : a.amount - b.amount;
+          const tsA = getTimestamp(a.date, a.time);
+          const tsB = getTimestamp(b.date, b.time);
+          if (tsA !== tsB) return tsA - tsB;
+          return a.amount - b.amount;
         } else if (sortMode === 'posting-desc') {
-          const diff = (b.postingDate || b.date).localeCompare(a.postingDate || a.date);
-          return diff !== 0 ? diff : b.amount - a.amount;
+          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+          if (ptsB !== ptsA) return ptsB - ptsA;
+          return b.amount - a.amount;
         } else { // 'posting-asc'
-          const diff = (a.postingDate || a.date).localeCompare(b.postingDate || b.date);
-          return diff !== 0 ? diff : a.amount - b.amount;
+          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+          if (ptsA !== ptsB) return ptsA - ptsB;
+          return a.amount - b.amount;
         }
       });
 
@@ -6924,23 +6922,25 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
               </div>
             </div>
 
-            {/* Prepayment (代墊) Section */}
-            {edited.type === 'expense' && (
+            {/* Prepayment / Receivable (代墊 / 代收款) Section */}
+            {(edited.type === 'expense' || edited.type === 'income') && (
               <div className="space-y-4 bg-white/50 p-4 rounded-2xl border border-stone-200/50 shadow-sm" style={getFontFamily()}>
                 <div className="flex items-center justify-between">
                   <span className="text-[15px] font-bold text-[#5D4037] flex items-center gap-1">
-                    🔹 代墊 / 不計入個人支出
+                    {edited.type === 'expense' ? '🔹 代墊 / 不計入個人支出' : '🔹 代收款 / 代墊款收回 (不計入個人收入)'}
                   </span>
                   <button 
                     type="button"
                     onClick={() => setEdited({ ...edited, isPrepay: !edited.isPrepay })}
-                    className={`w-12 h-6 rounded-full transition-all relative ${edited.isPrepay ? 'bg-sky-500' : 'bg-stone-200'}`}
+                    className={`w-12 h-6 rounded-full transition-all relative ${edited.isPrepay ? (edited.type === 'expense' ? 'bg-sky-500' : 'bg-teal-500') : 'bg-stone-200'}`}
                   >
                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${edited.isPrepay ? 'left-7' : 'left-1'}`} />
                   </button>
                 </div>
                 <div className="text-[10px] font-bold text-stone-400 leading-snug">
-                  開啟後，此款項將標記為「家裡代墊」，會扣除帳戶餘額但不計入個人消費與預算扣額。
+                  {edited.type === 'expense' 
+                    ? '開啟後，此款項將標記為「家裡代墊」，會扣除帳戶餘額但不計入個人消費與預算扣額。' 
+                    : '開啟後，此款項將標記為「代收款收回」，會增加帳戶餘額但不計入個人總收入。'}
                 </div>
               </div>
             )}
@@ -7835,8 +7835,9 @@ function SearchView({
     );
     const merged = getMergedRecords(raw, accounts);
     return merged.sort((a, b) => {
-      const dateDiff = b.date.localeCompare(a.date);
-      if (dateDiff !== 0) return dateDiff;
+      const tsA = getTimestamp(a.date, a.time);
+      const tsB = getTimestamp(b.date, b.time);
+      if (tsB !== tsA) return tsB - tsA;
       return b.amount - a.amount;
     });
   }, [records, searchQuery, accounts]);
@@ -7974,8 +7975,8 @@ function CalendarView({ records, accounts, categories, onBack }: { records: Tran
   
   const dayStats = useMemo(() => {
     return {
-      income: dayRecords.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
-      expense: dayRecords.filter(r => r.type === 'expense').reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0)
+      income: dayRecords.filter(r => r.type === 'income' && !r.isPrepay).reduce((s, r) => s + Math.abs(r.amount), 0),
+      expense: dayRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0)
     };
   }, [dayRecords]);
 
@@ -10560,8 +10561,8 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
       return allIds.includes(r.projectId || '');
     });
 
-    const expense = targetRecords.filter(r => r.type === 'expense').reduce((sum, r) => sum + (r.amount + (r.fee || 0)), 0);
-    const income = targetRecords.filter(r => r.type === 'income').reduce((sum, r) => sum + r.amount, 0);
+    const expense = targetRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((sum, r) => sum + (r.amount + (r.fee || 0)), 0);
+    const income = targetRecords.filter(r => r.type === 'income' && !r.isPrepay).reduce((sum, r) => sum + r.amount, 0);
     return { expense, income };
   };
 
@@ -10694,19 +10695,16 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
     });
     const merged = getMergedRecords(raw, accounts);
     return merged.sort((a, b) => {
-      const dateDiff = b.date.localeCompare(a.date);
-      if (dateDiff !== 0) return dateDiff;
-      const timeA = a.time || '00:00';
-      const timeB = b.time || '00:00';
-      const timeDiff = timeB.localeCompare(timeA);
-      if (timeDiff !== 0) return timeDiff;
+      const tsA = getTimestamp(a.date, a.time);
+      const tsB = getTimestamp(b.date, b.time);
+      if (tsB !== tsA) return tsB - tsA;
       return b.id.localeCompare(a.id);
     });
   }, [records, project, currentMonth, accounts]);
 
   const balance = useMemo(() => {
     const expense = filteredRecords.filter(r => r.type === 'expense' && r.postingDate && !r.isPrepay).reduce((sum, r) => sum + Math.abs(r.amount), 0);
-    const income = filteredRecords.filter(r => r.type === 'income' && r.postingDate).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+    const income = filteredRecords.filter(r => r.type === 'income' && r.postingDate && !r.isPrepay).reduce((sum, r) => sum + Math.abs(r.amount), 0);
     return income - expense;
   }, [filteredRecords]);
 
@@ -11570,8 +11568,9 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
     const merged = getMergedRecords(raw, accounts);
 
     return merged.sort((a, b) => {
-      const dateDiff = b.date.localeCompare(a.date);
-      if (dateDiff !== 0) return dateDiff;
+      const tsA = getTimestamp(a.date, a.time);
+      const tsB = getTimestamp(b.date, b.time);
+      if (tsB !== tsA) return tsB - tsA;
       return b.amount - a.amount;
     });
   }, [records, filter, currencyMode, accounts]);
@@ -11791,7 +11790,7 @@ function ReportsView({ records, projects, categories }: {
       return d >= dateInterval.start && d <= dateInterval.end;
     });
 
-    const income = periodRecords.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0);
+    const income = periodRecords.filter(r => r.type === 'income' && !r.isPrepay).reduce((s, r) => s + Math.abs(r.amount), 0);
     const expense = periodRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
     
     // Category Pie Data
@@ -11813,7 +11812,7 @@ function ReportsView({ records, projects, categories }: {
       return {
         name: format(m, 'MMM'),
         fullName: format(m, 'yyyy/MM'),
-        income: mRecords.filter(r => r.type === 'income').reduce((s, r) => s + Math.abs(r.amount), 0),
+        income: mRecords.filter(r => r.type === 'income' && !r.isPrepay).reduce((s, r) => s + Math.abs(r.amount), 0),
         expense: mRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0),
       };
     });
@@ -14531,6 +14530,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const [exchangeRate, setExchangeRate] = useState('1');
   const [toAmount, setToAmount] = useState('0');
   const [isInstallment, setIsInstallment] = useState(false);
+  const [isPrepay, setIsPrepay] = useState(false);
   const [totalInstallments, setTotalInstallments] = useState(1);
   const [showCalculator, setShowCalculator] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
@@ -15214,6 +15214,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       postingDate: isPending ? undefined : postingDate,
       isPending: isPending,
       isInstallment,
+      isPrepay: (tab === 'expense' || tab === 'income') ? isPrepay : undefined,
       totalInstallments: isInstallment ? totalInstallments : undefined,
       projectId: selectedProjectId !== 'p1' ? selectedProjectId : undefined,
       currency
@@ -15226,6 +15227,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setMainCategory(null);
     setSubCategory(null);
     setIsInstallment(false);
+    setIsPrepay(false);
     setTotalInstallments(1);
     setConsumptionDate(selectedDate);
     setPostingDate(selectedDate);
@@ -15291,6 +15293,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         postingDate: isPending ? undefined : postingDate,
         isPending: isPending,
         isInstallment,
+        isPrepay: (tab === 'expense' || tab === 'income') ? isPrepay : undefined,
         totalInstallments: isInstallment ? totalInstallments : undefined,
         projectId: selectedProjectId !== 'p1' ? selectedProjectId : undefined,
         currency
@@ -15876,6 +15879,29 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                   />
                 </div>
 
+                {/* Prepayment / Receivable (代墊 / 代收款) Section */}
+                {(tab === 'expense' || tab === 'income') && (
+                  <div className="space-y-4 bg-white/50 p-4 rounded-2xl border-2 border-white shadow-sm" style={getFontFamily()}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[15px] font-bold text-[#5D4037] flex items-center gap-1">
+                        {tab === 'expense' ? '🔹 代墊 / 不計入個人支出' : '🔹 代收款 / 代墊款收回 (不計入個人收入)'}
+                      </span>
+                      <button 
+                        type="button"
+                        onClick={() => setIsPrepay(!isPrepay)}
+                        className={`w-12 h-6 rounded-full transition-all relative ${isPrepay ? (tab === 'expense' ? 'bg-sky-500' : 'bg-teal-500') : 'bg-stone-200'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isPrepay ? 'left-7' : 'left-1'}`} />
+                      </button>
+                    </div>
+                    <div className="text-[10px] font-bold text-stone-400 leading-snug">
+                      {tab === 'expense' 
+                        ? '開啟後，此款項將標記為「家裡代墊」，會扣除帳戶餘額但不計入個人消費與預算扣額。' 
+                        : '開啟後，此款項將標記為「代收款收回」，會增加帳戶餘額但不計入個人總收入。'}
+                    </div>
+                  </div>
+                )}
+
                 {/* Installment Section */}
                 {tab === 'expense' && (
                   <div className="space-y-4 bg-white/50 p-4 rounded-2xl border-2 border-white shadow-sm">
@@ -16418,6 +16444,17 @@ const filterTaiwanTerms = (text: string): string => {
     .replace(/開小差/g, '分心');
 };
 
+const getTimestamp = (dateStr: string, timeStr?: string): number => {
+  if (!dateStr) return 0;
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const time = timeStr && timeStr.trim() ? timeStr : '00:00:00';
+  const parts = time.split(':').map(Number);
+  const hour = parts[0] || 0;
+  const minute = parts[1] || 0;
+  const second = parts[2] || 0;
+  return new Date(year, month - 1, day, hour, minute, second).getTime();
+};
+
 function PrepaymentsView({ 
   records, 
   accounts, 
@@ -16623,7 +16660,7 @@ ${categoriesString}
         }
       };
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
