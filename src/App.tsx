@@ -2891,6 +2891,7 @@ interface AccountSelectorProps {
   expandedState: { [key: string]: boolean };
   setExpandedState: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>;
   keyPrefix: string;
+  currentTab?: string;
 }
 
 function AccountSelector({
@@ -2900,8 +2901,10 @@ function AccountSelector({
   onSelect,
   expandedState,
   setExpandedState,
-  keyPrefix
+  keyPrefix,
+  currentTab
 }: AccountSelectorProps) {
+  const [subTabState, setSubTabState] = useState<{ [bankName: string]: 'bank' | 'credit' }>({});
   const { groupedList, singleList } = getGroupedAndUngrouped(accounts);
 
   // 判斷帳戶是否為父層母帳戶（即是否有其他帳戶以它為 parentId）
@@ -3014,7 +3017,17 @@ function AccountSelector({
       {finalGrouped.map(group => {
         const isExpanded = !!expandedState[group.bankName];
         if (!isExpanded) return null;
+        
         const activeSub = group.accounts.find(a => a.id === currentSelectedId);
+        const bankAccounts = group.accounts.filter(a => a.type !== 'credit');
+        const creditCards = group.accounts.filter(a => a.type === 'credit');
+
+        // Smart default tab calculation
+        const defaultSubTab = activeSub 
+          ? (activeSub.type === 'credit' ? 'credit' : 'bank')
+          : (currentTab === 'income' ? 'bank' : (creditCards.length > 0 ? 'credit' : 'bank'));
+        const activeSubTab = subTabState[group.bankName] || defaultSubTab;
+        const displayedAccounts = activeSubTab === 'credit' ? creditCards : bankAccounts;
 
         return (
           <div 
@@ -14634,7 +14647,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     onSelect: (id: string) => void, 
     expandedState: { [key: string]: boolean }, 
     setExpandedState: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>,
-    keyPrefix: string
+    keyPrefix: string,
+    currentTabMode?: string
   ) => {
     return (
       <AccountSelector 
@@ -14645,6 +14659,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         expandedState={expandedState}
         setExpandedState={setExpandedState}
         keyPrefix={keyPrefix}
+        currentTab={currentTabMode || tab}
       />
     );
   };
@@ -15757,59 +15772,69 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
                     animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
                     exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-                    className="bg-[#FFFDF5] p-3 pb-4 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3 w-full" 
+                    className="bg-[#FFFDF5] p-3.5 pb-3.5 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3.5 w-full" 
                     style={getFontFamily()}
                   >
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
-                          <CalendarIcon size={10} /> 消費日
+                    {/* Row 1: 消費日 (50%) + 時間 (50%) */}
+                    <div className="grid grid-cols-2 gap-3 w-full">
+                      <div className="flex flex-col gap-1 w-full min-w-0">
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
+                          <CalendarIcon size={12} className="text-[#FFD54F]" /> 消費日
                         </label>
                         <input 
                           type="date"
                           value={consumptionDate}
                           onChange={e => setConsumptionDate(e.target.value)}
-                          className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                          className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                          style={getFontFamily()}
                         />
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
-                          <Clock size={10} /> 時間
+                      <div className="flex flex-col gap-1 w-full min-w-0">
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
+                          <Clock size={12} className="text-[#FFD54F]" /> 時間
                         </label>
                         <input 
                           type="time"
                           value={consumptionTime}
                           onChange={e => setConsumptionTime(e.target.value)}
-                          className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                          className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                          style={getFontFamily()}
                         />
                       </div>
-                      <div className={`flex flex-col gap-1 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-                        <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
-                          <Banknote size={10} /> 入帳日
+                    </div>
+
+                    {/* Row 2: 左側【入帳日】，右側【完成按鈕】與【待入帳開關】 */}
+                    <div className="flex items-end justify-between gap-3 w-full border-t border-stone-100/80 pt-2.5">
+                      <div className={`flex flex-col gap-1 flex-1 min-w-0 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
+                          <Banknote size={12} className="text-[#FFD54F]" /> 入帳日
                         </label>
                         <input 
                           type="date"
                           value={postingDate}
                           onChange={e => setPostingDate(e.target.value)}
-                          className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                          className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                          style={getFontFamily()}
                         />
                       </div>
-                    </div>
-                    <div className="flex items-center justify-between pl-1">
-                      <button 
-                        onClick={() => setIsDateExpanded(false)}
-                        className="text-[#5D4037] text-[10px] font-bold bg-[#FFD54F] px-3 py-1 rounded-full shadow-sm active:scale-95 transition-all"
-                      >
-                        完成
-                      </button>
-                      <div className="flex items-center gap-2 pr-1">
-                        <span className="text-[10px] font-bold text-stone-400">待入帳</span>
+                      <div className="flex items-center gap-2.5 shrink-0 pb-0.5">
                         <button 
-                          onClick={() => setIsPending(!isPending)}
-                          className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-200'}`}
+                          type="button"
+                          onClick={() => setIsDateExpanded(false)}
+                          className="text-[#5D4037] text-[11px] font-black bg-[#FFD54F] px-3.5 py-1.5 rounded-full shadow-sm active:scale-95 transition-all hover:bg-[#ffe082]"
                         >
-                          <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
+                          完成
                         </button>
+                        <div className="flex items-center gap-1.5 bg-stone-100/60 px-2 py-1 rounded-full border border-stone-200/40">
+                          <span className="text-[10px] font-bold text-stone-500">待入帳</span>
+                          <button 
+                            type="button"
+                            onClick={() => setIsPending(!isPending)}
+                            className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-300'}`}
+                          >
+                            <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </motion.div>
@@ -16376,7 +16401,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     (id) => setEditingTemplate({ ...editingTemplate, fromAccountId: id }),
                     expandedTemplateFromBanks,
                     setExpandedTemplateFromBanks,
-                    'template-from'
+                    'template-from',
+                    editingTemplate.type
                   )}
                 </div>
 
@@ -16389,7 +16415,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                       (id) => setEditingTemplate({ ...editingTemplate, toAccountId: id }),
                       expandedTemplateToBanks,
                       setExpandedTemplateToBanks,
-                      'template-to'
+                      'template-to',
+                      editingTemplate.type
                     )}
                   </div>
                 )}
