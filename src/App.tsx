@@ -15623,36 +15623,40 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               initial={{ opacity: 0, height: 0, marginBottom: 0 }}
               animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
               exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-              className="w-full flex items-center justify-center py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
+              className="w-full flex flex-col gap-2 p-2 bg-[#FFFDF5] rounded-[22px] border border-[#5D4037]/10 shadow-sm"
               style={getFontFamily()}
             >
-              <div className="flex items-center justify-center gap-3 text-[13px] font-bold text-[#5D4037] w-full px-3">
-                <div className="flex items-center gap-1 shrink-0">
+              {/* Row 1: 【日期：YYYY/MM/DD】 100% 寬度 */}
+              <div className="flex items-center justify-between bg-white px-3.5 py-2 rounded-xl border border-stone-100 shadow-sm w-full">
+                <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#5D4037]">
                   <CalendarIcon size={14} className="text-[#FFD54F] shrink-0" />
-                  <span className="shrink-0">📅 日期：</span>
-                  <input 
-                    type="date"
-                    value={consumptionDate}
-                    onChange={e => {
-                      setConsumptionDate(e.target.value);
-                      setPostingDate(e.target.value);
-                    }}
-                    className="bg-transparent outline-none cursor-pointer text-[13px] font-black text-[#5D4037] shrink-0"
-                    style={getFontFamily()}
-                  />
+                  <span>日期：</span>
                 </div>
-                <span className="text-stone-300 shrink-0">|</span>
-                <div className="flex items-center gap-1 shrink-0">
+                <input 
+                  type="date"
+                  value={consumptionDate}
+                  onChange={e => {
+                    setConsumptionDate(e.target.value);
+                    setPostingDate(e.target.value);
+                  }}
+                  className="bg-transparent outline-none cursor-pointer text-xs font-black text-[#5D4037] text-right flex-1 min-w-0"
+                  style={getFontFamily()}
+                />
+              </div>
+
+              {/* Row 2: 【時間：HH:mm】 100% 寬度 */}
+              <div className="flex items-center justify-between bg-white px-3.5 py-2 rounded-xl border border-stone-100 shadow-sm w-full">
+                <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#5D4037]">
                   <Clock size={14} className="text-[#FFD54F] shrink-0" />
-                  <span className="shrink-0">🕒 時間：</span>
-                  <input 
-                    type="time"
-                    value={consumptionTime}
-                    onChange={e => setConsumptionTime(e.target.value)}
-                    className="bg-transparent outline-none cursor-pointer text-[13px] font-black text-[#5D4037] shrink-0"
-                    style={getFontFamily()}
-                  />
+                  <span>時間：</span>
                 </div>
+                <input 
+                  type="time"
+                  value={consumptionTime}
+                  onChange={e => setConsumptionTime(e.target.value)}
+                  className="bg-transparent outline-none cursor-pointer text-xs font-black text-[#5D4037] text-right flex-1 min-w-0"
+                  style={getFontFamily()}
+                />
               </div>
             </motion.div>
           ) : isDateExpanded ? (
@@ -15902,36 +15906,40 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     initial={{ opacity: 0, height: 0, marginBottom: 0 }}
                     animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
                     exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    className="w-full flex items-center justify-center py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
+                    className="w-full flex flex-col gap-2 p-2 bg-[#FFFDF5] rounded-[22px] border border-[#5D4037]/10 shadow-sm"
                     style={getFontFamily()}
                   >
-                    <div className="flex items-center justify-center gap-3 text-[13px] font-bold text-[#5D4037] w-full px-3">
-                      <div className="flex items-center gap-1 shrink-0">
+                    {/* Row 1: 【日期：YYYY/MM/DD】 100% 寬度 */}
+                    <div className="flex items-center justify-between bg-white px-3.5 py-2 rounded-xl border border-stone-100 shadow-sm w-full">
+                      <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#5D4037]">
                         <CalendarIcon size={14} className="text-[#FFD54F] shrink-0" />
-                        <span className="shrink-0">📅 日期：</span>
-                        <input 
-                          type="date"
-                          value={consumptionDate}
-                          onChange={e => {
-                            setConsumptionDate(e.target.value);
-                            setPostingDate(e.target.value);
-                          }}
-                          className="bg-transparent outline-none cursor-pointer text-[13px] font-black text-[#5D4037] shrink-0"
-                          style={getFontFamily()}
-                        />
+                        <span>日期：</span>
                       </div>
-                      <span className="text-stone-300 shrink-0">|</span>
-                      <div className="flex items-center gap-1 shrink-0">
+                      <input 
+                        type="date"
+                        value={consumptionDate}
+                        onChange={e => {
+                          setConsumptionDate(e.target.value);
+                          setPostingDate(e.target.value);
+                        }}
+                        className="bg-transparent outline-none cursor-pointer text-xs font-black text-[#5D4037] text-right flex-1 min-w-0"
+                        style={getFontFamily()}
+                      />
+                    </div>
+
+                    {/* Row 2: 【時間：HH:mm】 100% 寬度 */}
+                    <div className="flex items-center justify-between bg-white px-3.5 py-2 rounded-xl border border-stone-100 shadow-sm w-full">
+                      <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#5D4037]">
                         <Clock size={14} className="text-[#FFD54F] shrink-0" />
-                        <span className="shrink-0">🕒 時間：</span>
-                        <input 
-                          type="time"
-                          value={consumptionTime}
-                          onChange={e => setConsumptionTime(e.target.value)}
-                          className="bg-transparent outline-none cursor-pointer text-[13px] font-black text-[#5D4037] shrink-0"
-                          style={getFontFamily()}
-                        />
+                        <span>時間：</span>
                       </div>
+                      <input 
+                        type="time"
+                        value={consumptionTime}
+                        onChange={e => setConsumptionTime(e.target.value)}
+                        className="bg-transparent outline-none cursor-pointer text-xs font-black text-[#5D4037] text-right flex-1 min-w-0"
+                        style={getFontFamily()}
+                      />
                     </div>
                   </motion.div>
                 ) : isDateExpanded ? (
