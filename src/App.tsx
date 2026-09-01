@@ -692,66 +692,69 @@ export default function App() {
   const [selectedCategoryForSub, setSelectedCategoryForSub] = useState<string | null>(null);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
 
-  // --- History Navigation Sync for Hardware Back Button ---
+  // --- Home History Guard & Back Button Interceptor ---
+  useEffect(() => {
+    // Ensure Home Guard state exists whenever user is on Home view with no modal open
+    if (currentView === 'home' && !isRecordModalOpen && !isDrawerOpen) {
+      if (!window.history.state || !window.history.state.isHomeGuard) {
+        window.history.pushState({ isHomeGuard: true, view: 'home' }, '', window.location.href);
+      }
+    }
+  }, [currentView, isRecordModalOpen, isDrawerOpen]);
+
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      const isPWA = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+      // 1. Close open modal or drawer if active
+      if (isRecordModalOpen) {
+        setIsRecordModalOpen(false);
+        return;
+      }
+      if (isDrawerOpen) {
+        setIsDrawerOpen(false);
+        return;
+      }
+      if (selectedCategoryForSub) {
+        setSelectedCategoryForSub(null);
+        return;
+      }
 
-      if (event.state) {
-        if (event.state.view) setCurrentView(event.state.view);
+      // 2. Intercept back action on Home View and display Exit Modal
+      if (currentView === 'home') {
+        setIsExitModalOpen(true);
+        // Continuously re-push Home Guard state so protection remains active
+        window.history.pushState({ isHomeGuard: true, view: 'home' }, '', window.location.href);
+        return;
+      }
+
+      // 3. Otherwise pop back to home view
+      if (event.state && event.state.view) {
+        setCurrentView(event.state.view);
         setSelectedProjectId(event.state.projectId || null);
         setSelectedCategoryForSub(event.state.selectedCategoryId || null);
-        setIsDrawerOpen(false);
-        setIsRecordModalOpen(!!event.state.isRecordModalOpen);
       } else {
-        if (isPWA && currentView === 'home' && !isRecordModalOpen && !isDrawerOpen) {
-          window.history.pushState({ 
-            view: 'home', 
-            projectId: null, 
-            selectedCategoryId: null,
-            isRecordModalOpen: false
-          }, '');
-          setIsExitModalOpen(true);
-        } else {
-          setCurrentView('home');
-          setSelectedProjectId(null);
-          setSelectedCategoryForSub(null);
-          setIsDrawerOpen(false);
-          setIsRecordModalOpen(false);
-        }
+        setCurrentView('home');
+        setSelectedProjectId(null);
+        setSelectedCategoryForSub(null);
       }
     };
-
-    // Initialize root state
-    if (!window.history.state) {
-      window.history.replaceState({ 
-        view: 'home', 
-        projectId: null, 
-        selectedCategoryId: null,
-        isRecordModalOpen: false
-      }, '');
-    }
 
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [currentView, isRecordModalOpen, isDrawerOpen]);
+  }, [currentView, isRecordModalOpen, isDrawerOpen, selectedCategoryForSub]);
 
   useEffect(() => {
-    const currentState = window.history.state;
-    const matchesView = currentState && currentState.view === currentView;
-    const matchesProject = currentState && currentState.projectId === selectedProjectId;
-    const matchesCategory = currentState && currentState.selectedCategoryId === selectedCategoryForSub;
-    const matchesRecordModal = currentState && !!currentState.isRecordModalOpen === isRecordModalOpen;
-
-    if (!matchesView || !matchesProject || !matchesCategory || !matchesRecordModal) {
-      window.history.pushState({ 
-        view: currentView, 
-        projectId: selectedProjectId, 
-        selectedCategoryId: selectedCategoryForSub,
-        isRecordModalOpen: isRecordModalOpen
-      }, '');
+    if (currentView !== 'home') {
+      const currentState = window.history.state;
+      if (!currentState || currentState.view !== currentView || currentState.selectedCategoryId !== selectedCategoryForSub) {
+        window.history.pushState({ 
+          view: currentView, 
+          projectId: selectedProjectId, 
+          selectedCategoryId: selectedCategoryForSub,
+          isRecordModalOpen: isRecordModalOpen
+        }, '');
+      }
     }
   }, [currentView, selectedProjectId, selectedCategoryForSub, isRecordModalOpen]);
 
@@ -2784,7 +2787,7 @@ export default function App() {
         {/* Exit App Confirmation Modal */}
         <AnimatePresence>
           {isExitModalOpen && (
-            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -2804,13 +2807,8 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setIsExitModalOpen(false);
-                      if (!window.history.state || window.history.state.view !== 'home') {
-                        window.history.pushState({ 
-                          view: 'home', 
-                          projectId: null, 
-                          selectedCategoryId: null,
-                          isRecordModalOpen: false
-                        }, '');
+                      if (!window.history.state || !window.history.state.isHomeGuard) {
+                        window.history.pushState({ isHomeGuard: true, view: 'home' }, '', window.location.href);
                       }
                     }}
                     className="py-3 bg-white border border-[#5D4037]/20 text-[#5D4037] rounded-2xl font-bold text-xs active:scale-95 transition-all shadow-sm hover:bg-stone-50"
@@ -2822,9 +2820,13 @@ export default function App() {
                     onClick={() => {
                       setIsExitModalOpen(false);
                       try {
-                        window.close();
+                        if ((navigator as any).app && (navigator as any).app.exitApp) {
+                          (navigator as any).app.exitApp();
+                        } else {
+                          window.close();
+                        }
                       } catch (e) {
-                        console.log('Close PWA standalone app');
+                        console.log('App exit attempted');
                       }
                     }}
                     className="py-3 bg-[#5D4037] text-white rounded-2xl font-black text-xs active:scale-95 transition-all shadow-md hover:bg-[#4E342E]"
