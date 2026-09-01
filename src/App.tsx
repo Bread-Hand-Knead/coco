@@ -695,6 +695,8 @@ export default function App() {
   // --- History Navigation Sync for Hardware Back Button ---
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
+      const isPWA = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+
       if (event.state) {
         if (event.state.view) setCurrentView(event.state.view);
         setSelectedProjectId(event.state.projectId || null);
@@ -702,7 +704,13 @@ export default function App() {
         setIsDrawerOpen(false);
         setIsRecordModalOpen(!!event.state.isRecordModalOpen);
       } else {
-        if (currentView === 'home' && !isRecordModalOpen && !isDrawerOpen) {
+        if (isPWA && currentView === 'home' && !isRecordModalOpen && !isDrawerOpen) {
+          window.history.pushState({ 
+            view: 'home', 
+            projectId: null, 
+            selectedCategoryId: null,
+            isRecordModalOpen: false
+          }, '');
           setIsExitModalOpen(true);
         } else {
           setCurrentView('home');
@@ -2794,7 +2802,17 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-3 pt-2">
                   <button
                     type="button"
-                    onClick={() => setIsExitModalOpen(false)}
+                    onClick={() => {
+                      setIsExitModalOpen(false);
+                      if (!window.history.state || window.history.state.view !== 'home') {
+                        window.history.pushState({ 
+                          view: 'home', 
+                          projectId: null, 
+                          selectedCategoryId: null,
+                          isRecordModalOpen: false
+                        }, '');
+                      }
+                    }}
                     className="py-3 bg-white border border-[#5D4037]/20 text-[#5D4037] rounded-2xl font-bold text-xs active:scale-95 transition-all shadow-sm hover:bg-stone-50"
                   >
                     繼續記帳
@@ -2803,7 +2821,11 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setIsExitModalOpen(false);
-                      window.history.back();
+                      try {
+                        window.close();
+                      } catch (e) {
+                        console.log('Close PWA standalone app');
+                      }
                     }}
                     className="py-3 bg-[#5D4037] text-white rounded-2xl font-black text-xs active:scale-95 transition-all shadow-md hover:bg-[#4E342E]"
                   >
