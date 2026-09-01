@@ -671,6 +671,7 @@ export default function App() {
   const [monthlyBudget, setMonthlyBudget] = useState<number>(30000);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
   const [isAiSplitModalOpen, setIsAiSplitModalOpen] = useState(false);
+  const [aiSplitInitialTab, setAiSplitInitialTab] = useState<'expense' | 'income'>('expense');
   const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
   const [historyFilter, setHistoryFilter] = useState<{ type: 'day' | 'week' | 'month' | 'year', date: string }>({ type: 'day', date: selectedDate });
   const [templates, setTemplates] = useState<Template[]>(INITIAL_TEMPLATES);
@@ -2715,7 +2716,7 @@ export default function App() {
                 setFixedRecords={setFixedRecords}
                 onUpdateTemplates={handleUpdateTemplates}
                 onUpdateCategories={handleUpdateCategories}
-                onOpenAiSplit={() => setIsAiSplitModalOpen(true)}
+                onOpenAiSplit={() => { setAiSplitInitialTab('expense'); setIsAiSplitModalOpen(true); }}
               />
             )}
           </AnimatePresence>
@@ -2743,7 +2744,7 @@ export default function App() {
               onSave={handleSaveRecord}
               selectedDate={selectedDate}
               records={records}
-              onOpenAiSplit={() => { setIsRecordModalOpen(false); setIsAiSplitModalOpen(true); }}
+              onOpenAiSplit={(modeTab) => { setAiSplitInitialTab(modeTab); setIsRecordModalOpen(false); setIsAiSplitModalOpen(true); }}
             />
           )}
         </AnimatePresence>
@@ -2753,6 +2754,7 @@ export default function App() {
           {isAiSplitModalOpen && (
             <AiSplitModal 
               isOpen={isAiSplitModalOpen}
+              initialTab={aiSplitInitialTab}
               onClose={() => setIsAiSplitModalOpen(false)}
               accounts={accounts}
               categories={categories}
@@ -14517,7 +14519,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   onSave: (r: any, keepOpen?: boolean) => void,
   selectedDate: string,
   records: Transaction[],
-  onOpenAiSplit: () => void
+  onOpenAiSplit: (tab: 'expense' | 'income') => void
 }) {
   const [tab, setTab] = useState<'template' | 'expense' | 'income' | 'transfer'>('template');
   const [amount, setAmount] = useState('0');
@@ -15442,7 +15444,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       {/* AI 智慧拆分 button */}
       <button
         type="button"
-        onClick={onOpenAiSplit}
+        onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
         className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
         style={getFontFamily()}
       >
@@ -15678,8 +15680,159 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
         {/* Date & Project & Camera Selection Area (Mobile only) */}
         {tab !== 'template' && !showCalculator && (
-          <div className="mx-6 flex items-center gap-3 md:hidden shrink-0">
-            {renderDateProjectCamera()}
+          <div className="mx-6 flex flex-col gap-2 md:hidden shrink-0">
+            {/* Top row: camera & AI buttons */}
+            <div className="flex items-center gap-3">
+              <label className="flex-shrink-0 w-[68px] h-[68px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment"
+                  className="hidden" 
+                  onChange={handleScanReceipt} 
+                  disabled={isScanningReceipt}
+                />
+                {isScanningReceipt ? (
+                  <div className="flex flex-col items-center gap-1">
+                    <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
+                    <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1">
+                    <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
+                    <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
+                  </div>
+                )}
+              </label>
+              <button
+                type="button"
+                onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
+                className="flex-shrink-0 w-[68px] h-[68px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
+                style={getFontFamily()}
+              >
+                <Sparkles size={26} className="text-[#0369A1] group-hover:scale-110 transition-transform" />
+                <span className="text-[9px] font-black text-[#0369A1]">AI 智慧拆分</span>
+              </button>
+            </div>
+            {/* Bottom row: full-width date block */}
+            <div className="w-full">
+              <AnimatePresence mode="wait">
+                {!isCreditCard || (tab !== 'expense' && tab !== 'income') ? (
+                  <motion.div 
+                    key="single-date"
+                    initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
+                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
+                    style={getFontFamily()}
+                  >
+                    <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037] flex-wrap justify-center">
+                      <CalendarIcon size={14} className="text-[#FFD54F]" />
+                      <span>日期：</span>
+                      <input 
+                        type="date"
+                        value={consumptionDate}
+                        onChange={e => {
+                          setConsumptionDate(e.target.value);
+                          setPostingDate(e.target.value);
+                        }}
+                        className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
+                        style={getFontFamily()}
+                      />
+                      <span className="text-stone-300 mx-1">|</span>
+                      <Clock size={14} className="text-[#FFD54F]" />
+                      <span>時間：</span>
+                      <input 
+                        type="time"
+                        value={consumptionTime}
+                        onChange={e => setConsumptionTime(e.target.value)}
+                        className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
+                        style={getFontFamily()}
+                      />
+                    </div>
+                  </motion.div>
+                ) : isDateExpanded ? (
+                  <motion.div 
+                    key="expanded"
+                    initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
+                    animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
+                    exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
+                    className="bg-[#FFFDF5] p-3 pb-4 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3 w-full" 
+                    style={getFontFamily()}
+                  >
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
+                          <CalendarIcon size={10} /> 消費日
+                        </label>
+                        <input 
+                          type="date"
+                          value={consumptionDate}
+                          onChange={e => setConsumptionDate(e.target.value)}
+                          className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
+                          <Clock size={10} /> 時間
+                        </label>
+                        <input 
+                          type="time"
+                          value={consumptionTime}
+                          onChange={e => setConsumptionTime(e.target.value)}
+                          className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                        />
+                      </div>
+                      <div className={`flex flex-col gap-1 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                        <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
+                          <Banknote size={10} /> 入帳日
+                        </label>
+                        <input 
+                          type="date"
+                          value={postingDate}
+                          onChange={e => setPostingDate(e.target.value)}
+                          className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pl-1">
+                      <button 
+                        onClick={() => setIsDateExpanded(false)}
+                        className="text-[#5D4037] text-[10px] font-bold bg-[#FFD54F] px-3 py-1 rounded-full shadow-sm active:scale-95 transition-all"
+                      >
+                        完成
+                      </button>
+                      <div className="flex items-center gap-2 pr-1">
+                        <span className="text-[10px] font-bold text-stone-400">待入帳</span>
+                        <button 
+                          onClick={() => setIsPending(!isPending)}
+                          className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-200'}`}
+                        >
+                          <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    key="collapsed"
+                    initial={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
+                    animate={{ opacity: 1, y: 0, height: "auto", marginBottom: 0 }}
+                    exit={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
+                    onClick={() => setIsDateExpanded(true)}
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 cursor-pointer hover:bg-stone-50 transition-colors shadow-sm"
+                    style={getFontFamily()}
+                  >
+                    <div className="flex items-center gap-2 text-[12px] font-bold text-[#5D4037] truncate px-2">
+                      <CalendarIcon size={13} className="text-[#FFD54F]" />
+                      <span>消費：{consumptionDate.replace(/-/g, '/')}</span>
+                      <span className="text-stone-300">|</span>
+                      <span>入帳：{isPending ? '待入帳' : postingDate.replace(/-/g, '/')}</span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         )}
 
@@ -16591,6 +16744,7 @@ function PrepaymentsView({
 
 interface AiSplitModalProps {
   isOpen: boolean;
+  initialTab?: 'expense' | 'income';
   onClose: () => void;
   accounts: Account[];
   categories: Category[];
@@ -16598,7 +16752,7 @@ interface AiSplitModalProps {
   onSaveBatch: (records: any[]) => Promise<void>;
 }
 
-function AiSplitModal({ isOpen, onClose, accounts, categories, user, onSaveBatch }: AiSplitModalProps) {
+function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categories, user, onSaveBatch }: AiSplitModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [rawText, setRawText] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
@@ -16608,11 +16762,13 @@ function AiSplitModal({ isOpen, onClose, accounts, categories, user, onSaveBatch
   const [isSaving, setIsSaving] = useState(false);
   const [parsedItems, setParsedItems] = useState<{ name: string; amount: number; category: string; isPrepay: boolean }[]>([]);
 
-  // Get only expense categories
-  const expenseCategories = useMemo(() => {
+  const targetType = initialTab === 'income' ? 'income' : 'expense';
+
+  // Get categories according to initialTab (income or expense)
+  const targetCategories = useMemo(() => {
     const list: string[] = [];
     categories
-      .filter(c => c.type === 'expense')
+      .filter(c => c.type === targetType)
       .forEach(cat => {
         list.push(cat.name);
         if (cat.sub && cat.sub.length > 0) {
@@ -16622,7 +16778,7 @@ function AiSplitModal({ isOpen, onClose, accounts, categories, user, onSaveBatch
         }
       });
     return list.length > 0 ? list : ['其他'];
-  }, [categories]);
+  }, [categories, targetType]);
 
   const handleSaveApiKey = () => {
     localStorage.setItem('gemini_api_key', apiKeyInput.trim());
@@ -16646,15 +16802,16 @@ function AiSplitModal({ isOpen, onClose, accounts, categories, user, onSaveBatch
 
     setIsParsing(true);
     try {
-      const categoriesString = expenseCategories.join('\n');
-      const prompt = `你是一個專業的記帳助理。請幫我將這段發票、收據或消費文字，拆分成多個獨立的支出品項。
+      const typeText = targetType === 'income' ? '收入' : '支出';
+      const categoriesString = targetCategories.join('\n');
+      const prompt = `你是一個專業的記帳助理。請幫我將這段發票、收據、明細或款項文字，拆分成多個獨立的${typeText}品項。
 
 這段明細的文字是：
 """
 ${rawText}
 """
 
-可用支出分類清單（請務必只從以下清單中選擇最符合的「主分類 > 子分類」或「主分類」填入，若都不符合請填「其他」）：
+可用${typeText}分類清單（請務必只從以下清單中選擇最符合的「主分類 > 子分類」或「主分類」填入，若都不符合請填「其他」）：
 ${categoriesString}
 
 請輸出一個標準的 JSON 陣列，不可以包含任何解釋、Markdown格式（如 \`\`\`json）或前導後導文字。格式如下：
@@ -16662,8 +16819,8 @@ ${categoriesString}
   {
     "name": "品項名稱",
     "amount": 100, // 正整數金額
-    "category": "選擇的分類", // 必須是可用支出分類清單中的一項，例如 "飲食 > 晚餐"
-    "isPrepay": false // 如果明細中提到是「幫別人買、家裡代墊、代付、代購、代墊」等，請設為 true，否則為 false
+    "category": "選擇的分類", // 必須是可用${typeText}分類清單中的一項
+    "isPrepay": false // 如果明細中提到是「幫別人買、家裡代墊、代付、代購、代墊、代收、代收款」等，請設為 true，否則為 false
   }
 ]
 
@@ -16708,7 +16865,7 @@ ${categoriesString}
       items = items.map((item: any) => ({
         name: filterTaiwanTerms(item.name || '未命名項目'),
         amount: Math.abs(parseInt(item.amount) || 0),
-        category: expenseCategories.includes(item.category) ? item.category : (expenseCategories[0] || '其他'),
+        category: targetCategories.includes(item.category) ? item.category : (targetCategories[0] || '其他'),
         isPrepay: !!item.isPrepay
       }));
 
@@ -16736,7 +16893,7 @@ ${categoriesString}
       {
         name: '新項目',
         amount: 0,
-        category: expenseCategories[0] || '其他',
+        category: targetCategories[0] || '其他',
         isPrepay: false
       }
     ]);
@@ -16773,18 +16930,19 @@ ${categoriesString}
       return;
     }
 
-    const confirm = window.confirm(`確認要將這 ${parsedItems.length} 筆項目儲存並入帳嗎？\n總扣款金額為 NT$ ${totalDeduction.toLocaleString()}`);
+    const isIncome = targetType === 'income';
+    const confirm = window.confirm(`確認要將這 ${parsedItems.length} 筆項目儲存為【${isIncome ? '收入' : '支出'}】並入帳嗎？\n總金額為 NT$ ${totalDeduction.toLocaleString()}`);
     if (!confirm) return;
 
     setIsSaving(true);
     try {
       const recordsToSave = parsedItems.map(item => ({
-        amount: -item.amount, // Expense is negative
+        amount: isIncome ? Math.abs(item.amount) : -Math.abs(item.amount),
         category: filterTaiwanTerms(item.category),
         note: filterTaiwanTerms(item.name),
         date: transactionDate,
         postingDate: transactionDate,
-        type: 'expense' as const,
+        type: targetType as 'income' | 'expense',
         accountId: selectedAccountId,
         isPrepay: item.isPrepay
       }));
@@ -16971,7 +17129,7 @@ ${categoriesString}
                           className="bg-white border border-stone-200 rounded-xl px-2.5 py-1 text-xs font-bold text-[#5D4037] outline-none"
                           style={getFontFamily()}
                         >
-                          {expenseCategories.map(cat => (
+                          {targetCategories.map(cat => (
                             <option key={cat} value={cat}>{cat}</option>
                           ))}
                         </select>
