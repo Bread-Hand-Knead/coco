@@ -3032,10 +3032,10 @@ function AccountSelector({
         return (
           <div 
             key={`${keyPrefix}-drawer-${group.bankName}`}
-            className="mt-2 mx-8 p-3.5 bg-stone-50 border border-stone-200/50 rounded-2xl space-y-2 shadow-inner"
+            className="mt-2 mx-8 p-3.5 bg-stone-50 border border-stone-200/50 rounded-2xl space-y-3 shadow-inner animate-fade-in"
           >
-            <div className="text-[12px] font-bold text-stone-400 px-2 flex items-center justify-between">
-              <span>🏦 {group.bankName} 卡片與帳戶</span>
+            <div className="text-[12px] font-bold text-stone-400 px-1 flex items-center justify-between">
+              <span>🏛️ {group.bankName} 卡片與帳戶</span>
               <button 
                 onClick={() => {
                   setExpandedState(prev => ({ ...prev, [group.bankName]: false }));
@@ -3046,29 +3046,70 @@ function AccountSelector({
                 收起 ▲
               </button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {group.accounts.map(subAcc => {
-                const isSubSelected = currentSelectedId === subAcc.id;
-                const subBal = calculateAccountBalance(subAcc, accounts, records);
-                return (
-                  <button
-                    key={`${keyPrefix}-sub-${subAcc.id}`}
-                    onClick={() => onSelect(isSubSelected ? '' : subAcc.id)}
-                    type="button"
-                    className={`px-3 py-2 rounded-xl text-[14px] font-bold shadow-sm transition-all border flex items-center gap-1.5 ${
-                      isSubSelected 
-                        ? 'bg-[#FFD54F] border-[#FFD54F] text-[#5D4037]' 
-                        : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-100'
-                    }`}
-                  >
-                    <AccountIcon icon={subAcc.icon} sizeClassName="w-5 h-5" className="text-lg flex items-center justify-center" />
-                    <span>
-                      {subAcc.name} {subBal < 0 ? '-' : ''}${Math.abs(subBal).toLocaleString()}
-                    </span>
-                  </button>
-                );
-              })}
+
+            {/* Sub-tab Big Card Buttons */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setSubTabState(prev => ({ ...prev, [group.bankName]: 'bank' }))}
+                className={`py-3 px-4 rounded-[22px] font-black text-sm transition-all border flex items-center justify-center gap-2 shadow-sm ${
+                  activeSubTab === 'bank'
+                    ? 'bg-white border-[#5D4037] text-[#5D4037] ring-2 ring-[#5D4037]/10 shadow-md'
+                    : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
+                }`}
+              >
+                <span className="text-base">🏛️</span>
+                <span>銀行 {bankAccounts.length > 0 ? `(${bankAccounts.length})` : ''}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSubTabState(prev => ({ ...prev, [group.bankName]: 'credit' }))}
+                className={`py-3 px-4 rounded-[22px] font-black text-sm transition-all border flex items-center justify-center gap-2 shadow-sm ${
+                  activeSubTab === 'credit'
+                    ? 'bg-white border-[#5D4037] text-[#5D4037] ring-2 ring-[#5D4037]/10 shadow-md'
+                    : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
+                }`}
+              >
+                <span className="text-base">💳</span>
+                <span>信用卡 {creditCards.length > 0 ? `(${creditCards.length})` : ''}</span>
+              </button>
             </div>
+
+            {/* Sub-accounts List with Auto-Collapse on Select */}
+            {displayedAccounts.length > 0 ? (
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-200/40">
+                {displayedAccounts.map(subAcc => {
+                  const isSubSelected = currentSelectedId === subAcc.id;
+                  const subBal = calculateAccountBalance(subAcc, accounts, records);
+                  return (
+                    <button
+                      key={`${keyPrefix}-sub-${subAcc.id}`}
+                      onClick={() => {
+                        onSelect(isSubSelected ? '' : subAcc.id);
+                        // Auto-collapse drawer on account selection
+                        setExpandedState(prev => ({ ...prev, [group.bankName]: false }));
+                      }}
+                      type="button"
+                      className={`px-3.5 py-2.5 rounded-xl text-[14px] font-bold shadow-sm transition-all border flex items-center gap-2 ${
+                        isSubSelected 
+                          ? 'bg-[#FFD54F] border-[#FFD54F] text-[#5D4037] shadow-md scale-[1.02]' 
+                          : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-100 hover:border-stone-200'
+                      }`}
+                    >
+                      <AccountIcon icon={subAcc.icon} sizeClassName="w-5 h-5" className="text-lg flex items-center justify-center" />
+                      <span>
+                        {subAcc.name} {subBal < 0 ? '-' : ''}${Math.abs(subBal).toLocaleString()}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-[12px] text-stone-400 font-bold py-3 text-center border-t border-stone-200/40">
+                {activeSubTab === 'credit' ? '該機構尚無信用卡' : '該機構尚無銀行帳戶'}
+              </div>
+            )}
           </div>
         );
       })}
@@ -15509,59 +15550,69 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
               animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
               exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-              className="bg-[#FFFDF5] p-3 pb-4 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3 w-full" 
+              className="bg-[#FFFDF5] p-3.5 pb-3.5 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3.5 w-full" 
               style={getFontFamily()}
             >
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
-                    <CalendarIcon size={10} /> 消費日
+              {/* Row 1: 消費日 (50%) + 時間 (50%) */}
+              <div className="grid grid-cols-2 gap-3 w-full">
+                <div className="flex flex-col gap-1 w-full min-w-0">
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
+                    <CalendarIcon size={12} className="text-[#FFD54F]" /> 消費日
                   </label>
                   <input 
                     type="date"
                     value={consumptionDate}
                     onChange={e => setConsumptionDate(e.target.value)}
-                    className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                    style={getFontFamily()}
                   />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
-                    <Clock size={10} /> 時間
+                <div className="flex flex-col gap-1 w-full min-w-0">
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
+                    <Clock size={12} className="text-[#FFD54F]" /> 時間
                   </label>
                   <input 
                     type="time"
                     value={consumptionTime}
                     onChange={e => setConsumptionTime(e.target.value)}
-                    className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                    style={getFontFamily()}
                   />
                 </div>
-                <div className={`flex flex-col gap-1 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-                  <label className="text-[9px] font-black text-stone-300 uppercase tracking-widest flex items-center gap-1 px-1">
-                    <Banknote size={10} /> 入帳日
+              </div>
+
+              {/* Row 2: 左側【入帳日】，右側【完成按鈕】與【待入帳開關】 */}
+              <div className="flex items-end justify-between gap-3 w-full border-t border-stone-100/80 pt-2.5">
+                <div className={`flex flex-col gap-1 flex-1 min-w-0 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
+                    <Banknote size={12} className="text-[#FFD54F]" /> 入帳日
                   </label>
                   <input 
                     type="date"
                     value={postingDate}
                     onChange={e => setPostingDate(e.target.value)}
-                    className="bg-white border-2 border-stone-50 rounded-xl px-1.5 py-1 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
+                    style={getFontFamily()}
                   />
                 </div>
-              </div>
-              <div className="flex items-center justify-between pl-1">
-                <button 
-                  onClick={() => setIsDateExpanded(false)}
-                  className="text-[#5D4037] text-[10px] font-bold bg-[#FFD54F] px-3 py-1 rounded-full shadow-sm active:scale-95 transition-all"
-                >
-                  完成
-                </button>
-                <div className="flex items-center gap-2 pr-1">
-                  <span className="text-[10px] font-bold text-stone-400">待入帳</span>
+                <div className="flex items-center gap-2.5 shrink-0 pb-0.5">
                   <button 
-                    onClick={() => setIsPending(!isPending)}
-                    className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-200'}`}
+                    type="button"
+                    onClick={() => setIsDateExpanded(false)}
+                    className="text-[#5D4037] text-[11px] font-black bg-[#FFD54F] px-3.5 py-1.5 rounded-full shadow-sm active:scale-95 transition-all hover:bg-[#ffe082]"
                   >
-                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
+                    完成
                   </button>
+                  <div className="flex items-center gap-1.5 bg-stone-100/60 px-2 py-1 rounded-full border border-stone-200/40">
+                    <span className="text-[10px] font-bold text-stone-500">待入帳</span>
+                    <button 
+                      type="button"
+                      onClick={() => setIsPending(!isPending)}
+                      className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-300'}`}
+                    >
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </motion.div>
