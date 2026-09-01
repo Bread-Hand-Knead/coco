@@ -689,19 +689,28 @@ export default function App() {
     return local ? JSON.parse(local) : [];
   });
 
+  const [selectedCategoryForSub, setSelectedCategoryForSub] = useState<string | null>(null);
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+
   // --- History Navigation Sync for Hardware Back Button ---
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
       if (event.state) {
         if (event.state.view) setCurrentView(event.state.view);
         setSelectedProjectId(event.state.projectId || null);
-        setIsDrawerOpen(!!event.state.isDrawerOpen);
+        setSelectedCategoryForSub(event.state.selectedCategoryId || null);
+        setIsDrawerOpen(false);
         setIsRecordModalOpen(!!event.state.isRecordModalOpen);
       } else {
-        setCurrentView('home');
-        setSelectedProjectId(null);
-        setIsDrawerOpen(false);
-        setIsRecordModalOpen(false);
+        if (currentView === 'home' && !isRecordModalOpen && !isDrawerOpen) {
+          setIsExitModalOpen(true);
+        } else {
+          setCurrentView('home');
+          setSelectedProjectId(null);
+          setSelectedCategoryForSub(null);
+          setIsDrawerOpen(false);
+          setIsRecordModalOpen(false);
+        }
       }
     };
 
@@ -710,7 +719,7 @@ export default function App() {
       window.history.replaceState({ 
         view: 'home', 
         projectId: null, 
-        isDrawerOpen: false,
+        selectedCategoryId: null,
         isRecordModalOpen: false
       }, '');
     }
@@ -719,24 +728,24 @@ export default function App() {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [currentView, isRecordModalOpen, isDrawerOpen]);
 
   useEffect(() => {
     const currentState = window.history.state;
     const matchesView = currentState && currentState.view === currentView;
     const matchesProject = currentState && currentState.projectId === selectedProjectId;
-    const matchesDrawer = currentState && !!currentState.isDrawerOpen === isDrawerOpen;
+    const matchesCategory = currentState && currentState.selectedCategoryId === selectedCategoryForSub;
     const matchesRecordModal = currentState && !!currentState.isRecordModalOpen === isRecordModalOpen;
 
-    if (!matchesView || !matchesProject || !matchesDrawer || !matchesRecordModal) {
+    if (!matchesView || !matchesProject || !matchesCategory || !matchesRecordModal) {
       window.history.pushState({ 
         view: currentView, 
         projectId: selectedProjectId, 
-        isDrawerOpen: isDrawerOpen,
+        selectedCategoryId: selectedCategoryForSub,
         isRecordModalOpen: isRecordModalOpen
       }, '');
     }
-  }, [currentView, selectedProjectId, isDrawerOpen, isRecordModalOpen]);
+  }, [currentView, selectedProjectId, selectedCategoryForSub, isRecordModalOpen]);
 
   // --- PWA Installation Logic ---
   const deferredPromptRef = useRef<any>(null);
@@ -2761,6 +2770,48 @@ export default function App() {
               user={user}
               onSaveBatch={handleSaveBatchRecords}
             />
+          )}
+        </AnimatePresence>
+
+        {/* Exit App Confirmation Modal */}
+        <AnimatePresence>
+          {isExitModalOpen && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-[#FFF9E3] rounded-[32px] w-full max-w-sm p-6 shadow-2xl space-y-4 border-2 border-white"
+                style={getFontFamily()}
+              >
+                <div className="text-center space-y-2">
+                  <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center mx-auto text-2xl font-black shadow-sm">
+                    🚪
+                  </div>
+                  <h3 className="text-lg font-black text-[#5D4037]">離開扣扣記帳</h3>
+                  <p className="text-xs font-bold text-stone-500">確定要離開扣扣記帳嗎？</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsExitModalOpen(false)}
+                    className="py-3 bg-white border border-[#5D4037]/20 text-[#5D4037] rounded-2xl font-bold text-xs active:scale-95 transition-all shadow-sm hover:bg-stone-50"
+                  >
+                    繼續記帳
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExitModalOpen(false);
+                      window.history.back();
+                    }}
+                    className="py-3 bg-[#5D4037] text-white rounded-2xl font-black text-xs active:scale-95 transition-all shadow-md hover:bg-[#4E342E]"
+                  >
+                    確定離開
+                  </button>
+                </div>
+              </motion.div>
+            </div>
           )}
         </AnimatePresence>
 
@@ -9381,13 +9432,21 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
   );
 }
 
-function CategoryManagementPage({ categories, onSave, onBack }: { 
+function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCategory, onSave, onBack }: { 
   categories: Category[], 
+  selectedCategoryIdProp?: string | null,
+  onSelectCategory?: (id: string | null) => void,
   onSave: (cats: Category[]) => void,
   onBack: () => void 
 }) {
   const [tab, setTab] = useState<'expense' | 'income'>('expense');
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [internalSelectedCategoryId, setInternalSelectedCategoryId] = useState<string | null>(null);
+  
+  const selectedCategoryId = selectedCategoryIdProp !== undefined ? selectedCategoryIdProp : internalSelectedCategoryId;
+  const setSelectedCategoryId = (id: string | null) => {
+    setInternalSelectedCategoryId(id);
+    if (onSelectCategory) onSelectCategory(id);
+  };
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [newCat, setNewCat] = useState<Partial<Category>>({ name: '', icon: '✨', type: 'expense', sub: [] });
@@ -11584,6 +11643,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   onReorder: (records: Transaction[]) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
+  const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'income'>('all');
 
   const filteredRecords = useMemo(() => {
     const base = parseLocalDate(filter.date);
@@ -11631,6 +11691,12 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
     });
   }, [records, filter, currencyMode, accounts]);
 
+  const displayedRecords = useMemo(() => {
+    if (typeFilter === 'expense') return filteredRecords.filter(r => r.type === 'expense' || r.amount < 0);
+    if (typeFilter === 'income') return filteredRecords.filter(r => r.type === 'income' || r.amount > 0);
+    return filteredRecords;
+  }, [filteredRecords, typeFilter]);
+
   const filterLabel = useMemo(() => {
     if (filter.type === 'day') return filter.date.replace(/-/g, '/');
     if (filter.type === 'week') return '本週明細';
@@ -11640,11 +11706,11 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   }, [filter]);
 
   const historyBalance = useMemo(() => {
-    return filteredRecords.reduce((acc, r) => {
+    return displayedRecords.reduce((acc, r) => {
       if (r.type === 'income' || r.type === 'expense') return acc + r.amount;
       return acc;
     }, 0);
-  }, [filteredRecords]);
+  }, [displayedRecords]);
 
   return (
     <motion.div 
@@ -11652,6 +11718,43 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
       <div className="flex-1 px-4 overflow-y-auto pb-10 pt-4">
+        {/* Type Filter Segment Tabs (All / Expense / Income) */}
+        <div className="mx-2 mb-3 flex items-center justify-center gap-2" style={getFontFamily()}>
+          <button
+            type="button"
+            onClick={() => setTypeFilter('all')}
+            className={`px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
+              typeFilter === 'all'
+                ? 'bg-[#5D4037] border-[#5D4037] text-white shadow-sm'
+                : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
+            }`}
+          >
+            全部
+          </button>
+          <button
+            type="button"
+            onClick={() => setTypeFilter('expense')}
+            className={`px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
+              typeFilter === 'expense'
+                ? 'bg-rose-500 border-rose-500 text-white shadow-sm'
+                : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
+            }`}
+          >
+            支出
+          </button>
+          <button
+            type="button"
+            onClick={() => setTypeFilter('income')}
+            className={`px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
+              typeFilter === 'income'
+                ? 'bg-blue-500 border-blue-500 text-white shadow-sm'
+                : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
+            }`}
+          >
+            收入
+          </button>
+        </div>
+
         {/* Period Summary Header */}
         <div className="mx-2 mb-4 p-4 bg-[#FFFDF5] rounded-3xl border border-[#FFD54F]/30 flex items-center justify-between text-[13px] font-black text-[#5D4037] shadow-sm" style={getFontFamily()}>
           <div className="flex items-center gap-2">
@@ -11659,13 +11762,13 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
             <span>{filterLabel}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="bg-white/50 px-2 py-0.5 rounded-lg border border-[#FFD54F]/10">{filteredRecords.length} 筆紀錄</span>
+            <span className="bg-white/50 px-2 py-0.5 rounded-lg border border-[#FFD54F]/10">{displayedRecords.length} 筆紀錄</span>
             <span>結餘：<span className={historyBalance >= 0 ? 'text-blue-600' : 'text-red-500'}>${Math.abs(historyBalance).toLocaleString()}</span></span>
           </div>
         </div>
 
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-6 space-y-4">
-          {filteredRecords.length > 0 ? filteredRecords.map((record, idx) => (
+          {displayedRecords.length > 0 ? displayedRecords.map((record, idx) => (
             <div 
               key={record.id} 
               className="flex items-center gap-2 py-4 border-b border-stone-50 last:border-0 group rounded-xl px-2 -mx-2 transition-colors relative"
@@ -15475,38 +15578,42 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
   const renderDateProjectCamera = () => (
     <>
-      <label className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
-        <input 
-          type="file" 
-          accept="image/*" 
-          capture="environment"
-          className="hidden" 
-          onChange={handleScanReceipt} 
-          disabled={isScanningReceipt}
-        />
-        {isScanningReceipt ? (
-          <div className="flex flex-col items-center gap-1">
-            <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
-            <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-1">
-            <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
-            <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
-          </div>
-        )}
-      </label>
+      {tab !== 'transfer' && (
+        <>
+          <label className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
+            <input 
+              type="file" 
+              accept="image/*" 
+              capture="environment"
+              className="hidden" 
+              onChange={handleScanReceipt} 
+              disabled={isScanningReceipt}
+            />
+            {isScanningReceipt ? (
+              <div className="flex flex-col items-center gap-1">
+                <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
+                <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-1">
+                <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
+                <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
+              </div>
+            )}
+          </label>
 
-      {/* AI 智慧拆分 button */}
-      <button
-        type="button"
-        onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
-        className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
-        style={getFontFamily()}
-      >
-        <Sparkles size={26} className="text-[#0369A1] group-hover:scale-110 transition-transform" />
-        <span className="text-[9px] font-black text-[#0369A1]">AI 智慧拆分</span>
-      </button>
+          {/* AI 智慧拆分 button */}
+          <button
+            type="button"
+            onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
+            className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
+            style={getFontFamily()}
+          >
+            <Sparkles size={26} className="text-[#0369A1] group-hover:scale-110 transition-transform" />
+            <span className="text-[9px] font-black text-[#0369A1]">AI 智慧拆分</span>
+          </button>
+        </>
+      )}
 
       <div className="flex-1 flex flex-col gap-2 min-w-0">
         <AnimatePresence mode="wait">
@@ -15516,32 +15623,36 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               initial={{ opacity: 0, height: 0, marginBottom: 0 }}
               animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
               exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-              className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
+              className="w-full flex items-center justify-center py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
               style={getFontFamily()}
             >
-              <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037] flex-wrap justify-center">
-                <CalendarIcon size={14} className="text-[#FFD54F]" />
-                <span>日期：</span>
-                <input 
-                  type="date"
-                  value={consumptionDate}
-                  onChange={e => {
-                    setConsumptionDate(e.target.value);
-                    setPostingDate(e.target.value);
-                  }}
-                  className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
-                  style={getFontFamily()}
-                />
-                <span className="text-stone-300 mx-1">|</span>
-                <Clock size={14} className="text-[#FFD54F]" />
-                <span>時間：</span>
-                <input 
-                  type="time"
-                  value={consumptionTime}
-                  onChange={e => setConsumptionTime(e.target.value)}
-                  className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
-                  style={getFontFamily()}
-                />
+              <div className="flex items-center justify-center gap-3 text-[13px] font-bold text-[#5D4037] w-full px-3">
+                <div className="flex items-center gap-1 shrink-0">
+                  <CalendarIcon size={14} className="text-[#FFD54F] shrink-0" />
+                  <span className="shrink-0">📅 日期：</span>
+                  <input 
+                    type="date"
+                    value={consumptionDate}
+                    onChange={e => {
+                      setConsumptionDate(e.target.value);
+                      setPostingDate(e.target.value);
+                    }}
+                    className="bg-transparent outline-none cursor-pointer text-[13px] font-black text-[#5D4037] shrink-0"
+                    style={getFontFamily()}
+                  />
+                </div>
+                <span className="text-stone-300 shrink-0">|</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Clock size={14} className="text-[#FFD54F] shrink-0" />
+                  <span className="shrink-0">🕒 時間：</span>
+                  <input 
+                    type="time"
+                    value={consumptionTime}
+                    onChange={e => setConsumptionTime(e.target.value)}
+                    className="bg-transparent outline-none cursor-pointer text-[13px] font-black text-[#5D4037] shrink-0"
+                    style={getFontFamily()}
+                  />
+                </div>
               </div>
             </motion.div>
           ) : isDateExpanded ? (
@@ -15747,39 +15858,41 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         {/* Date & Project & Camera Selection Area (Mobile only) */}
         {tab !== 'template' && !showCalculator && (
           <div className="mx-6 flex flex-col gap-2 md:hidden shrink-0">
-            {/* Top row: camera & AI buttons */}
-            <div className="flex items-center gap-3">
-              <label className="flex-shrink-0 w-[68px] h-[68px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  capture="environment"
-                  className="hidden" 
-                  onChange={handleScanReceipt} 
-                  disabled={isScanningReceipt}
-                />
-                {isScanningReceipt ? (
-                  <div className="flex flex-col items-center gap-1">
-                    <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
-                    <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-1">
-                    <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
-                    <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
-                  </div>
-                )}
-              </label>
-              <button
-                type="button"
-                onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
-                className="flex-shrink-0 w-[68px] h-[68px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
-                style={getFontFamily()}
-              >
-                <Sparkles size={26} className="text-[#0369A1] group-hover:scale-110 transition-transform" />
-                <span className="text-[9px] font-black text-[#0369A1]">AI 智慧拆分</span>
-              </button>
-            </div>
+            {/* Top row: camera & AI buttons (hidden in transfer mode) */}
+            {tab !== 'transfer' && (
+              <div className="flex items-center gap-3">
+                <label className="flex-shrink-0 w-[68px] h-[68px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    capture="environment"
+                    className="hidden" 
+                    onChange={handleScanReceipt} 
+                    disabled={isScanningReceipt}
+                  />
+                  {isScanningReceipt ? (
+                    <div className="flex flex-col items-center gap-1">
+                      <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
+                      <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1">
+                      <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
+                      <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
+                    </div>
+                  )}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
+                  className="flex-shrink-0 w-[68px] h-[68px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
+                  style={getFontFamily()}
+                >
+                  <Sparkles size={26} className="text-[#0369A1] group-hover:scale-110 transition-transform" />
+                  <span className="text-[9px] font-black text-[#0369A1]">AI 智慧拆分</span>
+                </button>
+              </div>
+            )}
             {/* Bottom row: full-width date block */}
             <div className="w-full">
               <AnimatePresence mode="wait">
@@ -15789,32 +15902,36 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     initial={{ opacity: 0, height: 0, marginBottom: 0 }}
                     animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
                     exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
+                    className="w-full flex items-center justify-center py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 shadow-sm"
                     style={getFontFamily()}
                   >
-                    <div className="flex items-center gap-2 text-[13px] font-bold text-[#5D4037] flex-wrap justify-center">
-                      <CalendarIcon size={14} className="text-[#FFD54F]" />
-                      <span>日期：</span>
-                      <input 
-                        type="date"
-                        value={consumptionDate}
-                        onChange={e => {
-                          setConsumptionDate(e.target.value);
-                          setPostingDate(e.target.value);
-                        }}
-                        className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
-                        style={getFontFamily()}
-                      />
-                      <span className="text-stone-300 mx-1">|</span>
-                      <Clock size={14} className="text-[#FFD54F]" />
-                      <span>時間：</span>
-                      <input 
-                        type="time"
-                        value={consumptionTime}
-                        onChange={e => setConsumptionTime(e.target.value)}
-                        className="bg-transparent outline-none cursor-pointer text-[13px] text-[#5D4037]"
-                        style={getFontFamily()}
-                      />
+                    <div className="flex items-center justify-center gap-3 text-[13px] font-bold text-[#5D4037] w-full px-3">
+                      <div className="flex items-center gap-1 shrink-0">
+                        <CalendarIcon size={14} className="text-[#FFD54F] shrink-0" />
+                        <span className="shrink-0">📅 日期：</span>
+                        <input 
+                          type="date"
+                          value={consumptionDate}
+                          onChange={e => {
+                            setConsumptionDate(e.target.value);
+                            setPostingDate(e.target.value);
+                          }}
+                          className="bg-transparent outline-none cursor-pointer text-[13px] font-black text-[#5D4037] shrink-0"
+                          style={getFontFamily()}
+                        />
+                      </div>
+                      <span className="text-stone-300 shrink-0">|</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Clock size={14} className="text-[#FFD54F] shrink-0" />
+                        <span className="shrink-0">🕒 時間：</span>
+                        <input 
+                          type="time"
+                          value={consumptionTime}
+                          onChange={e => setConsumptionTime(e.target.value)}
+                          className="bg-transparent outline-none cursor-pointer text-[13px] font-black text-[#5D4037] shrink-0"
+                          style={getFontFamily()}
+                        />
+                      </div>
                     </div>
                   </motion.div>
                 ) : isDateExpanded ? (
@@ -15908,6 +16025,20 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                   </motion.div>
                 )}
               </AnimatePresence>
+            </div>
+
+            {/* Project selector button (Mobile) */}
+            <div 
+              onClick={() => setIsProjectPickerOpen(true)}
+              className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm active:scale-95"
+              style={getFontFamily()}
+            >
+              <Layers size={13} className="text-[#FFD54F]" />
+              <span className="text-[12px] font-bold text-[#5D4037]">所屬專案：</span>
+              <span className="text-[12px] font-black text-[#5D4037] truncate flex items-center gap-1.5">
+                <AccountIcon icon={projects.find(p => p.id === selectedProjectId)?.icon || ''} sizeClassName="w-4 h-4" />
+                <span>{projects.find(p => p.id === selectedProjectId)?.name || '無特別專案'}</span>
+              </span>
             </div>
           </div>
         )}
