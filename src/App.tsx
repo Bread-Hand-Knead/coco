@@ -3523,6 +3523,37 @@ export function calculateCreditCardUntransferred(
   return ntSum;
 }
 
+export function getCreditCardBillingCycleRange(account: Account, accounts: Account[], isPrevious: boolean = false) {
+  const closingDayVal = account.closingDay || account.statementDate;
+  if (!closingDayVal) return null;
+
+  const now = new Date();
+  let refYear = now.getFullYear();
+  let refMonth = now.getMonth();
+
+  if (isPrevious) {
+    refMonth -= 1;
+    if (refMonth < 0) {
+      refMonth = 11;
+      refYear -= 1;
+    }
+  }
+
+  const maxDaysCurrent = new Date(refYear, refMonth + 1, 0).getDate();
+  const maxDaysPrev = new Date(refYear, refMonth, 0).getDate();
+
+  const currentClosingDate = new Date(refYear, refMonth, Math.min(closingDayVal, maxDaysCurrent));
+  const prevClosingDate = new Date(refYear, refMonth - 1, Math.min(closingDayVal, maxDaysPrev));
+
+  const startDate = new Date(prevClosingDate.getFullYear(), prevClosingDate.getMonth(), prevClosingDate.getDate() + 1);
+  const endDate = currentClosingDate;
+
+  const startStr = formatLocalDate(startDate);
+  const endStr = formatLocalDate(endDate);
+
+  return { startStr, endStr };
+}
+
 export function calculateCreditCardMonthlySpending(account: Account, accounts: Account[], records: Transaction[]): number {
   if (!account) return 0;
 
@@ -3542,6 +3573,7 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
     targetAccountIds.add(account.id);
   }
 
+  const cycleRange = getCreditCardBillingCycleRange(account, accounts, false);
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -3555,7 +3587,13 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
     const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
     const d = new Date(rawDate);
     if (isNaN(d.getTime())) return;
-    if (d.getFullYear() !== year || d.getMonth() !== month) return;
+
+    if (cycleRange) {
+      const filterDate = r.postingDate || r.date;
+      if (filterDate < cycleRange.startStr || filterDate > cycleRange.endStr) return;
+    } else {
+      if (d.getFullYear() !== year || d.getMonth() !== month) return;
+    }
 
     // Filter out bank repayments / auto-pays (transfer from bank into card to pay bill)
     const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
@@ -3607,6 +3645,7 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
     targetAccountIds.add(account.id);
   }
 
+  const cycleRange = getCreditCardBillingCycleRange(account, accounts, true);
   const now = new Date();
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const targetYear = prevMonthDate.getFullYear();
@@ -3621,7 +3660,13 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
     const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
     const d = new Date(rawDate);
     if (isNaN(d.getTime())) return;
-    if (d.getFullYear() !== targetYear || d.getMonth() !== targetMonth) return;
+
+    if (cycleRange) {
+      const filterDate = r.postingDate || r.date;
+      if (filterDate < cycleRange.startStr || filterDate > cycleRange.endStr) return;
+    } else {
+      if (d.getFullYear() !== targetYear || d.getMonth() !== targetMonth) return;
+    }
 
     // Filter out bank repayments / auto-pays (transfer from bank into card to pay bill)
     const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
@@ -3745,11 +3790,6 @@ function AccountCardMeta({ acc, accounts, records }: { acc: Account; accounts: A
         <>
           {/* 本月刷卡與結帳日/繳款日 */}
           <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2" style={getFontFamily()}>
-            <span className="flex items-center gap-1 bg-amber-50/80 text-amber-900 px-2.5 py-1 rounded-xl border border-amber-200/50 flex-wrap">
-              💳 上月刷卡: <strong className="text-[#5D4037] font-black">${calculateCreditCardPreviousMonthSpending(acc, accounts, records).toLocaleString()}</strong>
-              <span className="text-amber-300 mx-0.5">|</span>
-              本月刷卡: <strong className="text-[#5D4037] font-black">${calculateCreditCardMonthlySpending(acc, accounts, records).toLocaleString()}</strong>
-            </span>
             {Boolean(acc.statementDate || acc.closingDay) && (
               <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
                 📅 結帳日: <strong className="text-[#5D4037]">{acc.statementDate || acc.closingDay}日</strong>
@@ -4192,12 +4232,12 @@ function AccountsView({
                             />
                             {acc.type === 'credit' && (
                               <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-stone-400 mt-1 flex-wrap" style={getFontFamily()}>
-                                <span>上月刷卡：</span>
+                                <span>{(acc.closingDay || acc.statementDate) ? '上期帳單：' : '上月刷卡：'}</span>
                                 <span className="font-black text-[#5D4037]">
                                   {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
                                 </span>
                                 <span className="text-stone-300">|</span>
-                                <span>本月刷卡：</span>
+                                <span>{(acc.closingDay || acc.statementDate) ? '當期帳單：' : '本月刷卡：'}</span>
                                 <span className="font-black text-[#5D4037]">
                                   {showAmounts ? `$${calculateCreditCardMonthlySpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
                                 </span>
@@ -4233,190 +4273,190 @@ function AccountsView({
                       </div>
 
                       {/* Level 2 & 3: Nested List */}
-                      <AnimatePresence>
-                        {isExpanded && (
-                          <motion.div 
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="flex flex-col gap-4 pl-6 pr-1 overflow-hidden pb-4 relative"
-                          >
-                            {/* Vertical Line for Level 2 */}
-                            <div className="absolute left-[18px] top-0 bottom-8 w-0.5 bg-[#5D4037]/10 rounded-full" />
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div 
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="flex flex-col gap-4 pl-6 pr-1 overflow-hidden pb-4 relative"
+                    >
+                      {/* Vertical Line for Level 2 */}
+                      <div className="absolute left-[18px] top-0 bottom-8 w-0.5 bg-[#5D4037]/10 rounded-full" />
 
-                            {level2Accounts.map(l2acc => {
-                              const level3Accounts = accounts.filter(c => c.parentId === l2acc.id).sort((a, b) => (a.order || 0) - (b.order || 0));
-                              const isL2Expanded = expandedGroups.includes(l2acc.id);
-                              const hasLevel3 = level3Accounts.length > 0;
+                      {level2Accounts.map(l2acc => {
+                        const level3Accounts = accounts.filter(c => c.parentId === l2acc.id).sort((a, b) => (a.order || 0) - (b.order || 0));
+                        const isL2Expanded = expandedGroups.includes(l2acc.id);
+                        const hasLevel3 = level3Accounts.length > 0;
 
-                              return (
-                                <div key={l2acc.id} className="flex flex-col gap-2 relative">
-                                  {/* Level 2 Main Account Card */}
-                                  <div className="flex items-center gap-3">
-                                    {/* Horizontal connection line */}
-                                    <div className="w-3 h-0.5 bg-[#5D4037]/10 flex-shrink-0" />
-                                    
-                                    <div 
-                                      onClick={() => hasLevel3 ? toggleGroup(l2acc.id) : onAccountClick(l2acc)}
-                                      className="flex-1 bg-white/80 p-3 sm:p-4 rounded-[24px] border border-white flex flex-col gap-1 cursor-pointer active:scale-95 transition-all shadow-sm overflow-hidden"
+                        return (
+                          <div key={l2acc.id} className="flex flex-col gap-2 relative">
+                            {/* Level 2 Main Account Card */}
+                            <div className="flex items-center gap-3">
+                              {/* Horizontal connection line */}
+                              <div className="w-3 h-0.5 bg-[#5D4037]/10 flex-shrink-0" />
+                              
+                              <div 
+                                onClick={() => hasLevel3 ? toggleGroup(l2acc.id) : onAccountClick(l2acc)}
+                                className="flex-1 bg-white/80 p-3 sm:p-4 rounded-[24px] border border-white flex flex-col gap-1 cursor-pointer active:scale-95 transition-all shadow-sm overflow-hidden"
+                              >
+                                <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
+                                  <div 
+                                    onClick={(e) => {
+                                      if (hasLevel3) {
+                                        e.stopPropagation();
+                                        onAccountClick(l2acc);
+                                      }
+                                    }}
+                                    className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-lg sm:text-xl shadow-inner active:scale-90 transition-transform"
+                                  >
+                                    <AccountIcon icon={l2acc.icon} sizeClassName="w-5 h-5 sm:w-6 sm:h-6" />
+                                  </div>
+                                  <div className="flex flex-col flex-1 min-w-0 justify-center">
+                                    {l2acc.type === 'credit' ? (
+                                      <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate" style={getFontFamily()}>
+                                        目前未繳金額
+                                      </span>
+                                    ) : (
+                                      l2acc.type !== 'e-ticket' && (
+                                        <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">
+                                          主帳號
+                                        </span>
+                                      )
+                                    )}
+                                    <span className="text-sm sm:text-base font-black text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{l2acc.name}</span>
+                                    <DynamicAccountBalance
+                                      account={l2acc}
+                                      accounts={accounts}
+                                      transactions={records}
+                                      showAmounts={showAmounts}
+                                      currencyMode={currencyMode}
+                                      className="text-base sm:text-lg font-black mt-0.5"
+                                    />
+                                    {l2acc.type === 'credit' && (
+                                      <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
+                                        <span>{(l2acc.closingDay || l2acc.statementDate) ? '上期帳單：' : '上月刷卡：'}</span>
+                                        <span className="font-black text-[#5D4037]">
+                                          {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
+                                        </span>
+                                        <span className="text-stone-300">|</span>
+                                        <span>{(l2acc.closingDay || l2acc.statementDate) ? '當期帳單：' : '本月刷卡：'}</span>
+                                        <span className="font-black text-[#5D4037]">
+                                          {showAmounts ? `$${calculateCreditCardMonthlySpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {hasLevel3 && (
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleGroup(l2acc.id, e);
+                                      }}
+                                      className={`w-10 h-10 rounded-full flex items-center justify-center text-stone-400 transition-colors ${isL2Expanded ? 'bg-stone-100' : ''}`}
                                     >
-                                      <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
-                                        <div 
-                                          onClick={(e) => {
-                                            if (hasLevel3) {
-                                              e.stopPropagation();
-                                              onAccountClick(l2acc);
-                                            }
-                                          }}
-                                          className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-lg sm:text-xl shadow-inner active:scale-90 transition-transform"
-                                        >
-                                          <AccountIcon icon={l2acc.icon} sizeClassName="w-5 h-5 sm:w-6 sm:h-6" />
+                                      <motion.div animate={{ rotate: isL2Expanded ? 180 : 0 }}>
+                                        <ChevronDown size={20} />
+                                      </motion.div>
+                                    </button>
+                                  )}
+                                </div>
+
+                                {renderAccountMemoAndInterest(l2acc, accounts, records)}
+
+                                {/* Credit card progress bar */}
+                                {l2acc.type === 'credit' && Boolean(l2acc.creditLimit && l2acc.creditLimit > 0) && (
+                                  <div className="w-full">
+                                    <CreditLimitBar account={l2acc} accounts={accounts} records={records} />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Level 3: Sub-Accounts */}
+                            <AnimatePresence>
+                              {isL2Expanded && (
+                                <motion.div 
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: 'auto', opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  className="flex flex-col gap-2 pl-10 pr-1 overflow-hidden pb-1 relative"
+                                >
+                                  {/* Nested vertical line */}
+                                  <div className="absolute left-[34px] top-0 bottom-4 w-0.5 bg-[#5D4037]/5 rounded-full" />
+                                  
+                                  {level3Accounts.map(l3acc => (
+                                    <div key={l3acc.id} className="flex items-center gap-3">
+                                      <div className="w-3 h-0.5 bg-[#5D4037]/5 flex-shrink-0" />
+                                      <div 
+                                        onClick={() => onAccountClick(l3acc)}
+                                        className="flex-1 bg-white/40 p-2 sm:p-3 rounded-[20px] border border-white/50 flex flex-col gap-1 cursor-pointer active:scale-95 transition-all overflow-hidden"
+                                      >
+                                        <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
+                                          <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white/80 rounded-lg flex-shrink-0 flex items-center justify-center text-base sm:text-lg shadow-sm">
+                                            <AccountIcon icon={l3acc.icon} sizeClassName="w-4 h-4 sm:w-5 sm:h-5" />
+                                          </div>
+                                          <div className="flex flex-col flex-1 min-w-0 justify-center">
+                                            {l3acc.type === 'credit' ? (
+                                              <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate" style={getFontFamily()}>目前未繳金額</span>
+                                            ) : (
+                                              l3acc.type !== 'e-ticket' && (
+                                                <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">子帳戶</span>
+                                              )
+                                            )}
+                                            <span className="text-xs sm:text-sm font-bold text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{l3acc.name}</span>
+                                            <DynamicAccountBalance
+                                              account={l3acc}
+                                              accounts={accounts}
+                                              transactions={records}
+                                              showAmounts={showAmounts}
+                                              currencyMode={currencyMode}
+                                              className="text-sm sm:text-base font-black"
+                                            />
+                                            {l3acc.type === 'credit' && (
+                                              <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
+                                                <span>{(l3acc.closingDay || l3acc.statementDate) ? '上期帳單：' : '上月刷卡：'}</span>
+                                                <span className="font-black text-[#5D4037]">
+                                                  {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
+                                                </span>
+                                                <span className="text-stone-300">|</span>
+                                                <span>{(l3acc.closingDay || l3acc.statementDate) ? '當期帳單：' : '本月刷卡：'}</span>
+                                                <span className="font-black text-[#5D4037]">
+                                                  {showAmounts ? `$${calculateCreditCardMonthlySpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
-                                        <div className="flex flex-col flex-1 min-w-0 justify-center">
-                                          {l2acc.type === 'credit' ? (
-                                            <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate" style={getFontFamily()}>
-                                              目前未繳金額
-                                            </span>
-                                          ) : (
-                                            l2acc.type !== 'e-ticket' && (
-                                              <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">
-                                                主帳號
-                                              </span>
-                                            )
-                                          )}
-                                          <span className="text-sm sm:text-base font-black text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{l2acc.name}</span>
-                                          <DynamicAccountBalance
-                                            account={l2acc}
-                                            accounts={accounts}
-                                            transactions={records}
-                                            showAmounts={showAmounts}
-                                            currencyMode={currencyMode}
-                                            className="text-base sm:text-lg font-black mt-0.5"
-                                          />
-                                          {l2acc.type === 'credit' && (
-                                            <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
-                                              <span>上月刷卡：</span>
-                                              <span className="font-black text-[#5D4037]">
-                                                {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
-                                              </span>
-                                              <span className="text-stone-300">|</span>
-                                              <span>本月刷卡：</span>
-                                              <span className="font-black text-[#5D4037]">
-                                                {showAmounts ? `$${calculateCreditCardMonthlySpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
-                                              </span>
-                                            </div>
-                                          )}
-                                        </div>
-                                        {hasLevel3 && (
-                                          <button 
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              toggleGroup(l2acc.id, e);
-                                            }}
-                                            className={`w-10 h-10 rounded-full flex items-center justify-center text-stone-400 transition-colors ${isL2Expanded ? 'bg-stone-100' : ''}`}
-                                          >
-                                            <motion.div animate={{ rotate: isL2Expanded ? 180 : 0 }}>
-                                              <ChevronDown size={20} />
-                                            </motion.div>
-                                          </button>
+
+                                        {renderAccountMemoAndInterest(l3acc, accounts, records)}
+
+                                        {/* Credit card progress bar */}
+                                        {l3acc.type === 'credit' && Boolean(l3acc.creditLimit && l3acc.creditLimit > 0) && (
+                                          <div className="w-full">
+                                            <CreditLimitBar account={l3acc} accounts={accounts} records={records} />
+                                          </div>
                                         )}
                                       </div>
-
-                                      {renderAccountMemoAndInterest(l2acc, accounts, records)}
-
-                                      {/* Credit card progress bar */}
-                                      {l2acc.type === 'credit' && Boolean(l2acc.creditLimit && l2acc.creditLimit > 0) && (
-                                        <div className="w-full">
-                                          <CreditLimitBar account={l2acc} accounts={accounts} records={records} />
-                                        </div>
-                                      )}
                                     </div>
-                                  </div>
-
-                                  {/* Level 3: Sub-Accounts */}
-                                  <AnimatePresence>
-                                    {isL2Expanded && (
-                                      <motion.div 
-                                        initial={{ height: 0, opacity: 0 }}
-                                        animate={{ height: 'auto', opacity: 1 }}
-                                        exit={{ height: 0, opacity: 0 }}
-                                        className="flex flex-col gap-2 pl-10 pr-1 overflow-hidden pb-1 relative"
-                                      >
-                                        {/* Nested vertical line */}
-                                        <div className="absolute left-[34px] top-0 bottom-4 w-0.5 bg-[#5D4037]/5 rounded-full" />
-                                        
-                                        {level3Accounts.map(l3acc => (
-                                          <div key={l3acc.id} className="flex items-center gap-3">
-                                            <div className="w-3 h-0.5 bg-[#5D4037]/5 flex-shrink-0" />
-                                            <div 
-                                              onClick={() => onAccountClick(l3acc)}
-                                              className="flex-1 bg-white/40 p-2 sm:p-3 rounded-[20px] border border-white/50 flex flex-col gap-1 cursor-pointer active:scale-95 transition-all overflow-hidden"
-                                            >
-                                              <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
-                                                <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white/80 rounded-lg flex-shrink-0 flex items-center justify-center text-base sm:text-lg shadow-sm">
-                                                  <AccountIcon icon={l3acc.icon} sizeClassName="w-4 h-4 sm:w-5 sm:h-5" />
-                                                </div>
-                                                <div className="flex flex-col flex-1 min-w-0 justify-center">
-                                                  {l3acc.type === 'credit' ? (
-                                                    <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate" style={getFontFamily()}>目前未繳金額</span>
-                                                  ) : (
-                                                    l3acc.type !== 'e-ticket' && (
-                                                      <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">子帳戶</span>
-                                                    )
-                                                  )}
-                                                  <span className="text-xs sm:text-sm font-bold text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{l3acc.name}</span>
-                                                  <DynamicAccountBalance
-                                                    account={l3acc}
-                                                    accounts={accounts}
-                                                    transactions={records}
-                                                    showAmounts={showAmounts}
-                                                    currencyMode={currencyMode}
-                                                    className="text-sm sm:text-base font-black"
-                                                  />
-                                                  {l3acc.type === 'credit' && (
-                                                    <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
-                                                      <span>上月刷卡：</span>
-                                                      <span className="font-black text-[#5D4037]">
-                                                        {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
-                                                      </span>
-                                                      <span className="text-stone-300">|</span>
-                                                      <span>本月刷卡：</span>
-                                                      <span className="font-black text-[#5D4037]">
-                                                        {showAmounts ? `$${calculateCreditCardMonthlySpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
-                                                      </span>
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              </div>
-
-                                              {renderAccountMemoAndInterest(l3acc, accounts, records)}
-
-                                              {/* Credit card progress bar */}
-                                              {l3acc.type === 'credit' && Boolean(l3acc.creditLimit && l3acc.creditLimit > 0) && (
-                                                <div className="w-full">
-                                                  <CreditLimitBar account={l3acc} accounts={accounts} records={records} />
-                                                </div>
-                                              )}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </motion.div>
-                                    )}
-                                  </AnimatePresence>
-                                </div>
-                              );
-                            })}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  );
-                })}
+                                  ))}
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        );
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
+    );
+  })}
+</div>
 
       <div className="h-[120px] w-full" />
       </>
@@ -6822,7 +6862,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               onClick={() => setIsDatePickerOpen(true)}
               className="text-stone-500 font-bold text-sm tracking-tighter px-3 py-1 hover:bg-white/40 active:scale-95 rounded-xl transition-all"
             >
-              {sortMode === 'billing-cycle' ? `💳 當期帳單週期 (${billingCycleRange.label})` : dateRangeStrings.range}
+              {dateRangeStrings.range}
             </button>
             <button 
               onClick={() => changeMonth(1)}
@@ -6834,8 +6874,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
           {/* Billing Cycle Summary Header Bar */}
           {sortMode === 'billing-cycle' && (
-            <div className="flex items-center justify-between px-4 py-2.5 bg-white/70 backdrop-blur-sm border border-[#5D4037]/15 rounded-2xl mx-1 shadow-sm" style={getFontFamily()}>
-              <div className="flex items-center gap-1.5 font-black text-sm text-[#5D4037]">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-stone-100/60 my-1 mx-2" style={getFontFamily()}>
+              <div className="flex items-center gap-1.5 font-black text-base text-[#5D4037]">
                 <span>{billingCycleStatementLabel}</span>
                 {!account.isBrandGroup && (
                   <button
@@ -6843,12 +6883,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     className="p-1 hover:text-[#FBC02D] active:scale-95 transition-all text-stone-400 hover:text-[#5D4037]"
                     title="點選自訂帳單名稱"
                   >
-                    <Pencil size={12} className="opacity-60 hover:opacity-100 transition-opacity" />
+                    <Pencil size={13} className="opacity-60 hover:opacity-100 transition-opacity" />
                   </button>
                 )}
               </div>
               <div className="text-xs font-bold text-stone-500">
-                金額: <span className="font-black text-sm text-[#5D4037]">${creditCardStats.billingCycleSum.toLocaleString()}</span>
+                金額: <span className="font-black text-base text-[#5D4037]">${creditCardStats.billingCycleSum.toLocaleString()}</span>
               </div>
             </div>
           )}
