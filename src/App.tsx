@@ -3595,10 +3595,13 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
   const year = now.getFullYear();
   const month = now.getMonth();
 
-  let netBalanceChange = 0;
+  let spendingTotal = 0;
 
   records.forEach(r => {
-    if (!targetAccountIds.has(r.accountId)) return;
+    const isFromCard = targetAccountIds.has(r.accountId);
+    const isToCard = Boolean(r.toAccountId && targetAccountIds.has(r.toAccountId));
+
+    if (!isFromCard && !isToCard) return;
     if (r.category === '初始資金') return;
 
     const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
@@ -3612,35 +3615,55 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
       if (d.getFullYear() !== year || d.getMonth() !== month) return;
     }
 
-    // Filter out bank repayments / auto-pays (transfer from bank into card to pay bill)
     const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
-    const isRepaymentTransfer = r.type === 'transfer' && r.toAccountId && targetAccountIds.has(r.toAccountId);
-    const isAutoPay = 
+    const noteLower = noteText.toLowerCase();
+    const isFeedback = 
+      noteLower.includes('回饋') || 
+      noteLower.includes('返現') || 
+      noteLower.includes('紅利') || 
+      noteLower.includes('折抵') || 
+      noteLower.includes('cashback') || 
+      noteLower.includes('reward') ||
+      r.type === 'income' ||
+      r.category === '回饋' ||
+      r.category === '退款';
+
+    const isTransfer = r.type === 'transfer';
+    const isAutoPay = isToCard && (
       (noteText.includes('自動') && noteText.includes('扣繳')) || 
       (noteText.includes('自動') && noteText.includes('繳款')) || 
       (noteText.includes('自動') && noteText.includes('扣款')) ||
       noteText.includes('轉帳扣繳') ||
       noteText.includes('扣繳信用卡款') ||
-      noteText.includes('自動扣繳');
+      noteText.includes('自動扣繳')
+    );
 
-    if (isRepaymentTransfer || isAutoPay) {
-      return; // Skip bill repayments
+    if (isAutoPay) {
+      return; // Skip bank bill repayments
     }
 
-    let change = r.amount;
-    if (r.type === 'expense' && change > 0) {
-      change = -change;
-    } else if (r.type === 'income' && change < 0) {
-      change = -change;
+    if (isFromCard && isToCard) {
+      return; // Internal transfer within the same card group
     }
 
-    netBalanceChange += change;
-    if (r.fee) {
-      netBalanceChange -= r.fee;
+    let change = 0;
+    if (r.type === 'expense') {
+      change = Math.abs(Number(r.amount || 0));
+    } else if (isTransfer && isFromCard && !isToCard) {
+      // Credit card transfer out (e.g. top up e-wallet/EasyCard/icash/iPASS)
+      change = Math.abs(Number(r.amount || 0));
+    } else if (r.type === 'income' || isFeedback || (isTransfer && isToCard)) {
+      // Refund, cashback rebate, or non-autopay transfer in
+      change = -Math.abs(Number(r.amount || 0));
+    }
+
+    spendingTotal += change;
+    if (r.fee && isFromCard) {
+      spendingTotal += Math.abs(Number(r.fee || 0));
     }
   });
 
-  return Math.max(0, -netBalanceChange);
+  return Math.max(0, spendingTotal);
 }
 
 export function calculateCreditCardPreviousMonthSpending(account: Account, accounts: Account[], records: Transaction[]): number {
@@ -3669,10 +3692,13 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
   const targetYear = prevMonthDate.getFullYear();
   const targetMonth = prevMonthDate.getMonth();
 
-  let netBalanceChange = 0;
+  let spendingTotal = 0;
 
   records.forEach(r => {
-    if (!targetAccountIds.has(r.accountId)) return;
+    const isFromCard = targetAccountIds.has(r.accountId);
+    const isToCard = Boolean(r.toAccountId && targetAccountIds.has(r.toAccountId));
+
+    if (!isFromCard && !isToCard) return;
     if (r.category === '初始資金') return;
 
     const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
@@ -3686,35 +3712,55 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
       if (d.getFullYear() !== targetYear || d.getMonth() !== targetMonth) return;
     }
 
-    // Filter out bank repayments / auto-pays (transfer from bank into card to pay bill)
     const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
-    const isRepaymentTransfer = r.type === 'transfer' && r.toAccountId && targetAccountIds.has(r.toAccountId);
-    const isAutoPay = 
+    const noteLower = noteText.toLowerCase();
+    const isFeedback = 
+      noteLower.includes('回饋') || 
+      noteLower.includes('返現') || 
+      noteLower.includes('紅利') || 
+      noteLower.includes('折抵') || 
+      noteLower.includes('cashback') || 
+      noteLower.includes('reward') ||
+      r.type === 'income' ||
+      r.category === '回饋' ||
+      r.category === '退款';
+
+    const isTransfer = r.type === 'transfer';
+    const isAutoPay = isToCard && (
       (noteText.includes('自動') && noteText.includes('扣繳')) || 
       (noteText.includes('自動') && noteText.includes('繳款')) || 
       (noteText.includes('自動') && noteText.includes('扣款')) ||
       noteText.includes('轉帳扣繳') ||
       noteText.includes('扣繳信用卡款') ||
-      noteText.includes('自動扣繳');
+      noteText.includes('自動扣繳')
+    );
 
-    if (isRepaymentTransfer || isAutoPay) {
-      return; // Skip bill repayments
+    if (isAutoPay) {
+      return; // Skip bank bill repayments
     }
 
-    let change = r.amount;
-    if (r.type === 'expense' && change > 0) {
-      change = -change;
-    } else if (r.type === 'income' && change < 0) {
-      change = -change;
+    if (isFromCard && isToCard) {
+      return; // Internal transfer within the same card group
     }
 
-    netBalanceChange += change;
-    if (r.fee) {
-      netBalanceChange -= r.fee;
+    let change = 0;
+    if (r.type === 'expense') {
+      change = Math.abs(Number(r.amount || 0));
+    } else if (isTransfer && isFromCard && !isToCard) {
+      // Credit card transfer out (e.g. top up e-wallet/EasyCard/icash/iPASS)
+      change = Math.abs(Number(r.amount || 0));
+    } else if (r.type === 'income' || isFeedback || (isTransfer && isToCard)) {
+      // Refund, cashback rebate, or non-autopay transfer in
+      change = -Math.abs(Number(r.amount || 0));
+    }
+
+    spendingTotal += change;
+    if (r.fee && isFromCard) {
+      spendingTotal += Math.abs(Number(r.fee || 0));
     }
   });
 
-  return Math.max(0, -netBalanceChange);
+  return Math.max(0, spendingTotal);
 }
 
 function DynamicAccountBalance({ 
@@ -6051,35 +6097,35 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         r.category === '回饋' ||
         r.category === '退款';
 
+      const isTransferPayment = r.type === 'transfer';
+      const isTransferOutFromCard = isTransferPayment && r.accountId && targetIds.includes(r.accountId) && !(r.toAccountId && targetIds.includes(r.toAccountId));
+      const isTransferInToCard = isTransferPayment && r.toAccountId && targetIds.includes(r.toAccountId);
+      
+      let isAutoPay = false;
+      if (isTransferInToCard) {
+        isAutoPay = 
+          (noteText.includes('自動') && noteText.includes('扣繳')) || 
+          (noteText.includes('自動') && noteText.includes('繳款')) || 
+          (noteText.includes('自動') && noteText.includes('扣款')) ||
+          noteText.includes('轉帳扣繳') ||
+          noteText.includes('扣繳信用卡款') ||
+          noteText.includes('自動扣繳');
+      }
+
       if (r.type === 'expense') {
         cycleSum += Math.abs(Number(r.amount || 0));
         cycleCount++;
-      } else if (isFeedback || r.type === 'income') {
+      } else if (isTransferOutFromCard) {
+        // Credit card transfer out (e.g. top up e-wallet/EasyCard/icash)
+        cycleSum += Math.abs(Number(r.amount || 0));
+        cycleCount++;
+      } else if (isFeedback || r.type === 'income' || (isTransferInToCard && !isAutoPay)) {
         cycleSum -= Math.abs(Number(r.amount || 0));
         cycleCount++;
       }
 
       if (isFeedback) {
         return; // skip cashbacks / rewards entirely from transfer statistics
-      }
-
-      const isTransferPayment = r.type === 'transfer';
-      let isTransferIn = false;
-      let isAutoPay = false;
-      
-      if (isTransferPayment) {
-        // Only count as repayment transfer if it's transferring money INTO the credit card account/sub-accounts
-        isTransferIn = r.toAccountId && targetIds.includes(r.toAccountId);
-        
-        if (isTransferIn) {
-          isAutoPay = 
-            (noteText.includes('自動') && noteText.includes('扣繳')) || 
-            (noteText.includes('自動') && noteText.includes('繳款')) || 
-            (noteText.includes('自動') && noteText.includes('扣款')) ||
-            noteText.includes('轉帳扣繳') ||
-            noteText.includes('扣繳信用卡款') ||
-            noteText.includes('自動扣繳');
-        }
       }
 
       if (isAutoPay) {
