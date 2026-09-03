@@ -6038,11 +6038,6 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     let cycleCount = 0;
 
     accountRecords.forEach(r => {
-      if (r.type === 'expense') {
-        cycleSum += Math.abs(r.amount);
-        cycleCount++;
-      }
-
       const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
       const noteLower = noteText.toLowerCase();
       const isFeedback = 
@@ -6051,8 +6046,19 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         noteLower.includes('紅利') || 
         noteLower.includes('折抵') || 
         noteLower.includes('cashback') || 
-        noteLower.includes('reward');
-      
+        noteLower.includes('reward') ||
+        r.type === 'income' ||
+        r.category === '回饋' ||
+        r.category === '退款';
+
+      if (r.type === 'expense') {
+        cycleSum += Math.abs(Number(r.amount || 0));
+        cycleCount++;
+      } else if (isFeedback || r.type === 'income') {
+        cycleSum -= Math.abs(Number(r.amount || 0));
+        cycleCount++;
+      }
+
       if (isFeedback) {
         return; // skip cashbacks / rewards entirely from transfer statistics
       }
@@ -6880,7 +6886,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               onClick={() => setIsDatePickerOpen(true)}
               className="text-stone-500 font-bold text-sm tracking-tighter px-3 py-1 hover:bg-white/40 active:scale-95 rounded-xl transition-all"
             >
-              {dateRangeStrings.range}
+              {sortMode === 'billing-cycle' ? billingCycleRange.label : dateRangeStrings.range}
             </button>
             <button 
               onClick={() => changeMonth(1)}
