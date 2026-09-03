@@ -6808,7 +6808,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         </div>
 
         <div className="flex-1 bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white overflow-hidden flex flex-col">
-          {account.type === 'credit' && effectiveClosingDay ? (
+          {account.type === 'credit' && effectiveClosingDay && sortMode !== 'billing-cycle' ? (
             creditCardStatements.length > 0 ? (
               <div className="overflow-y-auto p-6 space-y-6">
                 {creditCardStatements.map(stmt => (
@@ -17130,12 +17130,23 @@ const filterTaiwanTerms = (text: string): string => {
 
 const getTimestamp = (dateStr: string, timeStr?: string): number => {
   if (!dateStr) return 0;
-  const [year, month, day] = dateStr.split('-').map(Number);
+  const normalizedDate = dateStr.replace(/\//g, '-');
+  const partsDate = normalizedDate.split('-').map(Number);
+  const year = partsDate[0];
+  const month = partsDate[1];
+  const day = partsDate[2];
+
+  if (!year || isNaN(year) || !month || isNaN(month) || !day || isNaN(day)) {
+    const d = new Date(normalizedDate);
+    if (!isNaN(d.getTime())) return d.getTime();
+    return 0;
+  }
+
   const time = timeStr && timeStr.trim() ? timeStr : '00:00:00';
-  const parts = time.split(':').map(Number);
-  const hour = parts[0] || 0;
-  const minute = parts[1] || 0;
-  const second = parts[2] || 0;
+  const partsTime = time.split(':').map(Number);
+  const hour = partsTime[0] || 0;
+  const minute = partsTime[1] || 0;
+  const second = partsTime[2] || 0;
   return new Date(year, month - 1, day, hour, minute, second).getTime();
 };
 
