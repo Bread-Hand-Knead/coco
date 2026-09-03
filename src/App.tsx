@@ -6133,7 +6133,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       }
 
       // Counts as transferred if manually marked or if it is an incoming transfer payment (repayment)
-      const isTransferred = r.transferredDate || (isTransferPayment && isTransferIn);
+      const isTransferred = r.transferredDate || (isTransferPayment && isTransferInToCard);
 
       if (isTransferred) {
         tCount++;
