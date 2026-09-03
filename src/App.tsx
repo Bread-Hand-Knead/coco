@@ -5832,7 +5832,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const merged = getMergedRecords(raw, accounts);
     
     return merged.sort((a, b) => {
-      if (sortMode === 'date-desc') {
+      if (sortMode === 'billing-cycle') {
+        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        if (ptsA !== ptsB) return ptsA - ptsB;
+        return a.amount - b.amount;
+      } else if (sortMode === 'date-desc') {
         const tsA = getTimestamp(a.date, a.time);
         const tsB = getTimestamp(b.date, b.time);
         if (tsB !== tsA) return tsB - tsA;
@@ -5842,7 +5847,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         const tsB = getTimestamp(b.date, b.time);
         if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
-      } else if (sortMode === 'posting-desc' || sortMode === 'billing-cycle') {
+      } else if (sortMode === 'posting-desc') {
         const ptsA = getTimestamp(a.postingDate || a.date, a.time);
         const ptsB = getTimestamp(b.postingDate || b.date, b.time);
         if (ptsB !== ptsA) return ptsB - ptsA;
@@ -5870,7 +5875,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     if (account.type !== 'credit') {
       const sortedNormals = [...accountRecords];
       sortedNormals.sort((a, b) => {
-        if (sortMode === 'date-desc') {
+        if (sortMode === 'billing-cycle') {
+          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+          if (ptsA !== ptsB) return ptsA - ptsB;
+          return a.amount - b.amount;
+        } else if (sortMode === 'date-desc') {
           const tsA = getTimestamp(a.date, a.time);
           const tsB = getTimestamp(b.date, b.time);
           if (tsB !== tsA) return tsB - tsA;
@@ -5880,7 +5890,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           const tsB = getTimestamp(b.date, b.time);
           if (tsA !== tsB) return tsA - tsB;
           return a.amount - b.amount;
-        } else if (sortMode === 'posting-desc' || sortMode === 'billing-cycle') {
+        } else if (sortMode === 'posting-desc') {
           const ptsA = getTimestamp(a.postingDate || a.date, a.time);
           const ptsB = getTimestamp(b.postingDate || b.date, b.time);
           if (ptsB !== ptsA) return ptsB - ptsA;
@@ -5918,7 +5928,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     // Apply sortMode to normalRecords
     normalRecords.sort((a, b) => {
-      if (sortMode === 'date-desc') {
+      if (sortMode === 'billing-cycle') {
+        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        if (ptsA !== ptsB) return ptsA - ptsB;
+        return a.amount - b.amount;
+      } else if (sortMode === 'date-desc') {
         const tsA = getTimestamp(a.date, a.time);
         const tsB = getTimestamp(b.date, b.time);
         if (tsB !== tsA) return tsB - tsA;
@@ -5928,7 +5943,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         const tsB = getTimestamp(b.date, b.time);
         if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
-      } else if (sortMode === 'posting-desc' || sortMode === 'billing-cycle') {
+      } else if (sortMode === 'posting-desc') {
         const ptsA = getTimestamp(a.postingDate || a.date, a.time);
         const ptsB = getTimestamp(b.postingDate || b.date, b.time);
         if (ptsB !== ptsA) return ptsB - ptsA;
