@@ -3523,6 +3523,46 @@ export function calculateCreditCardUntransferred(
   return ntSum;
 }
 
+export function calculateCreditCardMonthlySpending(account: Account, accounts: Account[], records: Transaction[]): number {
+  if (!account) return 0;
+
+  const targetAccountIds = new Set<string>();
+  const isGroup = account.isBrandGroup || (account.childAccounts && account.childAccounts.length > 0) || accounts.some(a => a.parentId === account.id);
+
+  if (isGroup) {
+    targetAccountIds.add(account.id);
+    const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
+    children.forEach(c => {
+      targetAccountIds.add(c.id);
+    });
+    if (account.childAccounts) {
+      account.childAccounts.forEach((c: Account) => targetAccountIds.add(c.id));
+    }
+  } else {
+    targetAccountIds.add(account.id);
+  }
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  let totalSpending = 0;
+  records.forEach(r => {
+    if (!targetAccountIds.has(r.accountId)) return;
+    if (r.type !== 'expense') return;
+
+    const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
+    const d = new Date(rawDate);
+    if (!isNaN(d.getTime())) {
+      if (d.getFullYear() === year && d.getMonth() === month) {
+        totalSpending += Math.abs(r.amount);
+      }
+    }
+  });
+
+  return totalSpending;
+}
+
 function DynamicAccountBalance({ 
   account, 
   accounts,
@@ -3612,21 +3652,22 @@ function AccountCardMeta({ acc, accounts, records }: { acc: Account; accounts: A
     <div className="mt-2 flex flex-col gap-2 border-t border-stone-100/50 pt-2" style={getFontFamily()}>
       {isCredit && (
         <>
-          {/* 結帳日 / 繳款日 — 固定顯示 */}
-          {hasDateInfo && (
-            <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2" style={getFontFamily()}>
-              {Boolean(acc.statementDate || acc.closingDay) && (
-                <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
-                  📅 結帳日: <strong className="text-[#5D4037]">{acc.statementDate || acc.closingDay}日</strong>
-                </span>
-              )}
-              {Boolean(acc.dueDate) && (
-                <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
-                  ⏰ 繳款日: <strong className="text-[#5D4037]">{acc.dueDate}日</strong>
-                </span>
-              )}
-            </div>
-          )}
+          {/* 本月刷卡與結帳日/繳款日 */}
+          <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2" style={getFontFamily()}>
+            <span className="flex items-center gap-1 bg-amber-50/80 text-amber-900 px-2.5 py-1 rounded-xl border border-amber-200/50">
+              💳 本月刷卡: <strong className="text-[#5D4037] font-black">${calculateCreditCardMonthlySpending(acc, accounts, records).toLocaleString()}</strong>
+            </span>
+            {Boolean(acc.statementDate || acc.closingDay) && (
+              <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
+                📅 結帳日: <strong className="text-[#5D4037]">{acc.statementDate || acc.closingDay}日</strong>
+              </span>
+            )}
+            {Boolean(acc.dueDate) && (
+              <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
+                ⏰ 繳款日: <strong className="text-[#5D4037]">{acc.dueDate}日</strong>
+              </span>
+            )}
+          </div>
 
           {/* 回饋權益 — 可摺疊 */}
           {Boolean(benefits.length > 0) && (
@@ -4056,6 +4097,14 @@ function AccountsView({
                               currencyMode={currencyMode}
                               className="text-xl sm:text-[26px] font-black mt-1"
                             />
+                            {acc.type === 'credit' && (
+                              <div className="flex items-center gap-1 text-xs sm:text-sm font-bold text-stone-400 mt-1" style={getFontFamily()}>
+                                <span>本月刷卡：</span>
+                                <span className="font-black text-[#5D4037]">
+                                  {showAmounts ? `$${calculateCreditCardMonthlySpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
+                                </span>
+                              </div>
+                            )}
                           </div>
                           
                           {hasLevel2 && (
@@ -4146,6 +4195,14 @@ function AccountsView({
                                             currencyMode={currencyMode}
                                             className="text-base sm:text-lg font-black mt-0.5"
                                           />
+                                          {l2acc.type === 'credit' && (
+                                            <div className="flex items-center gap-1 text-[11px] sm:text-xs font-bold text-stone-400 mt-0.5" style={getFontFamily()}>
+                                              <span>本月刷卡：</span>
+                                              <span className="font-black text-[#5D4037]">
+                                                {showAmounts ? `$${calculateCreditCardMonthlySpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
+                                              </span>
+                                            </div>
+                                          )}
                                         </div>
                                         {hasLevel3 && (
                                           <button 
@@ -4213,6 +4270,14 @@ function AccountsView({
                                                     currencyMode={currencyMode}
                                                     className="text-sm sm:text-base font-black"
                                                   />
+                                                  {l3acc.type === 'credit' && (
+                                                    <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-stone-400 mt-0.5" style={getFontFamily()}>
+                                                      <span>本月刷卡：</span>
+                                                      <span className="font-black text-[#5D4037]">
+                                                        {showAmounts ? `$${calculateCreditCardMonthlySpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
+                                                      </span>
+                                                    </div>
+                                                  )}
                                                 </div>
                                               </div>
 
@@ -6420,6 +6485,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 );
               })()}
             </div>
+            {account.type === 'credit' && (
+              <div className="flex items-center gap-1 text-xs sm:text-sm font-bold text-stone-400 mt-1" style={getFontFamily()}>
+                <span>本月刷卡：</span>
+                <span className="font-black text-[#5D4037]">
+                  ${calculateCreditCardMonthlySpending(account, accounts, records).toLocaleString()}
+                </span>
+              </div>
+            )}
             {!account.isBrandGroup && renderAccountMemoAndInterest(account, accounts, records)}
           </div>
           {!account.isBrandGroup && (
