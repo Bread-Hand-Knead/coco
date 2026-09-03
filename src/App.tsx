@@ -3563,6 +3563,47 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
   return totalSpending;
 }
 
+export function calculateCreditCardPreviousMonthSpending(account: Account, accounts: Account[], records: Transaction[]): number {
+  if (!account) return 0;
+
+  const targetAccountIds = new Set<string>();
+  const isGroup = account.isBrandGroup || (account.childAccounts && account.childAccounts.length > 0) || accounts.some(a => a.parentId === account.id);
+
+  if (isGroup) {
+    targetAccountIds.add(account.id);
+    const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
+    children.forEach(c => {
+      targetAccountIds.add(c.id);
+    });
+    if (account.childAccounts) {
+      account.childAccounts.forEach((c: Account) => targetAccountIds.add(c.id));
+    }
+  } else {
+    targetAccountIds.add(account.id);
+  }
+
+  const now = new Date();
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const targetYear = prevMonthDate.getFullYear();
+  const targetMonth = prevMonthDate.getMonth();
+
+  let totalSpending = 0;
+  records.forEach(r => {
+    if (!targetAccountIds.has(r.accountId)) return;
+    if (r.type !== 'expense') return;
+
+    const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
+    const d = new Date(rawDate);
+    if (!isNaN(d.getTime())) {
+      if (d.getFullYear() === targetYear && d.getMonth() === targetMonth) {
+        totalSpending += Math.abs(r.amount);
+      }
+    }
+  });
+
+  return totalSpending;
+}
+
 function DynamicAccountBalance({ 
   account, 
   accounts,
@@ -3654,8 +3695,10 @@ function AccountCardMeta({ acc, accounts, records }: { acc: Account; accounts: A
         <>
           {/* 本月刷卡與結帳日/繳款日 */}
           <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2" style={getFontFamily()}>
-            <span className="flex items-center gap-1 bg-amber-50/80 text-amber-900 px-2.5 py-1 rounded-xl border border-amber-200/50">
-              💳 本月刷卡: <strong className="text-[#5D4037] font-black">${calculateCreditCardMonthlySpending(acc, accounts, records).toLocaleString()}</strong>
+            <span className="flex items-center gap-1 bg-amber-50/80 text-amber-900 px-2.5 py-1 rounded-xl border border-amber-200/50 flex-wrap">
+              💳 上月刷卡: <strong className="text-[#5D4037] font-black">${calculateCreditCardPreviousMonthSpending(acc, accounts, records).toLocaleString()}</strong>
+              <span className="text-amber-300 mx-0.5">|</span>
+              本月刷卡: <strong className="text-[#5D4037] font-black">${calculateCreditCardMonthlySpending(acc, accounts, records).toLocaleString()}</strong>
             </span>
             {Boolean(acc.statementDate || acc.closingDay) && (
               <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
@@ -4098,7 +4141,12 @@ function AccountsView({
                               className="text-xl sm:text-[26px] font-black mt-1"
                             />
                             {acc.type === 'credit' && (
-                              <div className="flex items-center gap-1 text-xs sm:text-sm font-bold text-stone-400 mt-1" style={getFontFamily()}>
+                              <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-stone-400 mt-1 flex-wrap" style={getFontFamily()}>
+                                <span>上月刷卡：</span>
+                                <span className="font-black text-[#5D4037]">
+                                  {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
+                                </span>
+                                <span className="text-stone-300">|</span>
                                 <span>本月刷卡：</span>
                                 <span className="font-black text-[#5D4037]">
                                   {showAmounts ? `$${calculateCreditCardMonthlySpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
@@ -4196,7 +4244,12 @@ function AccountsView({
                                             className="text-base sm:text-lg font-black mt-0.5"
                                           />
                                           {l2acc.type === 'credit' && (
-                                            <div className="flex items-center gap-1 text-[11px] sm:text-xs font-bold text-stone-400 mt-0.5" style={getFontFamily()}>
+                                            <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
+                                              <span>上月刷卡：</span>
+                                              <span className="font-black text-[#5D4037]">
+                                                {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
+                                              </span>
+                                              <span className="text-stone-300">|</span>
                                               <span>本月刷卡：</span>
                                               <span className="font-black text-[#5D4037]">
                                                 {showAmounts ? `$${calculateCreditCardMonthlySpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
@@ -4271,7 +4324,12 @@ function AccountsView({
                                                     className="text-sm sm:text-base font-black"
                                                   />
                                                   {l3acc.type === 'credit' && (
-                                                    <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-stone-400 mt-0.5" style={getFontFamily()}>
+                                                    <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
+                                                      <span>上月刷卡：</span>
+                                                      <span className="font-black text-[#5D4037]">
+                                                        {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
+                                                      </span>
+                                                      <span className="text-stone-300">|</span>
                                                       <span>本月刷卡：</span>
                                                       <span className="font-black text-[#5D4037]">
                                                         {showAmounts ? `$${calculateCreditCardMonthlySpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
@@ -5464,7 +5522,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  type SortMode = 'date-desc' | 'date-asc' | 'posting-desc' | 'posting-asc';
+  type SortMode = 'date-desc' | 'date-asc' | 'posting-desc' | 'posting-asc' | 'billing-cycle';
   const [sortMode, setSortMode] = useState<SortMode>('date-desc');
   const [isSortModalOpen, setIsSortModalOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -5682,6 +5740,27 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     }
   };
   
+  const billingCycleRange = useMemo(() => {
+    const closingDayVal = effectiveClosingDay || account.statementDate || 15;
+    const refYear = currentMonth.getFullYear();
+    const refMonth = currentMonth.getMonth();
+
+    const maxDaysCurrent = new Date(refYear, refMonth + 1, 0).getDate();
+    const maxDaysPrev = new Date(refYear, refMonth, 0).getDate();
+
+    const currentClosingDate = new Date(refYear, refMonth, Math.min(closingDayVal, maxDaysCurrent));
+    const prevClosingDate = new Date(refYear, refMonth - 1, Math.min(closingDayVal, maxDaysPrev));
+
+    const startDate = new Date(prevClosingDate.getFullYear(), prevClosingDate.getMonth(), prevClosingDate.getDate() + 1);
+    const endDate = currentClosingDate;
+
+    const startStr = formatLocalDate(startDate);
+    const endStr = formatLocalDate(endDate);
+    const label = `${startStr.replace(/-/g, '/')} ~ ${endStr.replace(/-/g, '/')}`;
+
+    return { startDate, endDate, startStr, endStr, label };
+  }, [currentMonth, effectiveClosingDay, account.statementDate]);
+
   const accountRecords = useMemo(() => {
     const targetYearMonth = dateRangeStrings.filter;
     
@@ -5689,10 +5768,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
       if (r.category === '初始資金') return false;
       
-      const filterDate = (sortMode === 'date-desc' || sortMode === 'date-asc') 
-        ? r.date 
-        : (r.postingDate || r.date);
-      return filterDate.startsWith(targetYearMonth);
+      if (sortMode === 'billing-cycle') {
+        const filterDate = r.postingDate || r.date;
+        return filterDate >= billingCycleRange.startStr && filterDate <= billingCycleRange.endStr;
+      } else {
+        const filterDate = (sortMode === 'date-desc' || sortMode === 'date-asc') 
+          ? r.date 
+          : (r.postingDate || r.date);
+        return filterDate.startsWith(targetYearMonth);
+      }
     });
     
     const merged = getMergedRecords(raw, accounts);
@@ -5708,7 +5792,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         const tsB = getTimestamp(b.date, b.time);
         if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
-      } else if (sortMode === 'posting-desc') {
+      } else if (sortMode === 'posting-desc' || sortMode === 'billing-cycle') {
         const ptsA = getTimestamp(a.postingDate || a.date, a.time);
         const ptsB = getTimestamp(b.postingDate || b.date, b.time);
         if (ptsB !== ptsA) return ptsB - ptsA;
@@ -5720,7 +5804,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         return a.amount - b.amount;
       }
     });
-  }, [records, accounts, dateRangeStrings.filter, targetIds, sortMode]);
+  }, [records, accounts, dateRangeStrings.filter, targetIds, sortMode, billingCycleRange]);
 
   const calculatedBalance = useMemo(() => { 
     if (selectedCardFilterId) {
@@ -5746,7 +5830,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           const tsB = getTimestamp(b.date, b.time);
           if (tsA !== tsB) return tsA - tsB;
           return a.amount - b.amount;
-        } else if (sortMode === 'posting-desc') {
+        } else if (sortMode === 'posting-desc' || sortMode === 'billing-cycle') {
           const ptsA = getTimestamp(a.postingDate || a.date, a.time);
           const ptsB = getTimestamp(b.postingDate || b.date, b.time);
           if (ptsB !== ptsA) return ptsB - ptsA;
@@ -5794,7 +5878,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         const tsB = getTimestamp(b.date, b.time);
         if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
-      } else if (sortMode === 'posting-desc') {
+      } else if (sortMode === 'posting-desc' || sortMode === 'billing-cycle') {
         const ptsA = getTimestamp(a.postingDate || a.date, a.time);
         const ptsB = getTimestamp(b.postingDate || b.date, b.time);
         if (ptsB !== ptsA) return ptsB - ptsA;
@@ -5816,7 +5900,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     let ntCount = 0;
     let ntSum = 0;
 
+    let cycleSum = 0;
+    let cycleCount = 0;
+
     accountRecords.forEach(r => {
+      if (r.type === 'expense') {
+        cycleSum += Math.abs(r.amount);
+        cycleCount++;
+      }
+
       const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
       const noteLower = noteText.toLowerCase();
       const isFeedback = 
@@ -5870,7 +5962,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       transferredCount: tCount,
       transferredSum: tSum,
       notTransferredCount: ntCount,
-      notTransferredSum: ntSum
+      notTransferredSum: ntSum,
+      billingCycleSum: cycleSum,
+      billingCycleCount: cycleCount
     };
   }, [accountRecords, targetIds]);
 
@@ -6486,7 +6580,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               })()}
             </div>
             {account.type === 'credit' && (
-              <div className="flex items-center gap-1 text-xs sm:text-sm font-bold text-stone-400 mt-1" style={getFontFamily()}>
+              <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-stone-400 mt-1 flex-wrap" style={getFontFamily()}>
+                <span>上月刷卡：</span>
+                <span className="font-black text-[#5D4037]">
+                  ${calculateCreditCardPreviousMonthSpending(account, accounts, records).toLocaleString()}
+                </span>
+                <span className="text-stone-300">|</span>
                 <span>本月刷卡：</span>
                 <span className="font-black text-[#5D4037]">
                   ${calculateCreditCardMonthlySpending(account, accounts, records).toLocaleString()}
@@ -6581,6 +6680,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       {sortMode === 'date-asc' && '消費日 - 舊到新'}
                       {sortMode === 'posting-desc' && (account.type === 'credit' ? '入帳日 - 新到舊' : '入帳 - 新到舊')}
                       {sortMode === 'posting-asc' && (account.type === 'credit' ? '入帳日 - 舊到新' : '入帳 - 舊到新')}
+                      {sortMode === 'billing-cycle' && '💳 當期帳單明細 (依結帳日)'}
                     </span>
                   </button>
                   {account.type === 'credit' && selectedCardFilterId && (
@@ -6604,7 +6704,17 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 <span>{accountRecords.length} 筆紀錄</span>
                 <span>|</span>
               </div>
-              {account.type === 'credit' ? (
+              {sortMode === 'billing-cycle' ? (
+                <>
+                  <div className="flex items-center justify-between gap-1">
+                    <span>當期應繳 <span className="text-rose-500 font-black">${creditCardStats.billingCycleSum.toLocaleString()}</span></span>
+                    <span>/</span>
+                  </div>
+                  <div>
+                    <span>當期總計 <span className="text-[#5D4037] font-black">{creditCardStats.billingCycleCount}</span> 筆</span>
+                  </div>
+                </>
+              ) : account.type === 'credit' ? (
                 <>
                   <div className="flex items-center justify-between gap-1">
                     <span>已轉帳 <span className="text-[#00B0FF] font-black">{creditCardStats.transferredCount}</span> 筆 <span className="text-emerald-600 font-black">${creditCardStats.transferredSum.toLocaleString()}</span></span>
@@ -6636,7 +6746,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               onClick={() => setIsDatePickerOpen(true)}
               className="text-stone-500 font-bold text-sm tracking-tighter px-3 py-1 hover:bg-white/40 active:scale-95 rounded-xl transition-all"
             >
-              {dateRangeStrings.range}
+              {sortMode === 'billing-cycle' ? `💳 當期帳單週期 (${billingCycleRange.label})` : dateRangeStrings.range}
             </button>
             <button 
               onClick={() => changeMonth(1)}
@@ -6833,7 +6943,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     { mode: 'date-desc', label: '消費日 - 新到舊' },
                     { mode: 'date-asc', label: '消費日 - 舊到新' },
                     { mode: 'posting-desc', label: '入帳日 - 新到舊' },
-                    { mode: 'posting-asc', label: '入帳日 - 舊到新' }
+                    { mode: 'posting-asc', label: '入帳日 - 舊到新' },
+                    { mode: 'billing-cycle', label: '💳 當期帳單明細 (依結帳日週期)' }
                   ] : [
                     { mode: 'date-desc', label: '消費日 - 新到舊' },
                     { mode: 'date-asc', label: '消費日 - 舊到新' },
