@@ -3554,25 +3554,42 @@ export function getCreditCardBillingCycleRange(account: Account, accounts: Accou
   return { startStr, endStr };
 }
 
+export function hasCreditCardClosingDay(account: Account, accounts: Account[]): boolean {
+  if (!account) return false;
+  if (account.closingDay || account.statementDate) return true;
+  
+  if (account.isBrandGroup && account.childAccounts) {
+    return account.childAccounts.some(c => Boolean(c.closingDay || c.statementDate));
+  }
+  
+  const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
+  if (children.length > 0) {
+    return children.some(c => Boolean(c.closingDay || c.statementDate));
+  }
+  
+  return false;
+}
+
 export function calculateCreditCardMonthlySpending(account: Account, accounts: Account[], records: Transaction[]): number {
   if (!account) return 0;
 
-  const targetAccountIds = new Set<string>();
   const isGroup = account.isBrandGroup || (account.childAccounts && account.childAccounts.length > 0) || accounts.some(a => a.parentId === account.id);
 
   if (isGroup) {
-    targetAccountIds.add(account.id);
-    const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
-    children.forEach(c => {
-      targetAccountIds.add(c.id);
-    });
-    if (account.childAccounts) {
-      account.childAccounts.forEach((c: Account) => targetAccountIds.add(c.id));
+    const childAccountsList: Account[] = [];
+    if (account.isBrandGroup && account.childAccounts) {
+      childAccountsList.push(...account.childAccounts);
+    } else {
+      const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
+      childAccountsList.push(...children);
     }
-  } else {
-    targetAccountIds.add(account.id);
+    
+    if (childAccountsList.length > 0) {
+      return childAccountsList.reduce((sum, c) => sum + calculateCreditCardMonthlySpending(c, accounts, records), 0);
+    }
   }
 
+  const targetAccountIds = new Set<string>([account.id]);
   const cycleRange = getCreditCardBillingCycleRange(account, accounts, false);
   const now = new Date();
   const year = now.getFullYear();
@@ -3629,22 +3646,23 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
 export function calculateCreditCardPreviousMonthSpending(account: Account, accounts: Account[], records: Transaction[]): number {
   if (!account) return 0;
 
-  const targetAccountIds = new Set<string>();
   const isGroup = account.isBrandGroup || (account.childAccounts && account.childAccounts.length > 0) || accounts.some(a => a.parentId === account.id);
 
   if (isGroup) {
-    targetAccountIds.add(account.id);
-    const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
-    children.forEach(c => {
-      targetAccountIds.add(c.id);
-    });
-    if (account.childAccounts) {
-      account.childAccounts.forEach((c: Account) => targetAccountIds.add(c.id));
+    const childAccountsList: Account[] = [];
+    if (account.isBrandGroup && account.childAccounts) {
+      childAccountsList.push(...account.childAccounts);
+    } else {
+      const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
+      childAccountsList.push(...children);
     }
-  } else {
-    targetAccountIds.add(account.id);
+    
+    if (childAccountsList.length > 0) {
+      return childAccountsList.reduce((sum, c) => sum + calculateCreditCardPreviousMonthSpending(c, accounts, records), 0);
+    }
   }
 
+  const targetAccountIds = new Set<string>([account.id]);
   const cycleRange = getCreditCardBillingCycleRange(account, accounts, true);
   const now = new Date();
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -4232,12 +4250,12 @@ function AccountsView({
                             />
                             {acc.type === 'credit' && (
                               <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-stone-400 mt-1 flex-wrap" style={getFontFamily()}>
-                                <span>{(acc.closingDay || acc.statementDate) ? '上期帳單：' : '上月刷卡：'}</span>
+                                <span>{hasCreditCardClosingDay(acc as Account, accounts) ? '上期帳單：' : '上月刷卡：'}</span>
                                 <span className="font-black text-[#5D4037]">
                                   {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
                                 </span>
                                 <span className="text-stone-300">|</span>
-                                <span>{(acc.closingDay || acc.statementDate) ? '當期帳單：' : '本月刷卡：'}</span>
+                                <span>{hasCreditCardClosingDay(acc as Account, accounts) ? '當期帳單：' : '本月刷卡：'}</span>
                                 <span className="font-black text-[#5D4037]">
                                   {showAmounts ? `$${calculateCreditCardMonthlySpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
                                 </span>
@@ -4335,12 +4353,12 @@ function AccountsView({
                                     />
                                     {l2acc.type === 'credit' && (
                                       <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
-                                        <span>{(l2acc.closingDay || l2acc.statementDate) ? '上期帳單：' : '上月刷卡：'}</span>
+                                        <span>{hasCreditCardClosingDay(l2acc, accounts) ? '上期帳單：' : '上月刷卡：'}</span>
                                         <span className="font-black text-[#5D4037]">
                                           {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
                                         </span>
                                         <span className="text-stone-300">|</span>
-                                        <span>{(l2acc.closingDay || l2acc.statementDate) ? '當期帳單：' : '本月刷卡：'}</span>
+                                        <span>{hasCreditCardClosingDay(l2acc, accounts) ? '當期帳單：' : '本月刷卡：'}</span>
                                         <span className="font-black text-[#5D4037]">
                                           {showAmounts ? `$${calculateCreditCardMonthlySpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
                                         </span>
