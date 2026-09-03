@@ -5811,6 +5811,17 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     return { startDate, endDate, startStr, endStr, label };
   }, [currentMonth, effectiveClosingDay, account.statementDate]);
 
+  const billingCycleStatementKey = useMemo(() => {
+    const m = currentMonth.getMonth() + 1;
+    return `${currentMonth.getFullYear()}-${String(m).padStart(2, '0')}`;
+  }, [currentMonth]);
+
+  const billingCycleStatementLabel = useMemo(() => {
+    const m = currentMonth.getMonth() + 1;
+    const calculated = `${m}月 帳單`;
+    return account.customStatementLabels?.[billingCycleStatementKey] || calculated;
+  }, [account.customStatementLabels, billingCycleStatementKey, currentMonth]);
+
   const accountRecords = useMemo(() => {
     const targetYearMonth = dateRangeStrings.filter;
     
@@ -5833,9 +5844,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     
     return merged.sort((a, b) => {
       if (sortMode === 'billing-cycle') {
-        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
-        if (ptsA !== ptsB) return ptsA - ptsB;
+        const tsA = getTimestamp(a.date, a.time);
+        const tsB = getTimestamp(b.date, b.time);
+        if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
       } else if (sortMode === 'date-desc') {
         const tsA = getTimestamp(a.date, a.time);
@@ -5876,9 +5887,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       const sortedNormals = [...accountRecords];
       sortedNormals.sort((a, b) => {
         if (sortMode === 'billing-cycle') {
-          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
-          if (ptsA !== ptsB) return ptsA - ptsB;
+          const tsA = getTimestamp(a.date, a.time);
+          const tsB = getTimestamp(b.date, b.time);
+          if (tsA !== tsB) return tsA - tsB;
           return a.amount - b.amount;
         } else if (sortMode === 'date-desc') {
           const tsA = getTimestamp(a.date, a.time);
@@ -5929,9 +5940,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     // Apply sortMode to normalRecords
     normalRecords.sort((a, b) => {
       if (sortMode === 'billing-cycle') {
-        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
-        if (ptsA !== ptsB) return ptsA - ptsB;
+        const tsA = getTimestamp(a.date, a.time);
+        const tsB = getTimestamp(b.date, b.time);
+        if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
       } else if (sortMode === 'date-desc') {
         const tsA = getTimestamp(a.date, a.time);
@@ -6820,6 +6831,27 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               <ChevronRight size={20} />
             </button>
           </div>
+
+          {/* Billing Cycle Summary Header Bar */}
+          {sortMode === 'billing-cycle' && (
+            <div className="flex items-center justify-between px-4 py-2.5 bg-white/70 backdrop-blur-sm border border-[#5D4037]/15 rounded-2xl mx-1 shadow-sm" style={getFontFamily()}>
+              <div className="flex items-center gap-1.5 font-black text-sm text-[#5D4037]">
+                <span>{billingCycleStatementLabel}</span>
+                {!account.isBrandGroup && (
+                  <button
+                    onClick={() => handleRenameStatement(billingCycleStatementKey, billingCycleStatementLabel)}
+                    className="p-1 hover:text-[#FBC02D] active:scale-95 transition-all text-stone-400 hover:text-[#5D4037]"
+                    title="點選自訂帳單名稱"
+                  >
+                    <Pencil size={12} className="opacity-60 hover:opacity-100 transition-opacity" />
+                  </button>
+                )}
+              </div>
+              <div className="text-xs font-bold text-stone-500">
+                金額: <span className="font-black text-sm text-[#5D4037]">${creditCardStats.billingCycleSum.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white overflow-hidden flex flex-col">
