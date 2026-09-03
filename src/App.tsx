@@ -3546,21 +3546,46 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
   const year = now.getFullYear();
   const month = now.getMonth();
 
-  let totalSpending = 0;
+  let netBalanceChange = 0;
+
   records.forEach(r => {
     if (!targetAccountIds.has(r.accountId)) return;
-    if (r.type !== 'expense') return;
+    if (r.category === '初始資金') return;
 
     const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
     const d = new Date(rawDate);
-    if (!isNaN(d.getTime())) {
-      if (d.getFullYear() === year && d.getMonth() === month) {
-        totalSpending += Math.abs(r.amount);
-      }
+    if (isNaN(d.getTime())) return;
+    if (d.getFullYear() !== year || d.getMonth() !== month) return;
+
+    // Filter out bank repayments / auto-pays (transfer from bank into card to pay bill)
+    const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+    const isRepaymentTransfer = r.type === 'transfer' && r.toAccountId && targetAccountIds.has(r.toAccountId);
+    const isAutoPay = 
+      (noteText.includes('自動') && noteText.includes('扣繳')) || 
+      (noteText.includes('自動') && noteText.includes('繳款')) || 
+      (noteText.includes('自動') && noteText.includes('扣款')) ||
+      noteText.includes('轉帳扣繳') ||
+      noteText.includes('扣繳信用卡款') ||
+      noteText.includes('自動扣繳');
+
+    if (isRepaymentTransfer || isAutoPay) {
+      return; // Skip bill repayments
+    }
+
+    let change = r.amount;
+    if (r.type === 'expense' && change > 0) {
+      change = -change;
+    } else if (r.type === 'income' && change < 0) {
+      change = -change;
+    }
+
+    netBalanceChange += change;
+    if (r.fee) {
+      netBalanceChange -= r.fee;
     }
   });
 
-  return totalSpending;
+  return Math.max(0, -netBalanceChange);
 }
 
 export function calculateCreditCardPreviousMonthSpending(account: Account, accounts: Account[], records: Transaction[]): number {
@@ -3587,21 +3612,46 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
   const targetYear = prevMonthDate.getFullYear();
   const targetMonth = prevMonthDate.getMonth();
 
-  let totalSpending = 0;
+  let netBalanceChange = 0;
+
   records.forEach(r => {
     if (!targetAccountIds.has(r.accountId)) return;
-    if (r.type !== 'expense') return;
+    if (r.category === '初始資金') return;
 
     const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
     const d = new Date(rawDate);
-    if (!isNaN(d.getTime())) {
-      if (d.getFullYear() === targetYear && d.getMonth() === targetMonth) {
-        totalSpending += Math.abs(r.amount);
-      }
+    if (isNaN(d.getTime())) return;
+    if (d.getFullYear() !== targetYear || d.getMonth() !== targetMonth) return;
+
+    // Filter out bank repayments / auto-pays (transfer from bank into card to pay bill)
+    const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+    const isRepaymentTransfer = r.type === 'transfer' && r.toAccountId && targetAccountIds.has(r.toAccountId);
+    const isAutoPay = 
+      (noteText.includes('自動') && noteText.includes('扣繳')) || 
+      (noteText.includes('自動') && noteText.includes('繳款')) || 
+      (noteText.includes('自動') && noteText.includes('扣款')) ||
+      noteText.includes('轉帳扣繳') ||
+      noteText.includes('扣繳信用卡款') ||
+      noteText.includes('自動扣繳');
+
+    if (isRepaymentTransfer || isAutoPay) {
+      return; // Skip bill repayments
+    }
+
+    let change = r.amount;
+    if (r.type === 'expense' && change > 0) {
+      change = -change;
+    } else if (r.type === 'income' && change < 0) {
+      change = -change;
+    }
+
+    netBalanceChange += change;
+    if (r.fee) {
+      netBalanceChange -= r.fee;
     }
   });
 
-  return totalSpending;
+  return Math.max(0, -netBalanceChange);
 }
 
 function DynamicAccountBalance({ 
