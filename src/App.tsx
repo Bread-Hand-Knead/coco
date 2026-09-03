@@ -1772,9 +1772,10 @@ export default function App() {
         );
       }
     } else {
-      const wasInstallment = !!oldRecord.isInstallment;
+      const wasInstallment = !!oldRecord.isInstallment || !!oldRecord.installmentGroupId || !!oldRecord.installmentId;
       const isInstallment = !!newRecord.isInstallment;
-      const oldGroupId = oldRecord.installmentGroupId;
+      const oldGroupId = oldRecord.installmentGroupId || (oldRecord.id.includes('-') && !oldRecord.id.startsWith('rec_') ? oldRecord.id.split('-')[0] : null);
+      const oldInstallmentId = oldRecord.installmentId;
 
       if (isInstallment && !wasInstallment) {
         // Converting a normal transaction to a new installment group
@@ -1831,19 +1832,33 @@ export default function App() {
             return [...filtered, ...newParts];
           });
         }
-      } else if (!isInstallment && wasInstallment && oldGroupId) {
+      } else if (!isInstallment && wasInstallment) {
         // Converting an installment back to a normal single transaction
+        const targetGroupId = oldGroupId;
         if (user) {
-          const groupRecords = records.filter(r => r.installmentGroupId === oldGroupId);
-          for (const r of groupRecords) {
-            await deleteFromCloud('transactions', r.id);
+          if (targetGroupId) {
+            const groupRecords = records.filter(r => r.installmentGroupId === targetGroupId || r.id.startsWith(`${targetGroupId}-`));
+            for (const r of groupRecords) {
+              await deleteFromCloud('transactions', r.id);
+            }
+          } else {
+            await deleteFromCloud('transactions', oldRecord.id);
           }
-          await syncToCloud('transactions', newRecord, newRecord.id);
-        } else {
-          setRecords(prev => [
-            ...prev.filter(r => r.installmentGroupId !== oldGroupId),
-            newRecord
-          ]);
+          await syncToCloud('transactions', cleanData(newRecord), newRecord.id);
+        }
+
+        setRecords(prev => {
+          let filtered = prev;
+          if (targetGroupId) {
+            filtered = prev.filter(r => r.installmentGroupId !== targetGroupId && !r.id.startsWith(`${targetGroupId}-`));
+          } else {
+            filtered = prev.filter(r => r.id !== oldRecord.id);
+          }
+          return [...filtered, newRecord];
+        });
+
+        if (oldInstallmentId) {
+          setInstallments(prev => prev.filter(inst => inst.id !== oldInstallmentId));
         }
       } else {
         // Just update this single transaction (includes existing installment records and normal records)
@@ -6830,14 +6845,53 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
-  const [isInstallment, setIsInstallment] = useState(() => !!record.isInstallment);
+  const [isInstallment, setIsInstallment] = useState(() => !!record.isInstallment || !!record.installmentGroupId || !!record.installmentId);
   const [totalInstallments, setTotalInstallments] = useState(() => record.totalInstallments || 12);
   const [amountStr, setAmountStr] = useState<string>(() => {
-    const amt = record.isInstallment && record.totalInstallments 
-      ? Math.abs(record.amount) * record.totalInstallments 
-      : Math.abs(record.amount);
+    const numPeriods = record.totalInstallments || 12;
+    if ((record.isInstallment || record.installmentGroupId || record.installmentId) && numPeriods > 1) {
+      const total = record.totalAmount && record.totalAmount > 0 ? record.totalAmount : Math.abs(record.amount) * numPeriods;
+      return total.toString();
+    }
+    const amt = Math.abs(record.amount);
     return amt === 0 ? '' : amt.toString();
   });
+
+  const handleToggleInstallment = (nextVal: boolean) => {
+    setIsInstallment(nextVal);
+    if (!nextVal) {
+      // Revert to total original amount when toggling OFF installment
+      let revertedTotal = Math.abs(edited.amount);
+      const numPeriods = record.totalInstallments || totalInstallments || 1;
+
+      if (record.totalAmount && record.totalAmount > 0) {
+        revertedTotal = record.totalAmount;
+      } else if ((record.isInstallment || record.installmentGroupId || record.installmentId) && numPeriods > 1) {
+        revertedTotal = Math.abs(record.amount) * numPeriods;
+      } else if (amountStr && !isNaN(parseFloat(amountStr)) && parseFloat(amountStr) > 0) {
+        revertedTotal = parseFloat(amountStr);
+      }
+
+      setAmountStr(revertedTotal.toString());
+      const finalAmt = (edited.type === 'expense' || edited.type === 'transfer') ? -revertedTotal : revertedTotal;
+
+      setEdited(prev => ({
+        ...prev,
+        amount: finalAmt,
+        isInstallment: false,
+        installmentGroupId: undefined,
+        installmentId: undefined,
+        installmentPeriod: undefined,
+        totalInstallments: undefined
+      }));
+    } else {
+      setEdited(prev => ({
+        ...prev,
+        isInstallment: true,
+        totalInstallments: totalInstallments
+      }));
+    }
+  };
 
   const fromAcc = accounts.find(a => a.id === edited.accountId);
   const toAcc = accounts.find(a => a.id === edited.toAccountId);
@@ -6997,7 +7051,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                   type="number"
                   placeholder="0"
                   value={amountStr}
-                  disabled={!!record.isInstallment}
+                  disabled={isInstallment}
                   onChange={e => {
                     const val = e.target.value;
                     setAmountStr(val);
@@ -7007,7 +7061,7 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                       amount: edited.type === 'expense' || edited.type === 'transfer' ? -rawAmt : rawAmt 
                     });
                   }}
-                  className={`w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
+                  className={`w-full p-4 pl-10 bg-white border-2 border-stone-50 rounded-2xl font-black text-2xl text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all ${isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                 />
               </div>
             </div>
@@ -7025,9 +7079,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註 (買了什麼？)</label>
               <textarea 
                 value={edited.note || ''}
-                disabled={!!record.isInstallment}
+                disabled={isInstallment}
                 onChange={e => setEdited({ ...edited, note: e.target.value })}
-                className={`w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[100px] resize-none whitespace-pre-wrap break-all ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
+                className={`w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[100px] resize-none whitespace-pre-wrap break-all ${isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                 placeholder="買了什麼？"
                 style={getFontFamily()}
               />
@@ -7083,9 +7137,8 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                   <span className="text-[15px] font-bold text-[#5D4037]">分期付款</span>
                   <button 
                     type="button"
-                    disabled={!!record.isInstallment}
-                    onClick={() => setIsInstallment(!isInstallment)}
-                    className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'} ${record.isInstallment ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    onClick={() => handleToggleInstallment(!isInstallment)}
+                    className={`w-12 h-6 rounded-full transition-all relative ${isInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
                   >
                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isInstallment ? 'left-7' : 'left-1'}`} />
                   </button>
@@ -7101,9 +7154,12 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                           min="1"
                           max="36"
                           value={totalInstallments}
-                          disabled={!!record.isInstallment}
-                          onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
-                          className={`w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] ${record.isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
+                          onChange={e => {
+                            const val = parseInt(e.target.value) || 1;
+                            setTotalInstallments(val);
+                            setEdited(prev => ({ ...prev, totalInstallments: val }));
+                          }}
+                          className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                         />
                       </div>
                       <div className="space-y-2">
@@ -7114,9 +7170,9 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                       </div>
                     </div>
                     <div className="p-3 bg-amber-50/80 border border-amber-200/50 rounded-xl text-[11px] font-bold text-amber-800 leading-snug">
-                      {record.isInstallment 
-                        ? '💡 此項目為分期付款明細。欲修改分期計畫的名稱、總金額、期數，請前往「分期付款管理」頁面進行編輯。'
-                        : '💡 編輯此項目將同步更新整組分期計畫的金額、名稱與其他屬性。'}
+                      {isInstallment 
+                        ? '💡 此項目目前標記為分期付款。關閉開關可將此消費還原為原始總金額並轉為一般單筆支出。'
+                        : '💡 切換為分期付款將自動依期數試算每期應付金額。'}
                     </div>
                   </motion.div>
                 )}
