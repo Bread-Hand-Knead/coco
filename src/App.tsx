@@ -618,15 +618,17 @@ const getTransactionTitle = (record: Transaction): string => {
   
   let baseTitle = '';
   if (record.type === 'transfer' || record._isMergedTransfer) {
-    if (cleanRemark) baseTitle = cleanRemark;
-    else if (cleanNote && cleanNote !== '轉帳' && cleanNote !== '未命名明細') baseTitle = cleanNote;
-    else if (record._isMergedTransfer && record._mergedDisplayName) {
+    if (cleanNote && cleanNote !== '轉帳' && cleanNote !== '未命名明細') {
+      baseTitle = cleanNote;
+    } else if (cleanRemark) {
+      baseTitle = cleanRemark;
+    } else if (record._isMergedTransfer && record._mergedDisplayName) {
       baseTitle = record._mergedDisplayName;
     } else {
       baseTitle = '轉帳';
     }
   } else {
-    baseTitle = (record.note || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
+    baseTitle = (cleanNote || cleanRemark || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   }
 
   if (record.isInstallment && record.currentInstallment && record.totalInstallments) {
@@ -6583,11 +6585,31 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             </div>
                             
                             {/* 項目 3：備註明細 */}
-                            <div className="flex items-start gap-2">
+                            <div className="flex items-center gap-2">
                               <span className="text-stone-400 font-bold min-w-[65px]">備註明細:</span>
-                              <span className="font-bold text-stone-600 break-all bg-white p-2 rounded-xl border border-stone-100 flex-1 min-h-[36px] block">
-                                {record.note ? record.note.replace(/\[固定收支\]/g, '').trim() : '無備註'}
-                              </span>
+                              <input 
+                                type="text"
+                                defaultValue={record.note || record.remark || ''}
+                                key={`${record.id}_${record.note || ''}_${record.remark || ''}`}
+                                onClick={e => e.stopPropagation()}
+                                onBlur={(e) => {
+                                  const val = e.target.value.trim();
+                                  if (val !== (record.note || '').trim() || val !== (record.remark || '').trim()) {
+                                    onUpdateRecord(record, { 
+                                      ...record, 
+                                      note: val,
+                                      remark: val 
+                                    });
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    (e.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                                className="font-bold text-stone-700 break-all bg-white px-3 py-1.5 rounded-xl border border-stone-200 flex-1 min-h-[36px] outline-none focus:border-[#FFD54F] shadow-sm text-xs"
+                                placeholder="無備註 (點擊輸入修改)..."
+                              />
                             </div>
 
                             {/* 轉帳附加資訊：手續費與匯率 */}
@@ -7471,7 +7493,10 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
               <textarea 
                 value={edited.note || ''}
                 disabled={isInstallment}
-                onChange={e => setEdited({ ...edited, note: e.target.value })}
+                onChange={e => {
+                  const val = e.target.value;
+                  setEdited({ ...edited, note: val, remark: val });
+                }}
                 className={`w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[100px] resize-none whitespace-pre-wrap break-all ${isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                 placeholder="買了什麼？"
                 style={getFontFamily()}
@@ -7771,8 +7796,12 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
                   finalToAccountId = other?.id || '';
                 }
 
+                const finalNote = (edited.note || '').trim();
+                const finalRemark = finalNote || (edited.remark || '').trim();
                 onSave({
                   ...edited,
+                  note: finalNote,
+                  remark: finalRemark,
                   type: resolvedType,
                   amount: finalAmt,
                   toAccountId: resolvedType === 'transfer' ? finalToAccountId : undefined,
