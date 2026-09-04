@@ -3631,21 +3631,13 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
       r.category === '退款';
 
     const isTransfer = r.type === 'transfer';
-    const isAutoPay = isToCard && (
-      (noteText.includes('自動') && noteText.includes('扣繳')) || 
-      (noteText.includes('自動') && noteText.includes('繳款')) || 
-      (noteText.includes('自動') && noteText.includes('扣款')) ||
-      noteText.includes('轉帳扣繳') ||
-      noteText.includes('扣繳信用卡款') ||
-      noteText.includes('自動扣繳')
-    );
-
-    if (isAutoPay) {
-      return; // Skip bank bill repayments
-    }
 
     if (isFromCard && isToCard) {
       return; // Internal transfer within the same card group
+    }
+
+    if (isTransfer && isToCard && !isFeedback) {
+      return; // Skip bank bill repayments from spending total calculation
     }
 
     let change = 0;
@@ -3654,8 +3646,8 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
     } else if (isTransfer && isFromCard && !isToCard) {
       // Credit card transfer out (e.g. top up e-wallet/EasyCard/icash/iPASS)
       change = Math.abs(Number(r.amount || 0));
-    } else if (r.type === 'income' || isFeedback || (isTransfer && isToCard)) {
-      // Refund, cashback rebate, or non-autopay transfer in
+    } else if (r.type === 'income' || isFeedback) {
+      // Refund or cashback rebate
       change = -Math.abs(Number(r.amount || 0));
     }
 
@@ -3728,21 +3720,13 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
       r.category === '退款';
 
     const isTransfer = r.type === 'transfer';
-    const isAutoPay = isToCard && (
-      (noteText.includes('自動') && noteText.includes('扣繳')) || 
-      (noteText.includes('自動') && noteText.includes('繳款')) || 
-      (noteText.includes('自動') && noteText.includes('扣款')) ||
-      noteText.includes('轉帳扣繳') ||
-      noteText.includes('扣繳信用卡款') ||
-      noteText.includes('自動扣繳')
-    );
-
-    if (isAutoPay) {
-      return; // Skip bank bill repayments
-    }
 
     if (isFromCard && isToCard) {
       return; // Internal transfer within the same card group
+    }
+
+    if (isTransfer && isToCard && !isFeedback) {
+      return; // Skip bank bill repayments from spending total calculation
     }
 
     let change = 0;
@@ -3751,8 +3735,8 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
     } else if (isTransfer && isFromCard && !isToCard) {
       // Credit card transfer out (e.g. top up e-wallet/EasyCard/icash/iPASS)
       change = Math.abs(Number(r.amount || 0));
-    } else if (r.type === 'income' || isFeedback || (isTransfer && isToCard)) {
-      // Refund, cashback rebate, or non-autopay transfer in
+    } else if (r.type === 'income' || isFeedback) {
+      // Refund or cashback rebate
       change = -Math.abs(Number(r.amount || 0));
     }
 
@@ -6121,7 +6105,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         // Credit card transfer out (e.g. top up e-wallet/EasyCard/icash)
         cycleSum += Math.abs(Number(r.amount || 0));
         cycleCount++;
-      } else if (isFeedback || r.type === 'income' || (isTransferInToCard && !isAutoPay)) {
+      } else if (isFeedback || r.type === 'income') {
+        // Only deduct merchant refunds or cashback rebates
         cycleSum -= Math.abs(Number(r.amount || 0));
         cycleCount++;
       }
