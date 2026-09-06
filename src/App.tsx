@@ -141,6 +141,66 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+// --- Offline Sync Queue Helpers ---
+interface SyncTask {
+  id: string;
+  type: 'setDoc' | 'deleteDoc';
+  path: string;
+  idDoc: string;
+  data?: any;
+  timestamp: number;
+}
+
+const getSyncQueue = (): SyncTask[] => {
+  try {
+    const raw = localStorage.getItem('coco_sync_queue');
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const saveSyncQueue = (queue: SyncTask[]) => {
+  try {
+    localStorage.setItem('coco_sync_queue', JSON.stringify(queue));
+  } catch (e) {
+    console.error('Failed to save sync queue', e);
+  }
+};
+
+const enqueueSyncTask = (task: Omit<SyncTask, 'id' | 'timestamp'>) => {
+  const queue = getSyncQueue();
+  const filtered = queue.filter(item => !(item.path === task.path && item.idDoc === task.idDoc));
+  filtered.push({
+    ...task,
+    id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    timestamp: Date.now(),
+  });
+  saveSyncQueue(filtered);
+};
+
+const processSyncQueue = async (uid: string) => {
+  if (!navigator.onLine || !uid) return;
+  const queue = getSyncQueue();
+  if (queue.length === 0) return;
+
+  const remaining: SyncTask[] = [];
+  for (const task of queue) {
+    try {
+      if (task.type === 'setDoc') {
+        const sanitizedData = cleanData(task.data);
+        await setDoc(doc(db, 'users', uid, task.path, task.idDoc), sanitizedData);
+      } else if (task.type === 'deleteDoc') {
+        await deleteDoc(doc(db, 'users', uid, task.path, task.idDoc));
+      }
+    } catch (err) {
+      console.error('Sync queue task failed:', task, err);
+      remaining.push(task);
+    }
+  }
+  saveSyncQueue(remaining);
+};
+
 // --- Types ---
 
 interface Category {
@@ -692,17 +752,6 @@ export default function App() {
   });
 
   const [selectedCategoryForSub, setSelectedCategoryForSub] = useState<string | null>(null);
-  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
-
-  // --- Home History Guard & Back Button Interceptor ---
-  useEffect(() => {
-    // Ensure Home Guard state exists whenever user is on Home view with no modal open
-    if (currentView === 'home' && !isRecordModalOpen && !isDrawerOpen) {
-      if (!window.history.state || !window.history.state.isHomeGuard) {
-        window.history.pushState({ isHomeGuard: true, view: 'home' }, '', window.location.href);
-      }
-    }
-  }, [currentView, isRecordModalOpen, isDrawerOpen]);
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -720,20 +769,12 @@ export default function App() {
         return;
       }
 
-      // 2. Intercept back action on Home View and display Exit Modal
-      if (currentView === 'home') {
-        setIsExitModalOpen(true);
-        // Continuously re-push Home Guard state so protection remains active
-        window.history.pushState({ isHomeGuard: true, view: 'home' }, '', window.location.href);
-        return;
-      }
-
-      // 3. Otherwise pop back to home view
+      // 2. Otherwise pop back to home view or state view
       if (event.state && event.state.view) {
         setCurrentView(event.state.view);
         setSelectedProjectId(event.state.projectId || null);
         setSelectedCategoryForSub(event.state.selectedCategoryId || null);
-      } else {
+      } else if (currentView !== 'home') {
         setCurrentView('home');
         setSelectedProjectId(null);
         setSelectedCategoryForSub(null);
@@ -1035,22 +1076,33 @@ export default function App() {
     }
   }, [records, user, authLoading]);
 
+  // --- Offline-First Sync Queue Architecture ---
+  useEffect(() => {
+    const handleOnline = () => {
+      if (user?.uid) {
+        processSyncQueue(user.uid);
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    if (user?.uid && navigator.onLine) {
+      processSyncQueue(user.uid);
+    }
+    return () => window.removeEventListener('online', handleOnline);
+  }, [user]);
+
   const syncToCloud = async (path: string, data: any, id: string) => {
     if (!user) return;
-    try {
-      const sanitizedData = cleanData(data);
-      await setDoc(doc(db, 'users', user.uid, path, id), sanitizedData);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/${path}/${id}`);
+    enqueueSyncTask({ type: 'setDoc', path, idDoc: id, data });
+    if (navigator.onLine) {
+      await processSyncQueue(user.uid);
     }
   };
 
   const deleteFromCloud = async (path: string, id: string) => {
     if (!user) return;
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, path, id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/${path}/${id}`);
+    enqueueSyncTask({ type: 'deleteDoc', path, idDoc: id });
+    if (navigator.onLine) {
+      await processSyncQueue(user.uid);
     }
   };
 
@@ -2798,61 +2850,6 @@ export default function App() {
               user={user}
               onSaveBatch={handleSaveBatchRecords}
             />
-          )}
-        </AnimatePresence>
-
-        {/* Exit App Confirmation Modal */}
-        <AnimatePresence>
-          {isExitModalOpen && (
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-[#FFF9E3] rounded-[32px] w-full max-w-sm p-6 shadow-2xl space-y-4 border-2 border-white"
-                style={getFontFamily()}
-              >
-                <div className="text-center space-y-2">
-                  <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center mx-auto text-2xl font-black shadow-sm">
-                    🚪
-                  </div>
-                  <h3 className="text-lg font-black text-[#5D4037]">離開扣扣記帳</h3>
-                  <p className="text-xs font-bold text-stone-500">確定要離開扣扣記帳嗎？</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsExitModalOpen(false);
-                      if (!window.history.state || !window.history.state.isHomeGuard) {
-                        window.history.pushState({ isHomeGuard: true, view: 'home' }, '', window.location.href);
-                      }
-                    }}
-                    className="py-3 bg-white border border-[#5D4037]/20 text-[#5D4037] rounded-2xl font-bold text-xs active:scale-95 transition-all shadow-sm hover:bg-stone-50"
-                  >
-                    繼續記帳
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsExitModalOpen(false);
-                      try {
-                        if ((navigator as any).app && (navigator as any).app.exitApp) {
-                          (navigator as any).app.exitApp();
-                        } else {
-                          window.close();
-                        }
-                      } catch (e) {
-                        console.log('App exit attempted');
-                      }
-                    }}
-                    className="py-3 bg-[#5D4037] text-white rounded-2xl font-black text-xs active:scale-95 transition-all shadow-md hover:bg-[#4E342E]"
-                  >
-                    確定離開
-                  </button>
-                </div>
-              </motion.div>
-            </div>
           )}
         </AnimatePresence>
 
@@ -5920,8 +5917,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       if (r.category === '初始資金') return false;
       
       if (sortMode === 'billing-cycle') {
-        const filterDate = r.postingDate || r.date;
-        return filterDate >= billingCycleRange.startStr && filterDate <= billingCycleRange.endStr;
+        if (!r.postingDate || r.isPending) return false;
+        return r.postingDate >= billingCycleRange.startStr && r.postingDate <= billingCycleRange.endStr;
       } else {
         const filterDate = (sortMode === 'date-desc' || sortMode === 'date-asc') 
           ? r.date 
@@ -6549,10 +6546,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
                           transition={{ duration: 0.2, ease: 'easeInOut' }}
-                          className="overflow-hidden bg-[#FFFDF8] rounded-[24px] border-2 border-stone-100/40 p-5 mt-1 mb-2 mx-1 shadow-inner flex justify-between items-end gap-4"
+                          className="overflow-hidden bg-[#FFFDF8] rounded-[24px] border-2 border-stone-100/40 p-3.5 sm:p-5 mt-1 mb-2 mx-1 shadow-inner flex justify-between items-end gap-2.5 sm:gap-4"
                           style={getFontFamily()}
                         >
-                          <div className="flex-1 flex flex-col gap-2.5 text-[13px] font-bold text-[#5D4037]">
+                          <div className="flex-1 min-w-0 flex flex-col gap-2.5 text-[13px] font-bold text-[#5D4037]">
                             {/* 項目 1：分類 */}
                             <div className="flex items-center gap-2">
                               <span className="text-stone-400 font-bold min-w-[65px]">交易分類:</span>
