@@ -262,6 +262,7 @@ export interface Stock {
   shares: number;         // 持有數量 (股數 / 單位數，支援小數點後 4 位)
   avgPrice: number;       // 平均買入單價 / 申購淨值 (元)
   currentPrice?: number;  // 目前市價 / 最新淨值 (元)
+  evaluationDate?: string; // 市值評估日期 (YYYY-MM-DD)
   linkedAccount: string;  // 綁定之證券/基金交割銀行帳戶 ID
   purchaseDate?: string;  // 購買日期
   notes?: string;         // 備註說明
@@ -4587,6 +4588,11 @@ function InvestmentSection({
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
+  const [stockEvaluationDate, setStockEvaluationDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('all');
 
   // states for buy operation
   const [buyingStock, setBuyingStock] = useState<Stock | null>(null);
@@ -4702,17 +4708,23 @@ function InvestmentSection({
   const [dividendAccount, setDividendAccount] = useState('');
   const [dividendNotes, setDividendNotes] = useState('');
 
+  // filtered stocks by broker filter
+  const filteredStocks = useMemo(() => {
+    if (selectedBrokerFilter === 'all') return stocks;
+    return stocks.filter(s => s.linkedAccount === selectedBrokerFilter);
+  }, [stocks, selectedBrokerFilter]);
+
   // overview stats
   const totalPrincipal = useMemo(() => {
-    return stocks.reduce((sum, s) => sum + (s.shares * s.avgPrice), 0);
-  }, [stocks]);
+    return filteredStocks.reduce((sum, s) => sum + (s.shares * s.avgPrice), 0);
+  }, [filteredStocks]);
 
   const totalMarketValue = useMemo(() => {
-    return stocks.reduce((sum, s) => {
+    return filteredStocks.reduce((sum, s) => {
       const price = (s.currentPrice !== undefined && s.currentPrice > 0) ? s.currentPrice : s.avgPrice;
       return sum + (s.shares * price);
     }, 0);
-  }, [stocks]);
+  }, [filteredStocks]);
 
   const totalUnrealizedPL = useMemo(() => {
     return totalMarketValue - totalPrincipal;
@@ -4804,6 +4816,7 @@ function InvestmentSection({
     const bankAcc = accounts.find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
     setStockLinkedAccount(bankAcc ? bankAcc.id : '');
     setStockPurchaseDate(new Date().toISOString().split('T')[0]);
+    setStockEvaluationDate(new Date().toISOString().split('T')[0]);
     setStockNotes('');
     setIsStockModalOpen(true);
   };
@@ -4819,6 +4832,7 @@ function InvestmentSection({
     setStockTotalCost((stock.shares * stock.avgPrice).toFixed(2).replace(/\.00$/, ''));
     setStockLinkedAccount(stock.linkedAccount);
     setStockPurchaseDate(stock.purchaseDate || new Date().toISOString().split('T')[0]);
+    setStockEvaluationDate(stock.evaluationDate || new Date().toISOString().split('T')[0]);
     setStockNotes(stock.notes || '');
     setIsStockModalOpen(true);
   };
@@ -4872,6 +4886,7 @@ function InvestmentSection({
         shares: newTotalShares,
         avgPrice: newAvgPrice,
         currentPrice: currentPriceNum !== undefined ? currentPriceNum : existing.currentPrice,
+        evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : existing.evaluationDate,
         notes: stockNotes.trim() ? stockNotes.trim() : mergedNotes
       };
 
@@ -4896,6 +4911,7 @@ function InvestmentSection({
         shares: sharesNum,
         avgPrice: priceNum,
         currentPrice: currentPriceNum,
+        evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : undefined,
         linkedAccount: stockLinkedAccount,
         purchaseDate: stockPurchaseDate,
         notes: stockNotes.trim() || undefined
@@ -5142,30 +5158,68 @@ function InvestmentSection({
       </AnimatePresence>
 
       {/* Holdings Section Header */}
-      <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3">
-        <div className="flex items-center gap-2">
-          <Briefcase size={20} className="text-[#5D4037]" />
-          <h3 className="text-lg font-black text-[#5D4037]">持有投資組合</h3>
+      <div className="flex flex-col gap-3 border-b border-[#5D4037]/10 pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Briefcase size={20} className="text-[#5D4037]" />
+            <h3 className="text-lg font-black text-[#5D4037]">持有投資組合</h3>
+          </div>
+          <button 
+            onClick={handleOpenStockAdd}
+            className="bg-[#5D4037] text-[#FFD54F] hover:bg-[#4E342E] transition-all px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1 active:scale-95 shadow-sm"
+          >
+            <Plus size={14} /> 新增持股/基金
+          </button>
         </div>
-        <button 
-          onClick={handleOpenStockAdd}
-          className="bg-[#5D4037] text-[#FFD54F] hover:bg-[#4E342E] transition-all px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1 active:scale-95 shadow-sm"
-        >
-          <Plus size={14} /> 新增持股/基金
-        </button>
+
+        {/* 券商篩選標籤頁 (Broker Filter Tabs) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+          <button
+            onClick={() => setSelectedBrokerFilter('all')}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+              selectedBrokerFilter === 'all'
+                ? 'bg-[#5D4037] text-white shadow-sm'
+                : 'bg-white/80 text-stone-500 border border-stone-200/60 hover:bg-stone-100'
+            }`}
+          >
+            全部券商 ({stocks.length})
+          </button>
+          {accounts
+            .filter(a => stocks.some(s => s.linkedAccount === a.id) || a.type === 'investment')
+            .map(acc => {
+              const count = stocks.filter(s => s.linkedAccount === acc.id).length;
+              return (
+                <button
+                  key={acc.id}
+                  onClick={() => setSelectedBrokerFilter(acc.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1 ${
+                    selectedBrokerFilter === acc.id
+                      ? 'bg-[#5D4037] text-[#FFD54F] shadow-sm'
+                      : 'bg-white/80 text-stone-500 border border-stone-200/60 hover:bg-stone-100'
+                  }`}
+                >
+                  <span>{acc.icon || '🏦'}</span>
+                  <span>{acc.name}</span>
+                  <span className="text-[10px] opacity-75">({count})</span>
+                </button>
+              );
+            })}
+        </div>
       </div>
 
       {/* Holdings List */}
       <div className="space-y-4">
-        {stocks.length === 0 ? (
+        {filteredStocks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-4 bg-white/30 rounded-[30px] border-2 border-dashed border-stone-200/55 p-6">
             <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-stone-300 shadow-sm">
               <Coins size={30} />
             </div>
-            <p className="text-stone-400 font-bold text-sm">目前沒有持有任何股票或基金，點擊上方按鈕新增！</p>
+            <p className="text-stone-400 font-bold text-sm">
+              {stocks.length === 0 ? '目前沒有持有任何股票或基金，點擊上方按鈕新增！' : '此券商帳戶下目前無持股標的'}
+            </p>
           </div>
         ) : (
-          stocks.map(s => {
+          filteredStocks.map(s => {
             const cost = s.shares * s.avgPrice;
             const hasCurrentPrice = s.currentPrice !== undefined && s.currentPrice > 0;
             const currentPrice = hasCurrentPrice ? s.currentPrice! : s.avgPrice;
@@ -5240,7 +5294,12 @@ function InvestmentSection({
                       <span className="text-xs font-black text-[#5D4037]">${s.currentPrice!.toLocaleString()}</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-stone-400 mb-0.5">目前市值</span>
+                      <span className="text-[10px] font-bold text-stone-400 mb-0.5 flex flex-wrap items-center gap-0.5">
+                        <span>目前市值</span>
+                        {s.evaluationDate && (
+                          <span className="text-[9px] text-stone-400 font-normal">({s.evaluationDate.replace(/-/g, '/')})</span>
+                        )}
+                      </span>
                       <span className="text-xs font-black text-[#5D4037]">${Math.round(marketValue).toLocaleString()}</span>
                     </div>
                     <div className="flex flex-col">
@@ -5424,6 +5483,17 @@ function InvestmentSection({
                       placeholder="填總市值反推市價"
                     />
                   </div>
+                </div>
+                <div className="space-y-1 pt-1">
+                  <label className="text-[11px] font-black text-stone-500 px-1">
+                    {stockCategory === 'fund' ? '淨值評估日期' : '市值評估日期'}
+                  </label>
+                  <input 
+                    type="date"
+                    value={stockEvaluationDate}
+                    onChange={e => setStockEvaluationDate(e.target.value)}
+                    className="w-full p-3 bg-white border border-stone-200 rounded-xl font-bold text-xs text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  />
                 </div>
               </div>
 
