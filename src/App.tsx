@@ -727,10 +727,38 @@ export default function App() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(new Date()));
-  const [records, setRecords] = useState<Transaction[]>(INITIAL_RECORDS);
-  const [accounts, setAccounts] = useState<Account[]>(INITIAL_ACCOUNTS);
-  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
-  const [monthlyBudget, setMonthlyBudget] = useState<number>(30000);
+  const [records, setRecords] = useState<Transaction[]>(() => {
+    try {
+      const cached = localStorage.getItem('coco_records_cache');
+      return cached ? JSON.parse(cached) : INITIAL_RECORDS;
+    } catch (e) {
+      return INITIAL_RECORDS;
+    }
+  });
+  const [accounts, setAccounts] = useState<Account[]>(() => {
+    try {
+      const cached = localStorage.getItem('coco_accounts_cache');
+      return cached ? JSON.parse(cached) : INITIAL_ACCOUNTS;
+    } catch (e) {
+      return INITIAL_ACCOUNTS;
+    }
+  });
+  const [categories, setCategories] = useState<Category[]>(() => {
+    try {
+      const cached = localStorage.getItem('coco_categories_cache');
+      return cached ? JSON.parse(cached) : INITIAL_CATEGORIES;
+    } catch (e) {
+      return INITIAL_CATEGORIES;
+    }
+  });
+  const [monthlyBudget, setMonthlyBudget] = useState<number>(() => {
+    try {
+      const cached = localStorage.getItem('coco_budget_cache');
+      return cached ? JSON.parse(cached) : 30000;
+    } catch (e) {
+      return 30000;
+    }
+  });
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
   const [isAiSplitModalOpen, setIsAiSplitModalOpen] = useState(false);
   const [aiSplitInitialTab, setAiSplitInitialTab] = useState<'expense' | 'income'>('expense');
@@ -739,7 +767,14 @@ export default function App() {
   const [templates, setTemplates] = useState<Template[]>(INITIAL_TEMPLATES);
   const [fixedRecords, setFixedRecords] = useState<FixedRecord[]>([]);
   const [installments, setInstallments] = useState<Installment[]>([]);
-  const [rawProjects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  const [rawProjects, setProjects] = useState<Project[]>(() => {
+    try {
+      const cached = localStorage.getItem('coco_projects_cache');
+      return cached ? JSON.parse(cached) : INITIAL_PROJECTS;
+    } catch (e) {
+      return INITIAL_PROJECTS;
+    }
+  });
   const projects = useMemo(() => {
     return [...rawProjects].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   }, [rawProjects]);
@@ -883,17 +918,6 @@ export default function App() {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
       setAuthLoading(false);
-      if (!u) {
-        // Reset state to truly empty data on logout
-        setRecords([]);
-        setAccounts([]);
-        setCategories(INITIAL_CATEGORIES);
-        setProjects([]);
-        setTemplates([]);
-        setFixedRecords([]);
-        setInstallments([]);
-        setMonthlyBudget(0);
-      }
     });
   }, []);
 
@@ -917,7 +941,7 @@ export default function App() {
     try {
       localStorage.clear();
       await signOut(auth);
-      // Reset all finance states manually as requested
+      // Reset all finance states manually on explicit logout
       setRecords([]);
       setAccounts([]);
       setProjects([]);
@@ -927,31 +951,35 @@ export default function App() {
     }
   };
 
-  // Real-time synchronization
+  // Real-time synchronization with Cache-First Stale-While-Revalidate
   useEffect(() => {
     if (!user) return;
 
     const unsubRecords = onSnapshot(collection(db, 'users', user.uid, 'transactions'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Transaction);
-      // Removed Length check to allow clearing records locally when DB is empty
       setRecords(data);
+      try { localStorage.setItem('coco_records_cache', JSON.stringify(data)); } catch (e) {}
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/transactions`));
 
     const unsubAccounts = onSnapshot(collection(db, 'users', user.uid, 'accounts'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Account);
-      // 強制依 order 排序
       const sortedData = data.sort((a, b) => (a.order || 0) - (b.order || 0));
       setAccounts(sortedData);
+      try { localStorage.setItem('coco_accounts_cache', JSON.stringify(sortedData)); } catch (e) {}
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/accounts`));
 
     const unsubCategories = onSnapshot(collection(db, 'users', user.uid, 'categories'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Category);
-      setCategories(snapshot.docs.length > 0 ? data : INITIAL_CATEGORIES);
+      const res = snapshot.docs.length > 0 ? data : INITIAL_CATEGORIES;
+      setCategories(res);
+      try { localStorage.setItem('coco_categories_cache', JSON.stringify(res)); } catch (e) {}
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/categories`));
 
     const unsubProjects = onSnapshot(collection(db, 'users', user.uid, 'projects'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Project);
-      setProjects(snapshot.docs.length > 0 ? data : INITIAL_PROJECTS);
+      const res = snapshot.docs.length > 0 ? data : INITIAL_PROJECTS;
+      setProjects(res);
+      try { localStorage.setItem('coco_projects_cache', JSON.stringify(res)); } catch (e) {}
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/projects`));
 
     const unsubFixed = onSnapshot(collection(db, 'users', user.uid, 'fixedRecords'), (snapshot) => {
@@ -972,11 +1000,15 @@ export default function App() {
     const unsubStocks = onSnapshot(collection(db, 'users', user.uid, 'stocks'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Stock);
       setStocks(data);
+      try { localStorage.setItem('coco_stocks', JSON.stringify(data)); } catch (e) {}
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/stocks`));
 
     const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
       const data = snapshot.data();
-      if (data?.monthlyBudget) setMonthlyBudget(data.monthlyBudget);
+      if (data?.monthlyBudget !== undefined) {
+        setMonthlyBudget(data.monthlyBudget);
+        try { localStorage.setItem('coco_budget_cache', JSON.stringify(data.monthlyBudget)); } catch (e) {}
+      }
     }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}`));
 
     return () => {
