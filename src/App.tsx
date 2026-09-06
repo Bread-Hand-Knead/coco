@@ -6444,22 +6444,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         }
       }
 
-      // Apply bill month offset (e.g. -1 for previous month)
-      const offset = account.billMonthOffset || 0;
-      if (offset !== 0) {
-        stmtMonth += offset;
-        if (stmtMonth <= 0) {
-          const absOffset = Math.abs(stmtMonth);
-          const yearDiff = Math.floor(absOffset / 12) + 1;
-          stmtYear -= yearDiff;
-          stmtMonth = 12 - (absOffset % 12);
-        } else if (stmtMonth > 12) {
-          const yearDiff = Math.floor((stmtMonth - 1) / 12);
-          stmtYear += yearDiff;
-          stmtMonth = ((stmtMonth - 1) % 12) + 1;
-        }
-      }
-
+      // 帳單月份嚴格以結帳日所屬之月份命名（9月結帳即為 9月帳單），不以繳款日額外偏移
       const key = `${stmtYear}-${String(stmtMonth).padStart(2, '0')}`;
       const calculatedLabel = `${stmtMonth}月帳單`;
       const label = account.customStatementLabels?.[key] || calculatedLabel;
@@ -6565,48 +6550,42 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           }
         });
 
-        // Calculate the true balance of this billing cycle across all history transactions
+        // 帳單金額加總：統計該帳單卡片中包含的所有交易款項，確保頂部金額與明細列表總額 100% 一致
         let bal = 0;
-        allHistoryCardRecords.forEach(r => {
-          // 嚴格過濾：無入帳日（未入帳 / 待入帳 / isPending）之款項，絕對不可計入帳單金額
-          if (!r.postingDate || r.isPending) return;
+        g.records.forEach(r => {
+          const isFromCard = targetIds.includes(r.accountId);
+          const isToCard = Boolean(r.toAccountId && targetIds.includes(r.toAccountId));
 
-          const { key } = getStatementLabelAndKey(r.postingDate, effectiveClosingDay!);
-          if (key === g.key) {
-            const isFromCard = targetIds.includes(r.accountId);
-            const isToCard = Boolean(r.toAccountId && targetIds.includes(r.toAccountId));
+          if (!isFromCard && !isToCard) return;
 
-            if (!isFromCard && !isToCard) return;
+          const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+          const noteLower = noteText.toLowerCase();
+          const isFeedback = 
+            noteLower.includes('回饋') || 
+            noteLower.includes('返現') || 
+            noteLower.includes('紅利') || 
+            noteLower.includes('折抵') || 
+            noteLower.includes('cashback') || 
+            noteLower.includes('reward') ||
+            r.type === 'income' ||
+            r.category === '回饋' ||
+            r.category === '退款';
 
-            const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
-            const noteLower = noteText.toLowerCase();
-            const isFeedback = 
-              noteLower.includes('回饋') || 
-              noteLower.includes('返現') || 
-              noteLower.includes('紅利') || 
-              noteLower.includes('折抵') || 
-              noteLower.includes('cashback') || 
-              noteLower.includes('reward') ||
-              r.type === 'income' ||
-              r.category === '回饋' ||
-              r.category === '退款';
+          const isTransfer = r.type === 'transfer';
+          if (isFromCard && isToCard) return;
+          if (isTransfer && isToCard && !isFeedback) return;
 
-            const isTransfer = r.type === 'transfer';
-            if (isFromCard && isToCard) return;
-            if (isTransfer && isToCard && !isFeedback) return;
-
-            let change = 0;
-            if (r.type === 'expense') {
-              change = Math.abs(Number(r.amount || 0));
-            } else if (isTransfer && isFromCard && !isToCard) {
-              change = Math.abs(Number(r.amount || 0));
-            } else if (r.type === 'income' || isFeedback) {
-              change = -Math.abs(Number(r.amount || 0));
-            }
-            bal += change;
-            if (r.fee && isFromCard) {
-              bal += Math.abs(Number(r.fee || 0));
-            }
+          let change = 0;
+          if (r.type === 'expense') {
+            change = Math.abs(Number(r.amount || 0));
+          } else if (isTransfer && isFromCard && !isToCard) {
+            change = Math.abs(Number(r.amount || 0));
+          } else if (r.type === 'income' || isFeedback) {
+            change = -Math.abs(Number(r.amount || 0));
+          }
+          bal += change;
+          if (r.fee && isFromCard) {
+            bal += Math.abs(Number(r.fee || 0));
           }
         });
 
