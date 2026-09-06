@@ -6413,6 +6413,19 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     const targetYearMonth = dateRangeStrings.filter; // e.g. "2026-07"
 
+    const getNextStatementKey = (key: string) => {
+      const parts = key.split('-');
+      if (parts.length < 2) return key;
+      let y = parseInt(parts[0]);
+      let m = parseInt(parts[1]);
+      m += 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+      return `${y}-${String(m).padStart(2, '0')}`;
+    };
+
     const getStatementLabelAndKey = (dateStr: string, closingDay: number) => {
       const parts = dateStr.split('-');
       if (parts.length < 3) return { label: '未分類帳單', key: '9999-12' };
@@ -6455,14 +6468,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     // Filter transactions only for the selected calendar month (so users see them in the month they occurred)
     const filterBasis = (sortMode === 'date-desc' || sortMode === 'date-asc') ? 'date' : 'posting';
-    const cardRecords = records.filter(r => {
-      if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
-      if (r.category === '初始資金') return false;
-      const filterDate = filterBasis === 'date' ? r.date : (r.postingDate || r.date);
-      return filterDate.startsWith(targetYearMonth);
-    });
 
-    // Filter ALL history transactions for this card (to calculate the true statement totals)
+    // Filter ALL history transactions for this card
     const allHistoryCardRecords = records.filter(r => 
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
       r.category !== '初始資金'
@@ -6471,7 +6478,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const groups: Record<string, { label: string; key: string; records: Transaction[]; balance: number }> = {};
     const transferPayments: Transaction[] = [];
 
-    cardRecords.forEach(r => {
+    allHistoryCardRecords.forEach(r => {
       const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
       const noteLower = noteText.toLowerCase();
       const isFeedback = 
@@ -6488,15 +6495,30 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       const isTransferIn = isTransferInCard && !isFeedback;
       
       if (isTransferIn) {
-        // Payments are filtered by calendar month (when the payment actually occurred)
+        // Payments are filtered by calendar month
         const filterDate = filterBasis === 'date' ? r.date : (r.postingDate || r.date);
         if (filterDate.startsWith(targetYearMonth)) {
           transferPayments.push(r);
         }
       } else {
-        const dateStr = filterBasis === 'date' ? r.date : (r.postingDate || r.date);
-        const { label, key } = getStatementLabelAndKey(dateStr, effectiveClosingDay!);
-        
+        // 未入帳自動順延機制：
+        // 1. 若已有入帳日（postingDate && !isPending），則依照入帳日落入該期帳單
+        // 2. 若未填寫入帳日（!postingDate || isPending），本期帳單不予包含，自動順延至下一期（nextKey）預估明細
+        let key = '';
+        let label = '';
+
+        if (r.postingDate && !r.isPending) {
+          const stmt = getStatementLabelAndKey(r.postingDate, effectiveClosingDay!);
+          key = stmt.key;
+          label = stmt.label;
+        } else {
+          const origStmt = getStatementLabelAndKey(r.date, effectiveClosingDay!);
+          key = getNextStatementKey(origStmt.key);
+          const nextMonthNum = parseInt(key.split('-')[1]);
+          const calculatedLabel = `${nextMonthNum}月帳單`;
+          label = account.customStatementLabels?.[key] || calculatedLabel;
+        }
+
         if (!groups[key]) {
           groups[key] = {
             label,
@@ -6509,82 +6531,91 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       }
     });
 
-    const statementList = Object.values(groups).map(g => {
-      const sortedRecords = getMergedRecords(g.records, accounts).sort((a, b) => {
-        if (sortMode === 'date-desc') {
-          const tsA = getTimestamp(a.date, a.time);
-          const tsB = getTimestamp(b.date, b.time);
-          if (tsB !== tsA) return tsB - tsA;
-          return b.amount - a.amount;
-        } else if (sortMode === 'date-asc') {
-          const tsA = getTimestamp(a.date, a.time);
-          const tsB = getTimestamp(b.date, b.time);
-          if (tsA !== tsB) return tsA - tsB;
-          return a.amount - b.amount;
-        } else if (sortMode === 'posting-desc') {
-          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
-          if (ptsB !== ptsA) return ptsB - ptsA;
-          return b.amount - a.amount;
-        } else { // 'posting-asc'
-          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
-          if (ptsA !== ptsB) return ptsA - ptsB;
-          return a.amount - b.amount;
-        }
-      });
-
-      // Calculate the true balance of this billing cycle across all history transactions
-      let bal = 0;
-      allHistoryCardRecords.forEach(r => {
-        // 嚴格過濾：無入帳日（未入帳 / 待入帳 / isPending）之款項，絕對不可計入帳單金額
-        if (!r.postingDate || r.isPending) return;
-
-        const { key } = getStatementLabelAndKey(r.postingDate, effectiveClosingDay!);
-        if (key === g.key) {
-          const isFromCard = targetIds.includes(r.accountId);
-          const isToCard = Boolean(r.toAccountId && targetIds.includes(r.toAccountId));
-
-          if (!isFromCard && !isToCard) return;
-
-          const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
-          const noteLower = noteText.toLowerCase();
-          const isFeedback = 
-            noteLower.includes('回饋') || 
-            noteLower.includes('返現') || 
-            noteLower.includes('紅利') || 
-            noteLower.includes('折抵') || 
-            noteLower.includes('cashback') || 
-            noteLower.includes('reward') ||
-            r.type === 'income' ||
-            r.category === '回饋' ||
-            r.category === '退款';
-
-          const isTransfer = r.type === 'transfer';
-          if (isFromCard && isToCard) return;
-          if (isTransfer && isToCard && !isFeedback) return;
-
-          let change = 0;
-          if (r.type === 'expense') {
-            change = Math.abs(Number(r.amount || 0));
-          } else if (isTransfer && isFromCard && !isToCard) {
-            change = Math.abs(Number(r.amount || 0));
-          } else if (r.type === 'income' || isFeedback) {
-            change = -Math.abs(Number(r.amount || 0));
+    // 篩選與目前檢視月份相關或非空之帳單群組
+    const statementList = Object.values(groups)
+      .filter(g => {
+        if (!targetYearMonth) return g.records.length > 0;
+        return g.key === targetYearMonth || g.records.some(r => {
+          const filterDate = filterBasis === 'date' ? r.date : (r.postingDate || r.date);
+          return filterDate.startsWith(targetYearMonth);
+        });
+      })
+      .map(g => {
+        const sortedRecords = getMergedRecords(g.records, accounts).sort((a, b) => {
+          if (sortMode === 'date-desc') {
+            const tsA = getTimestamp(a.date, a.time);
+            const tsB = getTimestamp(b.date, b.time);
+            if (tsB !== tsA) return tsB - tsA;
+            return b.amount - a.amount;
+          } else if (sortMode === 'date-asc') {
+            const tsA = getTimestamp(a.date, a.time);
+            const tsB = getTimestamp(b.date, b.time);
+            if (tsA !== tsB) return tsA - tsB;
+            return a.amount - b.amount;
+          } else if (sortMode === 'posting-desc') {
+            const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+            const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+            if (ptsB !== ptsA) return ptsB - ptsA;
+            return b.amount - a.amount;
+          } else { // 'posting-asc'
+            const ptsA = getTimestamp(a.postingDate || a.date, a.time);
+            const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+            if (ptsA !== ptsB) return ptsA - ptsB;
+            return a.amount - b.amount;
           }
-          bal += change;
-          if (r.fee && isFromCard) {
-            bal += Math.abs(Number(r.fee || 0));
-          }
-        }
-      });
+        });
 
-      return {
-        ...g,
-        records: sortedRecords,
-        balance: bal
-      };
-    });
+        // Calculate the true balance of this billing cycle across all history transactions
+        let bal = 0;
+        allHistoryCardRecords.forEach(r => {
+          // 嚴格過濾：無入帳日（未入帳 / 待入帳 / isPending）之款項，絕對不可計入帳單金額
+          if (!r.postingDate || r.isPending) return;
+
+          const { key } = getStatementLabelAndKey(r.postingDate, effectiveClosingDay!);
+          if (key === g.key) {
+            const isFromCard = targetIds.includes(r.accountId);
+            const isToCard = Boolean(r.toAccountId && targetIds.includes(r.toAccountId));
+
+            if (!isFromCard && !isToCard) return;
+
+            const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+            const noteLower = noteText.toLowerCase();
+            const isFeedback = 
+              noteLower.includes('回饋') || 
+              noteLower.includes('返現') || 
+              noteLower.includes('紅利') || 
+              noteLower.includes('折抵') || 
+              noteLower.includes('cashback') || 
+              noteLower.includes('reward') ||
+              r.type === 'income' ||
+              r.category === '回饋' ||
+              r.category === '退款';
+
+            const isTransfer = r.type === 'transfer';
+            if (isFromCard && isToCard) return;
+            if (isTransfer && isToCard && !isFeedback) return;
+
+            let change = 0;
+            if (r.type === 'expense') {
+              change = Math.abs(Number(r.amount || 0));
+            } else if (isTransfer && isFromCard && !isToCard) {
+              change = Math.abs(Number(r.amount || 0));
+            } else if (r.type === 'income' || isFeedback) {
+              change = -Math.abs(Number(r.amount || 0));
+            }
+            bal += change;
+            if (r.fee && isFromCard) {
+              bal += Math.abs(Number(r.fee || 0));
+            }
+          }
+        });
+
+        return {
+          ...g,
+          records: sortedRecords,
+          balance: bal
+        };
+      });
 
     statementList.sort((a, b) => b.key.localeCompare(a.key));
 
@@ -6728,8 +6759,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                               {record.time && ` ${record.time}`}
                             </span>
                             {account.type === 'credit' && (!record.postingDate || record.isPending) && (
-                              <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-500 rounded-full font-bold">
-                                未入帳
+                              <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">
+                                待請款/順延
                               </span>
                             )}
                             {record.transferredDate && (
