@@ -553,17 +553,7 @@ const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: s
 };
 
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
-  const cleanedTxs = txs.map(t => {
-    if (t.type === 'transfer' && t.accountId && t.toAccountId && t.amount > 0) {
-      return {
-        ...t,
-        accountId: t.toAccountId,
-        toAccountId: t.accountId,
-        amount: -t.amount
-      };
-    }
-    return t;
-  });
+  const cleanedTxs = txs;
 
   const result: Transaction[] = [];
   const matchedIds = new Set<string>();
@@ -576,9 +566,8 @@ const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[
 
     if (A.type === 'transfer' && A.amount !== 0) {
       // Look for a matching transfer with opposite sign and same details
-      const A_isPos = A.amount > 0;
-      const A_src = A_isPos ? (A.toAccountId || '') : A.accountId;
-      const A_dst = A_isPos ? A.accountId : (A.toAccountId || '');
+      const A_src = A.accountId;
+      const A_dst = A.toAccountId || '';
 
       let foundMatch = false;
       for (let j = i + 1; j < txs.length; j++) {
@@ -593,9 +582,8 @@ const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[
           Math.abs(B.amount) === Math.abs(A.amount) &&
           B.amount * A.amount < 0
         ) {
-          const B_isPos = B.amount > 0;
-          const B_src = B_isPos ? (B.toAccountId || '') : B.accountId;
-          const B_dst = B_isPos ? B.accountId : (B.toAccountId || '');
+          const B_src = B.accountId;
+          const B_dst = B.toAccountId || '';
 
           const resolvedSender = A_src || B_src;
           const resolvedDest = A_dst || B_dst;
@@ -1565,13 +1553,18 @@ export default function App() {
 
         // Dynamic Update Logic: directly add the signed transaction amount to the account balance
         if (r.accountId === id) {
-          bal += r.amount;
+          if (r.type === 'transfer') {
+            bal -= Math.abs(r.amount);
+          } else {
+            bal += r.amount;
+          }
           if (r.fee) bal -= r.fee;
         }
         
         // Symmetrical Transfer Logic: Balance updates based on exact transfer receiver amounts
         if (r.type === 'transfer' && r.toAccountId === id) {
-          bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+          const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
+          bal += Math.abs(toAmt);
         }
       });
       return bal;
@@ -1606,11 +1599,16 @@ export default function App() {
       mergedRecords.forEach(r => {
         if (r.category === '初始資金') return;
         if (r.accountId === acc.id) {
-          bal += r.amount;
+          if (r.type === 'transfer') {
+            bal -= Math.abs(r.amount);
+          } else {
+            bal += r.amount;
+          }
           if (r.fee) bal -= r.fee;
         }
         if (r.type === 'transfer' && r.toAccountId === acc.id) {
-          bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+          const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
+          bal += Math.abs(toAmt);
         }
       });
       balances[acc.id] = bal;
@@ -3449,21 +3447,21 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
   const mergedRecords = getMergedRecords(records, accounts);
   const getBaseBalance = (acc: Account) => {
     let bal = acc.type === 'credit' ? 0 : (acc.initialBalance || 0);
-    console.log(`[DEBUG] getBaseBalance for ${acc.name} (${acc.id}): starting with initial ${acc.initialBalance || 0}`);
     mergedRecords.forEach(r => {
       if (r.category === '初始資金') return;
       if (r.accountId === acc.id) {
-        bal += r.amount;
-        console.log(`  - Subtracting spending/transfer-out: ${r.date} | ${r.note || r.category} | amount: ${r.amount} | type: ${r.type} | new bal: ${bal}`);
+        if (r.type === 'transfer') {
+          bal -= Math.abs(r.amount);
+        } else {
+          bal += r.amount;
+        }
         if (r.fee) {
           bal -= r.fee;
-          console.log(`    - Fee: ${r.fee} | new bal: ${bal}`);
         }
       }
       if (r.type === 'transfer' && r.toAccountId === acc.id) {
-        const toAmt = r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1));
-        bal += toAmt;
-        console.log(`  + Adding deposit/transfer-in: ${r.date} | ${r.note || r.category} | amount: ${toAmt} | new bal: ${bal}`);
+        const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
+        bal += Math.abs(toAmt);
       }
     });
     return bal;
@@ -6067,11 +6065,16 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     
     relevant.forEach(r => {
       if (targetIds.includes(r.accountId)) {
-        bal += r.amount;
+        if (r.type === 'transfer') {
+          bal -= Math.abs(r.amount);
+        } else {
+          bal += r.amount;
+        }
         if (r.fee) bal -= r.fee;
       }
       if (r.type === 'transfer' && r.toAccountId && targetIds.includes(r.toAccountId)) {
-        bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+        const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
+        bal += Math.abs(toAmt);
       }
       map[r.id] = bal;
       if ((r as any)._mergedRecordIds) {
@@ -6100,14 +6103,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       let desc = '';
       
       if (targetIds.includes(r.accountId)) {
-        change += r.amount;
+        const changeAmt = r.type === 'transfer' ? -Math.abs(r.amount) : r.amount;
+        change += changeAmt;
         if (r.fee) change -= r.fee;
         matched = true;
         desc = `支出/轉出 (${getTransactionTitle(r)})`;
       }
       if (r.type === 'transfer' && r.toAccountId && targetIds.includes(r.toAccountId)) {
-        const toAmt = r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1));
-        change += toAmt;
+        const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
+        change += Math.abs(toAmt);
         matched = true;
         desc = `收入/轉入 (${getTransactionTitle(r)})`;
       }
@@ -6664,11 +6668,16 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       let bal = 0;
       monthRecords.forEach(r => {
         if (r.accountId === acc.id) {
-          bal += r.amount;
+          if (r.type === 'transfer') {
+            bal -= Math.abs(r.amount);
+          } else {
+            bal += r.amount;
+          }
           if (r.fee) bal -= r.fee;
         }
         if (r.type === 'transfer' && r.toAccountId === acc.id) {
-          bal += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+          const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
+          bal += Math.abs(toAmt);
         }
       });
       return bal;
