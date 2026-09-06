@@ -4579,6 +4579,7 @@ function InvestmentSection({
   const [stockShares, setStockShares] = useState('');
   const [stockAvgPrice, setStockAvgPrice] = useState('');
   const [stockCurrentPrice, setStockCurrentPrice] = useState('');
+  const [stockCurrentMarketValue, setStockCurrentMarketValue] = useState('');
   const [stockTotalCost, setStockTotalCost] = useState('');
   const [stockLinkedAccount, setStockLinkedAccount] = useState('');
   const [stockNotes, setStockNotes] = useState('');
@@ -4609,6 +4610,13 @@ function InvestmentSection({
     } else {
       setStockTotalCost('');
     }
+
+    const cp = parseFloat(stockCurrentPrice) || 0;
+    if (sh > 0 && cp > 0) {
+      setStockCurrentMarketValue(Math.round(sh * cp).toString());
+    } else {
+      setStockCurrentMarketValue('');
+    }
   };
 
   const handleStockAvgPriceChange = (val: string) => {
@@ -4628,6 +4636,26 @@ function InvestmentSection({
     const sh = parseFloat(stockShares) || 0;
     if (sh > 0 && cost > 0) {
       setStockAvgPrice(parseFloat((cost / sh).toFixed(4)).toString());
+    }
+  };
+
+  const handleStockCurrentPriceChange = (val: string) => {
+    setStockCurrentPrice(val);
+    const cp = parseFloat(val) || 0;
+    const sh = parseFloat(stockShares) || 0;
+    if (sh > 0 && cp > 0) {
+      setStockCurrentMarketValue(Math.round(sh * cp).toString());
+    } else {
+      setStockCurrentMarketValue('');
+    }
+  };
+
+  const handleStockCurrentMarketValueChange = (val: string) => {
+    setStockCurrentMarketValue(val);
+    const mv = parseFloat(val) || 0;
+    const sh = parseFloat(stockShares) || 0;
+    if (sh > 0 && mv > 0) {
+      setStockCurrentPrice(parseFloat((mv / sh).toFixed(4)).toString());
     }
   };
 
@@ -4771,6 +4799,7 @@ function InvestmentSection({
     setStockShares('');
     setStockAvgPrice('');
     setStockCurrentPrice('');
+    setStockCurrentMarketValue('');
     setStockTotalCost('');
     const bankAcc = accounts.find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
     setStockLinkedAccount(bankAcc ? bankAcc.id : '');
@@ -4786,6 +4815,7 @@ function InvestmentSection({
     setStockShares(stock.shares.toString());
     setStockAvgPrice(stock.avgPrice.toString());
     setStockCurrentPrice(stock.currentPrice !== undefined ? stock.currentPrice.toString() : '');
+    setStockCurrentMarketValue((stock.currentPrice !== undefined && stock.shares > 0) ? Math.round(stock.shares * stock.currentPrice).toString() : '');
     setStockTotalCost((stock.shares * stock.avgPrice).toFixed(2).replace(/\.00$/, ''));
     setStockLinkedAccount(stock.linkedAccount);
     setStockPurchaseDate(stock.purchaseDate || new Date().toISOString().split('T')[0]);
@@ -5362,22 +5392,39 @@ function InvestmentSection({
                 />
               </div>
 
-              {/* 目前市價 / 淨值 (用於損益與報酬率試算) */}
-              <div className="space-y-1">
+              {/* 目前市價 / 目前市值 防呆雙向連動 (用於損益與報酬率試算) */}
+              <div className="space-y-2 bg-[#FFFDF5] p-3.5 rounded-2xl border border-stone-200/50">
                 <div className="flex items-center justify-between px-1">
-                  <label className="text-xs font-black text-stone-500">
-                    {stockCategory === 'fund' ? '目前最新淨值 (元)' : '目前市價 (元)'}
-                  </label>
-                  <span className="text-[10px] text-amber-800 font-bold">選填：用於損益試算</span>
+                  <span className="text-xs font-black text-[#5D4037]">💡 現值/損益試算 (選填，可雙向換算)</span>
                 </div>
-                <input 
-                  type="number"
-                  step="any"
-                  value={stockCurrentPrice}
-                  onChange={e => setStockCurrentPrice(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                  placeholder={stockCategory === 'fund' ? "填入目前淨值，系統自動試算報酬率" : "填入目前市價，系統自動試算損益與報酬率"}
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-black text-stone-500 px-1">
+                      {stockCategory === 'fund' ? '最新淨值 (元)' : '目前市價 (元)'}
+                    </label>
+                    <input 
+                      type="number"
+                      step="any"
+                      value={stockCurrentPrice}
+                      onChange={e => handleStockCurrentPriceChange(e.target.value)}
+                      className="w-full p-3 bg-white border border-stone-200 rounded-xl font-black text-xs text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                      placeholder={stockCategory === 'fund' ? "如: 16.85" : "如: 107.9"}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-black text-stone-500 px-1">
+                      {stockCategory === 'fund' ? '目前總現值 (元)' : '目前總市值 (元)'}
+                    </label>
+                    <input 
+                      type="number"
+                      step="any"
+                      value={stockCurrentMarketValue}
+                      onChange={e => handleStockCurrentMarketValueChange(e.target.value)}
+                      className="w-full p-3 bg-white border border-stone-200 rounded-xl font-black text-xs text-emerald-700 outline-none shadow-sm focus:border-[#FFD54F]"
+                      placeholder="填總市值反推市價"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-1">
