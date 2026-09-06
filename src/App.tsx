@@ -1550,6 +1550,8 @@ export default function App() {
       mergedRecords.forEach(r => {
         // Skip '初始資金' records if we are using account.initialBalance for the total
         if (r.category === '初始資金') return;
+        // 信用卡餘額只累計已入帳項目 (具有 postingDate 且非待入帳)
+        if (acc.type === 'credit' && (!r.postingDate || r.isPending)) return;
 
         // Dynamic Update Logic: directly add the signed transaction amount to the account balance
         if (r.accountId === id) {
@@ -1598,6 +1600,7 @@ export default function App() {
       }
       mergedRecords.forEach(r => {
         if (r.category === '初始資金') return;
+        if (acc.type === 'credit' && (!r.postingDate || r.isPending)) return;
         if (r.accountId === acc.id) {
           if (r.type === 'transfer') {
             bal -= Math.abs(r.amount);
@@ -3449,6 +3452,7 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
     let bal = acc.type === 'credit' ? 0 : (acc.initialBalance || 0);
     mergedRecords.forEach(r => {
       if (r.category === '初始資金') return;
+      if (acc.type === 'credit' && (!r.postingDate || r.isPending)) return;
       if (r.accountId === acc.id) {
         if (r.type === 'transfer') {
           bal -= Math.abs(r.amount);
@@ -3636,14 +3640,13 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
     if (!isFromCard && !isToCard) return;
     if (r.category === '初始資金') return;
 
-    const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
-    const d = new Date(rawDate);
-    if (isNaN(d.getTime())) return;
-
     if (cycleRange) {
-      const filterDate = r.postingDate || r.date;
-      if (filterDate < cycleRange.startStr || filterDate > cycleRange.endStr) return;
+      if (!r.postingDate || r.isPending) return;
+      if (r.postingDate < cycleRange.startStr || r.postingDate > cycleRange.endStr) return;
     } else {
+      const rawDate = r.postingDate || r.date;
+      const d = new Date(rawDate ? rawDate.replace(/\//g, '-') : '');
+      if (isNaN(d.getTime())) return;
       if (d.getFullYear() !== year || d.getMonth() !== month) return;
     }
 
@@ -3725,14 +3728,13 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
     if (!isFromCard && !isToCard) return;
     if (r.category === '初始資金') return;
 
-    const rawDate = r.date ? r.date.replace(/\//g, '-') : '';
-    const d = new Date(rawDate);
-    if (isNaN(d.getTime())) return;
-
     if (cycleRange) {
-      const filterDate = r.postingDate || r.date;
-      if (filterDate < cycleRange.startStr || filterDate > cycleRange.endStr) return;
+      if (!r.postingDate || r.isPending) return;
+      if (r.postingDate < cycleRange.startStr || r.postingDate > cycleRange.endStr) return;
     } else {
+      const rawDate = r.postingDate || r.date;
+      const d = new Date(rawDate ? rawDate.replace(/\//g, '-') : '');
+      if (isNaN(d.getTime())) return;
       if (d.getFullYear() !== targetYear || d.getMonth() !== targetMonth) return;
     }
 
@@ -7111,12 +7113,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             </div>
             {account.type === 'credit' && (
               <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-stone-400 mt-1 flex-wrap" style={getFontFamily()}>
-                <span>上月刷卡：</span>
+                <span>{hasCreditCardClosingDay(account, accounts) ? '上期帳單：' : '上月刷卡：'}</span>
                 <span className="font-black text-[#5D4037]">
                   ${calculateCreditCardPreviousMonthSpending(account, accounts, records).toLocaleString()}
                 </span>
                 <span className="text-stone-300">|</span>
-                <span>本月刷卡：</span>
+                <span>{hasCreditCardClosingDay(account, accounts) ? '當期帳單：' : '本月刷卡：'}</span>
                 <span className="font-black text-[#5D4037]">
                   ${calculateCreditCardMonthlySpending(account, accounts, records).toLocaleString()}
                 </span>
