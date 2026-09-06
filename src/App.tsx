@@ -3563,25 +3563,29 @@ export function getCreditCardBillingCycleRange(account: Account, accounts: Accou
   if (!closingDayVal) return null;
 
   const now = new Date();
-  let refYear = now.getFullYear();
-  let refMonth = now.getMonth();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
 
+  // 若今日日期已達或超過本月結帳日（例如 9/6 >= 9/5）：
+  // 當前活躍帳期（當期帳單）自動進位推進至 (本月結帳日+1) ~ (下月結帳日)
+  // 上期帳單正式推進為 (上月結帳日+1) ~ (本月結帳日)
+  const isPastClosingThisMonth = d >= closingDayVal;
+
+  let cycleEndMonthOffset = isPastClosingThisMonth ? 1 : 0;
   if (isPrevious) {
-    refMonth -= 1;
-    if (refMonth < 0) {
-      refMonth = 11;
-      refYear -= 1;
-    }
+    cycleEndMonthOffset -= 1;
   }
 
-  const maxDaysCurrent = new Date(refYear, refMonth + 1, 0).getDate();
-  const maxDaysPrev = new Date(refYear, refMonth, 0).getDate();
+  const endYear = y;
+  const endMonth = m + cycleEndMonthOffset;
+  const maxDaysEnd = new Date(endYear, endMonth + 1, 0).getDate();
+  const endDate = new Date(endYear, endMonth, Math.min(closingDayVal, maxDaysEnd));
 
-  const currentClosingDate = new Date(refYear, refMonth, Math.min(closingDayVal, maxDaysCurrent));
-  const prevClosingDate = new Date(refYear, refMonth - 1, Math.min(closingDayVal, maxDaysPrev));
-
-  const startDate = new Date(prevClosingDate.getFullYear(), prevClosingDate.getMonth(), prevClosingDate.getDate() + 1);
-  const endDate = currentClosingDate;
+  const prevEndMonth = endMonth - 1;
+  const maxDaysPrev = new Date(endYear, prevEndMonth + 1, 0).getDate();
+  const prevEndDate = new Date(endYear, prevEndMonth, Math.min(closingDayVal, maxDaysPrev));
+  const startDate = new Date(prevEndDate.getFullYear(), prevEndDate.getMonth(), prevEndDate.getDate() + 1);
 
   const startStr = formatLocalDate(startDate);
   const endStr = formatLocalDate(endDate);
