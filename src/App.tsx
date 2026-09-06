@@ -6697,13 +6697,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         {getCategoryIcon(record.category, record.type, categories)}
                       </div>
                       
-                      {/* 中間主要資訊 */}
-                      <div className="flex-1 min-w-0">
-                        <span className="font-black text-lg text-[#5D4037] whitespace-pre-wrap break-all leading-tight block" style={getFontFamily()}>
+                      {/* 中間主要資訊 (直向分層排版) */}
+                      <div className="flex-1 min-w-0 flex flex-col gap-[4px]" style={getFontFamily()}>
+                        {/* 第一層（頂部標題） */}
+                        <span className="font-black text-base text-[#5D4037] whitespace-pre-wrap break-all leading-snug block">
                           {getTransactionTitle(record)}
                         </span>
                         
-                        {/* 轉帳帳戶路徑或未入帳標籤 (收合時也能一目了然) */}
+                        {/* 第二層至第四層資訊 */}
                         {record.type === 'transfer' ? (
                           (() => {
                             const isPos = record.amount > 0;
@@ -6712,55 +6713,70 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             const firstAccName = isPos ? counterpartAccName : currentAccName;
                             const secondAccName = isPos ? currentAccName : counterpartAccName;
                             return (
-                              <div className="flex flex-col gap-1 mt-1 text-xs" style={getFontFamily()}>
-                                <div className="flex flex-wrap items-center gap-1.5 font-bold text-[#5D4037]">
-                                  <span className="opacity-80 whitespace-nowrap flex-shrink-0">{firstAccName}</span>
-                                  <span className="text-amber-600 font-bold flex-shrink-0">➔</span>
-                                  <span className="opacity-80 font-black text-amber-800 whitespace-nowrap flex-shrink-0">{secondAccName}</span>
-                                  {record.transferredDate && (
-                                    <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold leading-none ml-1">
-                                      已轉帳
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="font-bold text-stone-400 whitespace-nowrap flex-shrink-0">
+                              <>
+                                {/* 第二層（日期時間） */}
+                                <div className="text-xs font-bold text-stone-400 whitespace-nowrap block">
                                   {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
                                     ? `入帳: ${record.postingDate}` 
                                     : `轉帳: ${record.date}`}
                                   {record.time && ` ${record.time}`}
-                                </span>
-                              </div>
+                                </div>
+                                {/* 第三層（轉帳路徑與標籤） */}
+                                <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-[#5D4037]">
+                                  <span className="opacity-80 whitespace-nowrap flex-shrink-0">{firstAccName}</span>
+                                  <span className="text-amber-600 font-bold flex-shrink-0">➔</span>
+                                  <span className="opacity-80 font-black text-amber-800 whitespace-nowrap flex-shrink-0">{secondAccName}</span>
+                                  {record.transferredDate && (
+                                    <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold leading-none ml-1">
+                                      已轉帳
+                                    </span>
+                                  )}
+                                </div>
+                              </>
                             );
                           })()
                         ) : (
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs" style={getFontFamily()}>
-                            <span className="font-bold text-stone-400 whitespace-nowrap flex-shrink-0">
+                          <>
+                            {/* 第二層（日期時間） */}
+                            <div className="text-xs font-bold text-stone-500 whitespace-nowrap block">
                               {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
                                 ? `入帳: ${record.postingDate}` 
                                 : `消費: ${record.date}`}
                               {record.time && ` ${record.time}`}
-                            </span>
+                            </div>
+
+                            {/* 第三層（狀態標籤：待請款/順延、已轉帳、代墊） */}
                             {account.type === 'credit' && (!record.postingDate || record.isPending) && (
-                              <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold leading-none">
-                                待請款/順延
-                              </span>
+                              <div>
+                                <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-[#FFF4D3] text-[#B87A14] rounded-full font-bold leading-none">
+                                  待請款/順延
+                                </span>
+                              </div>
                             )}
                             {record.transferredDate && (
-                              <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold leading-none">
-                                已轉帳
-                              </span>
+                              <div>
+                                <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold leading-none">
+                                  已轉帳
+                                </span>
+                              </div>
                             )}
                             {record.isPrepay && (
-                              <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full font-bold leading-none">
-                                代墊
-                              </span>
+                              <div>
+                                <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-sky-100 text-sky-700 rounded-full font-bold leading-none">
+                                  代墊
+                                </span>
+                              </div>
                             )}
+
+                            {/* 第四層（卡別 / 帳戶標籤） */}
                             {(account.parentId === undefined || account.isBrandGroup) && record.accountId !== account.id && (
-                              <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-stone-100 text-stone-600 rounded-full font-bold leading-none">
-                                {accounts.find(a => a.id === record.accountId)?.name}
-                              </span>
+                              <div>
+                                <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-[#F3F4F6] text-[#4B5563] rounded-full font-bold leading-none">
+                                  {accounts.find(a => a.id === record.accountId)?.name}
+                                </span>
+                              </div>
                             )}
-                          </div>
+                          </>
                         )}
                       </div>
                       
