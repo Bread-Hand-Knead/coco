@@ -3452,7 +3452,6 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
     let bal = acc.type === 'credit' ? 0 : (acc.initialBalance || 0);
     mergedRecords.forEach(r => {
       if (r.category === '初始資金') return;
-      if (acc.type === 'credit' && (!r.postingDate || r.isPending)) return;
       if (r.accountId === acc.id) {
         if (r.type === 'transfer') {
           bal -= Math.abs(r.amount);
@@ -6709,18 +6708,18 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             const firstAccName = isPos ? counterpartAccName : currentAccName;
                             const secondAccName = isPos ? currentAccName : counterpartAccName;
                             return (
-                              <div className="flex flex-col gap-0.5 mt-0.5" style={getFontFamily()}>
-                                <div className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037]">
-                                  <span className="opacity-80">{firstAccName}</span>
-                                  <span className="text-amber-600 font-bold">➔</span>
-                                  <span className="opacity-80 font-black text-amber-800">{secondAccName}</span>
+                              <div className="flex flex-col gap-1 mt-1 text-xs" style={getFontFamily()}>
+                                <div className="flex flex-wrap items-center gap-1.5 font-bold text-[#5D4037]">
+                                  <span className="opacity-80 whitespace-nowrap flex-shrink-0">{firstAccName}</span>
+                                  <span className="text-amber-600 font-bold flex-shrink-0">➔</span>
+                                  <span className="opacity-80 font-black text-amber-800 whitespace-nowrap flex-shrink-0">{secondAccName}</span>
                                   {record.transferredDate && (
-                                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold ml-1">
+                                    <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold leading-none ml-1">
                                       已轉帳
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-xs font-bold text-stone-300">
+                                <span className="font-bold text-stone-400 whitespace-nowrap flex-shrink-0">
                                   {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
                                     ? `入帳: ${record.postingDate}` 
                                     : `轉帳: ${record.date}`}
@@ -6730,30 +6729,30 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             );
                           })()
                         ) : (
-                          <div className="flex items-center gap-2 mt-0.5" style={getFontFamily()}>
-                            <span className="text-xs font-bold text-stone-300">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs" style={getFontFamily()}>
+                            <span className="font-bold text-stone-400 whitespace-nowrap flex-shrink-0">
                               {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
                                 ? `入帳: ${record.postingDate}` 
                                 : `消費: ${record.date}`}
                               {record.time && ` ${record.time}`}
                             </span>
                             {account.type === 'credit' && (!record.postingDate || record.isPending) && (
-                              <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">
+                              <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold leading-none">
                                 待請款/順延
                               </span>
                             )}
                             {record.transferredDate && (
-                              <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold">
+                              <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-bold leading-none">
                                 已轉帳
                               </span>
                             )}
                             {record.isPrepay && (
-                              <span className="text-[10px] px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full font-bold">
+                              <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full font-bold leading-none">
                                 代墊
                               </span>
                             )}
-                            {account.parentId === undefined && record.accountId !== account.id && (
-                              <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
+                            {(account.parentId === undefined || account.isBrandGroup) && record.accountId !== account.id && (
+                              <span className="inline-flex items-center justify-center whitespace-nowrap flex-shrink-0 text-[10px] px-2 py-0.5 bg-stone-100 text-stone-600 rounded-full font-bold leading-none">
                                 {accounts.find(a => a.id === record.accountId)?.name}
                               </span>
                             )}
