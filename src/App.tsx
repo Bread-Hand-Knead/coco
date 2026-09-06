@@ -3606,7 +3606,12 @@ export function hasCreditCardClosingDay(account: Account, accounts: Account[]): 
   return false;
 }
 
-export function calculateCreditCardMonthlySpending(account: Account, accounts: Account[], records: Transaction[]): number {
+export function calculateCreditCardStatementAmount(
+  account: Account,
+  accounts: Account[],
+  records: Transaction[],
+  isPrevious: boolean = false
+): number {
   if (!account) return 0;
 
   const isGroup = account.isBrandGroup || (account.childAccounts && account.childAccounts.length > 0) || accounts.some(a => a.parentId === account.id);
@@ -3621,15 +3626,22 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
     }
     
     if (childAccountsList.length > 0) {
-      return childAccountsList.reduce((sum, c) => sum + calculateCreditCardMonthlySpending(c, accounts, records), 0);
+      return childAccountsList.reduce((sum, c) => sum + calculateCreditCardStatementAmount(c, accounts, records, isPrevious), 0);
     }
   }
 
   const targetAccountIds = new Set<string>([account.id]);
-  const cycleRange = getCreditCardBillingCycleRange(account, accounts, false);
+  const cycleRange = getCreditCardBillingCycleRange(account, accounts, isPrevious);
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
+  let targetYear = now.getFullYear();
+  let targetMonth = now.getMonth();
+  if (isPrevious) {
+    targetMonth -= 1;
+    if (targetMonth < 0) {
+      targetMonth = 11;
+      targetYear -= 1;
+    }
+  }
 
   let spendingTotal = 0;
 
@@ -3640,100 +3652,13 @@ export function calculateCreditCardMonthlySpending(account: Account, accounts: A
     if (!isFromCard && !isToCard) return;
     if (r.category === '初始資金') return;
 
-    if (cycleRange) {
-      if (!r.postingDate || r.isPending) return;
-      if (r.postingDate < cycleRange.startStr || r.postingDate > cycleRange.endStr) return;
-    } else {
-      const rawDate = r.postingDate || r.date;
-      const d = new Date(rawDate ? rawDate.replace(/\//g, '-') : '');
-      if (isNaN(d.getTime())) return;
-      if (d.getFullYear() !== year || d.getMonth() !== month) return;
-    }
-
-    const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
-    const noteLower = noteText.toLowerCase();
-    const isFeedback = 
-      noteLower.includes('回饋') || 
-      noteLower.includes('返現') || 
-      noteLower.includes('紅利') || 
-      noteLower.includes('折抵') || 
-      noteLower.includes('cashback') || 
-      noteLower.includes('reward') ||
-      r.type === 'income' ||
-      r.category === '回饋' ||
-      r.category === '退款';
-
-    const isTransfer = r.type === 'transfer';
-
-    if (isFromCard && isToCard) {
-      return; // Internal transfer within the same card group
-    }
-
-    if (isTransfer && isToCard && !isFeedback) {
-      return; // Skip bank bill repayments from spending total calculation
-    }
-
-    let change = 0;
-    if (r.type === 'expense') {
-      change = Math.abs(Number(r.amount || 0));
-    } else if (isTransfer && isFromCard && !isToCard) {
-      // Credit card transfer out (e.g. top up e-wallet/EasyCard/icash/iPASS)
-      change = Math.abs(Number(r.amount || 0));
-    } else if (r.type === 'income' || isFeedback) {
-      // Refund or cashback rebate
-      change = -Math.abs(Number(r.amount || 0));
-    }
-
-    spendingTotal += change;
-    if (r.fee && isFromCard) {
-      spendingTotal += Math.abs(Number(r.fee || 0));
-    }
-  });
-
-  return Math.max(0, spendingTotal);
-}
-
-export function calculateCreditCardPreviousMonthSpending(account: Account, accounts: Account[], records: Transaction[]): number {
-  if (!account) return 0;
-
-  const isGroup = account.isBrandGroup || (account.childAccounts && account.childAccounts.length > 0) || accounts.some(a => a.parentId === account.id);
-
-  if (isGroup) {
-    const childAccountsList: Account[] = [];
-    if (account.isBrandGroup && account.childAccounts) {
-      childAccountsList.push(...account.childAccounts);
-    } else {
-      const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
-      childAccountsList.push(...children);
-    }
-    
-    if (childAccountsList.length > 0) {
-      return childAccountsList.reduce((sum, c) => sum + calculateCreditCardPreviousMonthSpending(c, accounts, records), 0);
-    }
-  }
-
-  const targetAccountIds = new Set<string>([account.id]);
-  const cycleRange = getCreditCardBillingCycleRange(account, accounts, true);
-  const now = new Date();
-  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const targetYear = prevMonthDate.getFullYear();
-  const targetMonth = prevMonthDate.getMonth();
-
-  let spendingTotal = 0;
-
-  records.forEach(r => {
-    const isFromCard = targetAccountIds.has(r.accountId);
-    const isToCard = Boolean(r.toAccountId && targetAccountIds.has(r.toAccountId));
-
-    if (!isFromCard && !isToCard) return;
-    if (r.category === '初始資金') return;
+    // 嚴格規則 1：【無入帳日（未入帳 / 待入帳 / isPending）之款項，絕對不可計入當期/上期帳單金額】！
+    if (!r.postingDate || r.isPending) return;
 
     if (cycleRange) {
-      if (!r.postingDate || r.isPending) return;
       if (r.postingDate < cycleRange.startStr || r.postingDate > cycleRange.endStr) return;
     } else {
-      const rawDate = r.postingDate || r.date;
-      const d = new Date(rawDate ? rawDate.replace(/\//g, '-') : '');
+      const d = new Date(r.postingDate.replace(/\//g, '-'));
       if (isNaN(d.getTime())) return;
       if (d.getFullYear() !== targetYear || d.getMonth() !== targetMonth) return;
     }
@@ -3754,21 +3679,21 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
     const isTransfer = r.type === 'transfer';
 
     if (isFromCard && isToCard) {
-      return; // Internal transfer within the same card group
+      return; // 同卡片內部轉帳不重複計算
     }
 
     if (isTransfer && isToCard && !isFeedback) {
-      return; // Skip bank bill repayments from spending total calculation
+      return; // 銀行還款扣繳不計入刷卡消費應繳總額
     }
 
     let change = 0;
     if (r.type === 'expense') {
       change = Math.abs(Number(r.amount || 0));
     } else if (isTransfer && isFromCard && !isToCard) {
-      // Credit card transfer out (e.g. top up e-wallet/EasyCard/icash/iPASS)
+      // 信用卡加值轉出 (例如 儲值悠遊卡/一卡通/電支) 算入應繳金額
       change = Math.abs(Number(r.amount || 0));
     } else if (r.type === 'income' || isFeedback) {
-      // Refund or cashback rebate
+      // 現金回饋 / 折抵金 / 退款 沖銷扣減應繳金額
       change = -Math.abs(Number(r.amount || 0));
     }
 
@@ -3779,6 +3704,14 @@ export function calculateCreditCardPreviousMonthSpending(account: Account, accou
   });
 
   return Math.max(0, spendingTotal);
+}
+
+export function calculateCreditCardMonthlySpending(account: Account, accounts: Account[], records: Transaction[]): number {
+  return calculateCreditCardStatementAmount(account, accounts, records, false);
+}
+
+export function calculateCreditCardPreviousMonthSpending(account: Account, accounts: Account[], records: Transaction[]): number {
+  return calculateCreditCardStatementAmount(account, accounts, records, true);
 }
 
 function DynamicAccountBalance({ 
@@ -6604,12 +6537,44 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       // Calculate the true balance of this billing cycle across all history transactions
       let bal = 0;
       allHistoryCardRecords.forEach(r => {
-        const dateStr = r.postingDate || r.date;
-        const { key } = getStatementLabelAndKey(dateStr, effectiveClosingDay!);
+        // 嚴格過濾：無入帳日（未入帳 / 待入帳 / isPending）之款項，絕對不可計入帳單金額
+        if (!r.postingDate || r.isPending) return;
+
+        const { key } = getStatementLabelAndKey(r.postingDate, effectiveClosingDay!);
         if (key === g.key) {
-          if (r.accountId === effectiveParentId || effectiveChildrenIds.includes(r.accountId)) {
-            bal += r.amount;
-            if (r.fee) bal -= r.fee;
+          const isFromCard = targetIds.includes(r.accountId);
+          const isToCard = Boolean(r.toAccountId && targetIds.includes(r.toAccountId));
+
+          if (!isFromCard && !isToCard) return;
+
+          const noteText = (r.note || '') + (r.remark || '') + (r.category || '');
+          const noteLower = noteText.toLowerCase();
+          const isFeedback = 
+            noteLower.includes('回饋') || 
+            noteLower.includes('返現') || 
+            noteLower.includes('紅利') || 
+            noteLower.includes('折抵') || 
+            noteLower.includes('cashback') || 
+            noteLower.includes('reward') ||
+            r.type === 'income' ||
+            r.category === '回饋' ||
+            r.category === '退款';
+
+          const isTransfer = r.type === 'transfer';
+          if (isFromCard && isToCard) return;
+          if (isTransfer && isToCard && !isFeedback) return;
+
+          let change = 0;
+          if (r.type === 'expense') {
+            change = Math.abs(Number(r.amount || 0));
+          } else if (isTransfer && isFromCard && !isToCard) {
+            change = Math.abs(Number(r.amount || 0));
+          } else if (r.type === 'income' || isFeedback) {
+            change = -Math.abs(Number(r.amount || 0));
+          }
+          bal += change;
+          if (r.fee && isFromCard) {
+            bal += Math.abs(Number(r.fee || 0));
           }
         }
       });
