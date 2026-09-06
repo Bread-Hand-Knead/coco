@@ -258,9 +258,11 @@ type CurrencyMode = 'TWD' | 'FOREIGN' | 'INVESTMENT' | null;
 export interface Stock {
   id: string;
   code: string;           // 股票代號/名稱 (例如: 006208 富邦台50)
-  shares: number;         // 持有股數
-  avgPrice: number;       // 平均買入單價
-  linkedAccount: string;  // 綁定之證券交割銀行帳戶 ID
+  category?: 'stock' | 'fund'; // 投資類別：'stock' (股票/ETF) 或 'fund' (基金)
+  shares: number;         // 持有數量 (股數 / 單位數，支援小數點後 4 位)
+  avgPrice: number;       // 平均買入單價 / 申購淨值 (元)
+  currentPrice?: number;  // 目前市價 / 最新淨值 (元)
+  linkedAccount: string;  // 綁定之證券/基金交割銀行帳戶 ID
   purchaseDate?: string;  // 購買日期
   notes?: string;         // 備註說明
 }
@@ -4572,9 +4574,11 @@ function InvestmentSection({
   const [selectedStockForDetail, setSelectedStockForDetail] = useState<Stock | null>(null);
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
+  const [stockCategory, setStockCategory] = useState<'stock' | 'fund'>('stock');
   const [stockCode, setStockCode] = useState('');
   const [stockShares, setStockShares] = useState('');
   const [stockAvgPrice, setStockAvgPrice] = useState('');
+  const [stockCurrentPrice, setStockCurrentPrice] = useState('');
   const [stockTotalCost, setStockTotalCost] = useState('');
   const [stockLinkedAccount, setStockLinkedAccount] = useState('');
   const [stockNotes, setStockNotes] = useState('');
@@ -4601,7 +4605,7 @@ function InvestmentSection({
     const sh = parseFloat(val) || 0;
     const price = parseFloat(stockAvgPrice) || 0;
     if (sh > 0 && price > 0) {
-      setStockTotalCost(Math.round(sh * price).toString());
+      setStockTotalCost((sh * price).toFixed(2).replace(/\.00$/, ''));
     } else {
       setStockTotalCost('');
     }
@@ -4612,7 +4616,7 @@ function InvestmentSection({
     const price = parseFloat(val) || 0;
     const sh = parseFloat(stockShares) || 0;
     if (sh > 0 && price > 0) {
-      setStockTotalCost(Math.round(sh * price).toString());
+      setStockTotalCost((sh * price).toFixed(2).replace(/\.00$/, ''));
     } else {
       setStockTotalCost('');
     }
@@ -4633,7 +4637,7 @@ function InvestmentSection({
     const sh = parseFloat(val) || 0;
     const price = parseFloat(buyPrice) || 0;
     if (sh > 0 && price > 0) {
-      setBuyTotalCost(Math.round(sh * price).toString());
+      setBuyTotalCost((sh * price).toFixed(2).replace(/\.00$/, ''));
     } else {
       setBuyTotalCost('');
     }
@@ -4644,7 +4648,7 @@ function InvestmentSection({
     const price = parseFloat(val) || 0;
     const sh = parseFloat(buyShares) || 0;
     if (sh > 0 && price > 0) {
-      setBuyTotalCost(Math.round(sh * price).toString());
+      setBuyTotalCost((sh * price).toFixed(2).replace(/\.00$/, ''));
     } else {
       setBuyTotalCost('');
     }
@@ -4674,6 +4678,21 @@ function InvestmentSection({
   const totalPrincipal = useMemo(() => {
     return stocks.reduce((sum, s) => sum + (s.shares * s.avgPrice), 0);
   }, [stocks]);
+
+  const totalMarketValue = useMemo(() => {
+    return stocks.reduce((sum, s) => {
+      const price = (s.currentPrice !== undefined && s.currentPrice > 0) ? s.currentPrice : s.avgPrice;
+      return sum + (s.shares * price);
+    }, 0);
+  }, [stocks]);
+
+  const totalUnrealizedPL = useMemo(() => {
+    return totalMarketValue - totalPrincipal;
+  }, [totalMarketValue, totalPrincipal]);
+
+  const totalROI = useMemo(() => {
+    return totalPrincipal > 0 ? (totalUnrealizedPL / totalPrincipal) * 100 : 0;
+  }, [totalUnrealizedPL, totalPrincipal]);
 
   const totalDividends = useMemo(() => {
     return records
@@ -4747,9 +4766,11 @@ function InvestmentSection({
   // helpers
   const handleOpenStockAdd = () => {
     setEditingStock(null);
+    setStockCategory('stock');
     setStockCode('');
     setStockShares('');
     setStockAvgPrice('');
+    setStockCurrentPrice('');
     setStockTotalCost('');
     const bankAcc = accounts.find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
     setStockLinkedAccount(bankAcc ? bankAcc.id : '');
@@ -4760,10 +4781,12 @@ function InvestmentSection({
 
   const handleOpenStockEdit = (stock: Stock) => {
     setEditingStock(stock);
+    setStockCategory(stock.category || 'stock');
     setStockCode(stock.code);
     setStockShares(stock.shares.toString());
     setStockAvgPrice(stock.avgPrice.toString());
-    setStockTotalCost(Math.round(stock.shares * stock.avgPrice).toString());
+    setStockCurrentPrice(stock.currentPrice !== undefined ? stock.currentPrice.toString() : '');
+    setStockTotalCost((stock.shares * stock.avgPrice).toFixed(2).replace(/\.00$/, ''));
     setStockLinkedAccount(stock.linkedAccount);
     setStockPurchaseDate(stock.purchaseDate || new Date().toISOString().split('T')[0]);
     setStockNotes(stock.notes || '');
@@ -4772,13 +4795,15 @@ function InvestmentSection({
 
   const handleSaveStockSubmit = () => {
     if (!stockCode.trim()) {
-      alert('請輸入股票代號或名稱！');
+      alert(stockCategory === 'fund' ? '請輸入基金名稱或代碼！' : '請輸入股票代號或名稱！');
       return;
     }
     const sharesNum = parseFloat(stockShares) || 0;
     const priceNum = parseFloat(stockAvgPrice) || 0;
+    const currentPriceNum = stockCurrentPrice.trim() !== '' ? (parseFloat(stockCurrentPrice) || undefined) : undefined;
+
     if (sharesNum < 0 || priceNum < 0) {
-      alert('股數與均價不能小於零！');
+      alert('數量與單價/淨值不能小於零！');
       return;
     }
     if (!stockLinkedAccount) {
@@ -4787,30 +4812,78 @@ function InvestmentSection({
     }
 
     const isNew = !editingStock;
-    const newStock: Stock = {
-      id: editingStock ? editingStock.id : Date.now().toString(),
-      code: stockCode.trim(),
-      shares: sharesNum,
-      avgPrice: priceNum,
-      linkedAccount: stockLinkedAccount,
-      purchaseDate: stockPurchaseDate,
-      notes: stockNotes.trim() || undefined
-    };
+    const inputCost = parseFloat(stockTotalCost) || (sharesNum * priceNum);
+    const cleanCode = stockCode.trim();
 
-    onSaveStock(newStock);
+    // 檢查同證券交割帳戶下是否已存在相同股票/基金代碼（同標的自動加權平均合併）
+    const existingIndex = isNew ? stocks.findIndex(s => 
+      s.code.trim().toLowerCase() === cleanCode.toLowerCase() && 
+      s.linkedAccount === stockLinkedAccount
+    ) : -1;
 
-    // 如果是新建立持股且初始股數大於 0，同步在交易歷史中寫入一筆初始買入明細
-    if (isNew && sharesNum > 0) {
-      const cost = parseFloat(stockTotalCost) || Math.round(sharesNum * priceNum);
-      onAddRecord({
-        amount: -cost,
-        category: '投資',
-        note: `[買入] ${newStock.code} ${sharesNum}股 @ ${priceNum} (初始持股)`,
-        date: stockPurchaseDate || new Date().toISOString().split('T')[0],
-        postingDate: stockPurchaseDate || new Date().toISOString().split('T')[0],
-        type: 'expense',
-        accountId: stockLinkedAccount
-      });
+    if (isNew && existingIndex !== -1) {
+      // 執行同標的加權平均合併
+      const existing = stocks[existingIndex];
+      const oldShares = existing.shares;
+      const oldAvgPrice = existing.avgPrice;
+      const oldTotalCost = oldShares * oldAvgPrice;
+
+      const newTotalShares = parseFloat((oldShares + sharesNum).toFixed(4));
+      const newTotalCost = oldTotalCost + inputCost;
+      const newAvgPrice = newTotalShares > 0 ? parseFloat((newTotalCost / newTotalShares).toFixed(4)) : 0;
+
+      const dateStr = stockPurchaseDate || new Date().toISOString().split('T')[0];
+      const buyLog = `[加購 ${dateStr}] +${sharesNum} @ $${priceNum}`;
+      const mergedNotes = existing.notes ? `${existing.notes} | ${buyLog}` : buyLog;
+
+      const mergedStock: Stock = {
+        ...existing,
+        category: stockCategory,
+        shares: newTotalShares,
+        avgPrice: newAvgPrice,
+        currentPrice: currentPriceNum !== undefined ? currentPriceNum : existing.currentPrice,
+        notes: stockNotes.trim() ? stockNotes.trim() : mergedNotes
+      };
+
+      onSaveStock(mergedStock);
+
+      if (sharesNum > 0) {
+        onAddRecord({
+          amount: -inputCost,
+          category: '投資',
+          note: `[買入] ${cleanCode} ${sharesNum}${stockCategory === 'fund' ? '單位' : '股'} @ $${priceNum} (加購合併)`,
+          date: stockPurchaseDate || new Date().toISOString().split('T')[0],
+          postingDate: stockPurchaseDate || new Date().toISOString().split('T')[0],
+          type: 'expense',
+          accountId: stockLinkedAccount
+        });
+      }
+    } else {
+      const targetStock: Stock = {
+        id: editingStock ? editingStock.id : Date.now().toString(),
+        code: cleanCode,
+        category: stockCategory,
+        shares: sharesNum,
+        avgPrice: priceNum,
+        currentPrice: currentPriceNum,
+        linkedAccount: stockLinkedAccount,
+        purchaseDate: stockPurchaseDate,
+        notes: stockNotes.trim() || undefined
+      };
+
+      onSaveStock(targetStock);
+
+      if (isNew && sharesNum > 0) {
+        onAddRecord({
+          amount: -inputCost,
+          category: '投資',
+          note: `[買入] ${cleanCode} ${sharesNum}${stockCategory === 'fund' ? '單位' : '股'} @ $${priceNum} (初始持股)`,
+          date: stockPurchaseDate || new Date().toISOString().split('T')[0],
+          postingDate: stockPurchaseDate || new Date().toISOString().split('T')[0],
+          type: 'expense',
+          accountId: stockLinkedAccount
+        });
+      }
     }
 
     setIsStockModalOpen(false);
@@ -4906,29 +4979,45 @@ function InvestmentSection({
   return (
     <div className="flex-1 px-6 py-6 space-y-6 animate-fadeIn" style={getFontFamily()}>
       {/* Overview Card */}
-      <div className="bg-gradient-to-br from-[#5D4037] to-[#4E342E] text-white p-6 rounded-[35px] shadow-lg flex justify-between relative overflow-hidden">
+      <div className="bg-gradient-to-br from-[#5D4037] to-[#4E342E] text-white p-6 rounded-[35px] shadow-lg flex flex-col gap-4 relative overflow-hidden">
         {/* Soft background circles */}
         <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full" />
         <div className="absolute -left-10 -top-10 w-24 h-24 bg-white/5 rounded-full" />
 
-        <div className="flex-1 flex flex-col justify-between z-10 gap-1">
-          <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">股票總投入本金</span>
-          <span className="text-3xl font-black text-[#FFD54F]">${totalPrincipal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+        <div className="flex justify-between items-center z-10">
+          <div className="flex-1 flex flex-col justify-between gap-1">
+            <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">投資總本金</span>
+            <span className="text-3xl font-black text-[#FFD54F]">${totalPrincipal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+          </div>
+          <div className="w-[1px] bg-white/10 mx-4 self-stretch" />
+          <div className="flex-1 flex flex-col justify-between gap-1 text-right">
+            <div className="flex items-center justify-end gap-1.5">
+              <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">預估總市值</span>
+            </div>
+            <span className="text-3xl font-black text-white">${totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+          </div>
         </div>
-        <div className="w-[1px] bg-white/10 mx-6 self-stretch" />
-        <div className="flex-1 flex flex-col justify-between z-10 gap-1 text-right">
-          <div className="flex items-center justify-end gap-1.5">
-            <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">已領取總股利</span>
+
+        {/* Real-Time Total P/L & ROI Stats */}
+        <div className="border-t border-white/10 pt-3 flex items-center justify-between z-10 text-xs font-bold">
+          <div className="flex items-center gap-1.5">
+            <span className="text-stone-300">未實現損益：</span>
+            <span className={`font-black ${totalUnrealizedPL > 0 ? 'text-rose-400' : totalUnrealizedPL < 0 ? 'text-emerald-400' : 'text-stone-300'}`}>
+              {totalUnrealizedPL > 0 ? `+` : ''}${Math.round(totalUnrealizedPL).toLocaleString()} ({totalROI > 0 ? `+` : ''}${totalROI.toFixed(2)}%)
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-stone-300">已領股利：</span>
+            <span className="font-black text-emerald-400">${totalDividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             {totalDividends > 0 && (
               <button 
                 onClick={() => setShowDividendAnalysis(!showDividendAnalysis)}
-                className="bg-white/15 hover:bg-white/25 active:scale-95 text-[10px] font-black px-2 py-0.5 rounded-full transition-all text-white flex items-center gap-0.5"
+                className="bg-white/15 hover:bg-white/25 active:scale-95 text-[10px] font-black px-2 py-0.5 rounded-full transition-all text-white flex items-center gap-0.5 ml-1"
               >
                 {showDividendAnalysis ? '收起' : '分析'}
               </button>
             )}
           </div>
-          <span className="text-3xl font-black text-emerald-400">${totalDividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
         </div>
       </div>
 
@@ -4969,7 +5058,7 @@ function InvestmentSection({
               {/* Stocks Breakdown */}
               <div className="space-y-2">
                 <span className="text-xs font-black text-[#5D4037] flex items-center gap-1">
-                  📈 股票股利佔比
+                  📈 股票/基金股利佔比
                 </span>
                 <div className="space-y-1.5 max-h-44 overflow-y-auto no-scrollbar animate-fadeIn">
                   {dividendStats.stockList.length === 0 ? (
@@ -5026,13 +5115,13 @@ function InvestmentSection({
       <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3">
         <div className="flex items-center gap-2">
           <Briefcase size={20} className="text-[#5D4037]" />
-          <h3 className="text-lg font-black text-[#5D4037]">持有股份</h3>
+          <h3 className="text-lg font-black text-[#5D4037]">持有投資組合</h3>
         </div>
         <button 
           onClick={handleOpenStockAdd}
           className="bg-[#5D4037] text-[#FFD54F] hover:bg-[#4E342E] transition-all px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1 active:scale-95 shadow-sm"
         >
-          <Plus size={14} /> 新增持股
+          <Plus size={14} /> 新增持股/基金
         </button>
       </div>
 
@@ -5043,11 +5132,18 @@ function InvestmentSection({
             <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-stone-300 shadow-sm">
               <Coins size={30} />
             </div>
-            <p className="text-stone-400 font-bold text-sm">目前沒有持有任何股票，點擊上方按鈕新增！</p>
+            <p className="text-stone-400 font-bold text-sm">目前沒有持有任何股票或基金，點擊上方按鈕新增！</p>
           </div>
         ) : (
           stocks.map(s => {
             const cost = s.shares * s.avgPrice;
+            const hasCurrentPrice = s.currentPrice !== undefined && s.currentPrice > 0;
+            const currentPrice = hasCurrentPrice ? s.currentPrice! : s.avgPrice;
+            const marketValue = s.shares * currentPrice;
+            const unrealizedPL = hasCurrentPrice ? (marketValue - cost) : 0;
+            const roi = (hasCurrentPrice && cost > 0) ? (unrealizedPL / cost) * 100 : 0;
+            const isFund = s.category === 'fund';
+            const unitLabel = isFund ? '單位' : '股';
             const linkedAcc = accounts.find(a => a.id === s.linkedAccount);
             
             return (
@@ -5058,7 +5154,12 @@ function InvestmentSection({
               >
                 {/* Header */}
                 <div className="flex items-center justify-between">
-                  <span className="text-lg font-black text-[#5D4037] tracking-tight">{s.code}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-black text-[#5D4037] tracking-tight">{s.code}</span>
+                    <span className="bg-[#FFF9E3] text-[#8D6E63] border border-[#FFD54F]/30 text-[10px] font-black px-2 py-0.5 rounded-full">
+                      {isFund ? '📊 基金' : '📈 股票/ETF'}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1.5">
                     <button 
                       onClick={(e) => { e.stopPropagation(); handleOpenStockEdit(s); }}
@@ -5070,7 +5171,7 @@ function InvestmentSection({
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (window.confirm(`確定要刪除持股 ${s.code} 嗎？此操作僅刪除持股記錄，已建立的交易明細將被保留。`)) {
+                        if (window.confirm(`確定要刪除 ${s.code} 嗎？此操作僅刪除項目記錄，已建立的交易明細將被保留。`)) {
                           onDeleteStock(s.id);
                         }
                       }}
@@ -5085,14 +5186,14 @@ function InvestmentSection({
                 {/* Details Grid */}
                 <div className="grid grid-cols-3 gap-2 bg-[#FFFDF5]/60 p-3.5 rounded-2xl border border-stone-100/50">
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">持有股份</span>
+                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">持有數量</span>
                     <span className="text-sm font-black text-[#5D4037]">
-                      {s.shares.toLocaleString()} 股
-                      {s.shares >= 1000 && <span className="text-[10px] text-stone-400 font-medium block">({(s.shares / 1000).toFixed(2)} 張)</span>}
+                      {s.shares.toLocaleString()} {unitLabel}
+                      {!isFund && s.shares >= 1000 && <span className="text-[10px] text-stone-400 font-medium block">({(s.shares / 1000).toFixed(2)} 張)</span>}
                     </span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">平均買價</span>
+                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">{isFund ? '申購淨值' : '平均買價'}</span>
                     <span className="text-sm font-black text-[#5D4037]">${s.avgPrice.toLocaleString()}</span>
                   </div>
                   <div className="flex flex-col">
@@ -5100,6 +5201,31 @@ function InvestmentSection({
                     <span className="text-sm font-black text-[#E91E63]">${Math.round(cost).toLocaleString()}</span>
                   </div>
                 </div>
+
+                {/* Real-Time P/L Stats Row (If current market price is set) */}
+                {hasCurrentPrice ? (
+                  <div className="grid grid-cols-3 gap-2 bg-stone-50/80 p-3 rounded-2xl border border-stone-200/40">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-stone-400 mb-0.5">{isFund ? '最新淨值' : '目前市價'}</span>
+                      <span className="text-xs font-black text-[#5D4037]">${s.currentPrice!.toLocaleString()}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-stone-400 mb-0.5">目前市值</span>
+                      <span className="text-xs font-black text-[#5D4037]">${Math.round(marketValue).toLocaleString()}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-stone-400 mb-0.5">未實現損益 / 報酬率</span>
+                      <span className={`text-xs font-black ${unrealizedPL > 0 ? 'text-rose-500' : unrealizedPL < 0 ? 'text-emerald-600' : 'text-stone-600'}`}>
+                        {unrealizedPL > 0 ? '+' : ''}${Math.round(unrealizedPL).toLocaleString()}
+                        <span className="block text-[10px]">({roi > 0 ? '+' : ''}{roi.toFixed(2)}%)</span>
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] font-bold text-stone-400/80 px-1 italic">
+                    💡 點擊「編輯」填入目前市價/淨值，系統將自動計算未實現損益與報酬率
+                  </div>
+                )}
 
                 {/* Bottom Row (Linked Account & Note) */}
                 <div className="flex flex-col gap-1 px-1">
@@ -5134,7 +5260,7 @@ function InvestmentSection({
                     onClick={(e) => { e.stopPropagation(); handleOpenDividend(s); }}
                     className="flex-1 py-2.5 bg-stone-50 hover:bg-emerald-50 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
                   >
-                    <Coins size={12} className="text-emerald-500" /> 股利入帳
+                    <Coins size={12} className="text-emerald-500" /> 股利/配息入帳
                   </button>
                 </div>
               </div>
@@ -5158,39 +5284,68 @@ function InvestmentSection({
               style={getFontFamily()}
             >
               <h3 className="text-xl font-black text-[#5D4037] text-center">
-                {editingStock ? '編輯持股' : '新增持股'}
+                {editingStock ? '編輯投資項目' : '新增投資項目'}
               </h3>
 
+              {/* 投資類別切換 */}
               <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">股票名稱 / 代碼</label>
+                <label className="text-xs font-black text-stone-500 px-1">投資類別</label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-stone-100/60 rounded-2xl border border-stone-200/40">
+                  <button
+                    type="button"
+                    onClick={() => setStockCategory('stock')}
+                    className={`py-2.5 rounded-xl text-xs font-black transition-all ${stockCategory === 'stock' ? 'bg-white text-[#5D4037] shadow-sm border border-stone-200/60' : 'text-stone-500 hover:text-[#5D4037]'}`}
+                  >
+                    📈 股票 / ETF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockCategory('fund')}
+                    className={`py-2.5 rounded-xl text-xs font-black transition-all ${stockCategory === 'fund' ? 'bg-white text-[#5D4037] shadow-sm border border-stone-200/60' : 'text-stone-500 hover:text-[#5D4037]'}`}
+                  >
+                    📊 基金 (Funds)
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-black text-stone-500 px-1">
+                  {stockCategory === 'fund' ? '基金名稱 / 代碼' : '股票名稱 / 代碼'}
+                </label>
                 <input 
                   type="text"
                   value={stockCode}
                   onChange={e => setStockCode(e.target.value)}
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                  placeholder="例如: 006208 富邦台50"
+                  placeholder={stockCategory === 'fund' ? "例如: 安聯收益成長基金 或 0050" : "例如: 006208 富邦台50"}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-black text-stone-500 px-1">持股數量 (股)</label>
+                  <label className="text-xs font-black text-stone-500 px-1">
+                    {stockCategory === 'fund' ? '持有單位數' : '持股數量 (股)'}
+                  </label>
                   <input 
                     type="number"
+                    step="any"
                     value={stockShares}
                     onChange={e => handleStockSharesChange(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                    placeholder="例如: 2000"
+                    placeholder={stockCategory === 'fund' ? "例如: 125.4567" : "例如: 2000"}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-black text-stone-500 px-1">平均買價 (元)</label>
+                  <label className="text-xs font-black text-stone-500 px-1">
+                    {stockCategory === 'fund' ? '申購淨值 (元)' : '平均買價 (元)'}
+                  </label>
                   <input 
                     type="number"
+                    step="any"
                     value={stockAvgPrice}
                     onChange={e => handleStockAvgPriceChange(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                    placeholder="例如: 85.5"
+                    placeholder={stockCategory === 'fund' ? "例如: 15.42" : "例如: 85.5"}
                   />
                 </div>
               </div>
@@ -5199,10 +5354,29 @@ function InvestmentSection({
                 <label className="text-xs font-black text-stone-500 px-1">投入總成本 (元)</label>
                 <input 
                   type="number"
+                  step="any"
                   value={stockTotalCost}
                   onChange={e => handleStockTotalCostChange(e.target.value)}
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#E91E63] outline-none shadow-sm focus:border-[#FFD54F]"
-                  placeholder="可在此直接填入購買總投入金額，系統會自動換算單價"
+                  placeholder="可在此直接填入總投入金額，系統自動換算單價"
+                />
+              </div>
+
+              {/* 目前市價 / 淨值 (用於損益與報酬率試算) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between px-1">
+                  <label className="text-xs font-black text-stone-500">
+                    {stockCategory === 'fund' ? '目前最新淨值 (元)' : '目前市價 (元)'}
+                  </label>
+                  <span className="text-[10px] text-amber-800 font-bold">選填：用於損益試算</span>
+                </div>
+                <input 
+                  type="number"
+                  step="any"
+                  value={stockCurrentPrice}
+                  onChange={e => setStockCurrentPrice(e.target.value)}
+                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  placeholder={stockCategory === 'fund' ? "填入目前淨值，系統自動試算報酬率" : "填入目前市價，系統自動試算損益與報酬率"}
                 />
               </div>
 
@@ -5275,30 +5449,38 @@ function InvestmentSection({
               className="bg-[#FFF9E3] w-full max-w-sm rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-4 max-h-[85vh] overflow-y-auto no-scrollbar"
               style={getFontFamily()}
             >
-              <h3 className="text-xl font-black text-[#5D4037] text-center">買入股票</h3>
+              <h3 className="text-xl font-black text-[#5D4037] text-center">
+                {buyingStock.category === 'fund' ? '買入 / 申購基金' : '買入股票'}
+              </h3>
               <p className="text-[#5D4037] text-sm font-bold text-center bg-stone-100/50 p-2.5 rounded-xl border border-stone-200/30">
-                持股對象：<span className="font-black text-[#E91E63]">{buyingStock.code}</span>
+                投資標的：<span className="font-black text-[#E91E63]">{buyingStock.code}</span>
               </p>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-black text-stone-500 px-1">買入股數 (股)</label>
+                  <label className="text-xs font-black text-stone-500 px-1">
+                    {buyingStock.category === 'fund' ? '申購單位數' : '買入股數 (股)'}
+                  </label>
                   <input 
                     type="number"
+                    step="any"
                     value={buyShares}
                     onChange={e => handleBuySharesChange(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                    placeholder="例如: 1000"
+                    placeholder={buyingStock.category === 'fund' ? "例如: 125.4567" : "例如: 1000"}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-black text-stone-500 px-1">買入單價 (元)</label>
+                  <label className="text-xs font-black text-stone-500 px-1">
+                    {buyingStock.category === 'fund' ? '申購淨值 (元)' : '買入單價 (元)'}
+                  </label>
                   <input 
                     type="number"
+                    step="any"
                     value={buyPrice}
                     onChange={e => handleBuyPriceChange(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                    placeholder="例如: 86.2"
+                    placeholder={buyingStock.category === 'fund' ? "例如: 15.42" : "例如: 86.2"}
                   />
                 </div>
               </div>
