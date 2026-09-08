@@ -663,15 +663,32 @@ const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[
   return finalResult;
 };
 
-export const parseSmartTransactionTitle = (title: string): string => {
+export const parseSmartTransactionTitle = (title: string, isExpense: boolean = true): string => {
   if (!title) return '';
-  if (title.includes('等') && title.includes('件商品')) return title;
 
-  // Split by common item delimiters: newline, comma, fullwidth comma, semicolon, fullwidth semicolon, plus, fullwidth plus, pipe, ideographic comma
-  const rawSegments = title.split(/[\n,，;；+＋|\u3001]/).map(s => s.trim()).filter(Boolean);
+  // 首行作為主標題機制：包含換行時，僅擷取第一行文字作為外層標題顯示
+  const firstLine = title.split('\n')[0].trim();
+  if (!firstLine) return '';
+
+  // 非支出/消費類型 (如轉帳、帳單扣繳、提款、自動加值、收入等) 嚴禁追加「等 X 件商品」字樣
+  if (!isExpense) {
+    return firstLine;
+  }
+
+  const nonItemPattern = /(自扣|扣繳|帳單|謝謝|入帳|轉帳|提款|加值|退款|還款|儲值|繳費|手續費|現金回饋|利息|結清|沖銷)/i;
+  if (nonItemPattern.test(firstLine)) {
+    return firstLine;
+  }
+
+  if (firstLine.includes('等') && firstLine.includes('件商品')) {
+    return firstLine;
+  }
+
+  // 針對首行內容進行商品項目與分隔符號解析
+  const rawSegments = firstLine.split(/[,，;；+＋|\u3001]/).map(s => s.trim()).filter(Boolean);
 
   if (rawSegments.length <= 1) {
-    return title;
+    return firstLine;
   }
 
   const freebieKeywords = /(^贈|^滿額禮|^滿額贈|^免運|^贈品|^試用品|^樣品|^折價券|^折扣金|免運費|免運優惠|滿額贈|滿額禮|紅利金|0元|\$0)/i;
@@ -698,7 +715,7 @@ export const parseSmartTransactionTitle = (title: string): string => {
   }
 
   if (paidItems.length === 0) {
-    return title;
+    return firstLine;
   }
 
   if (paidItems.length === 1) {
@@ -717,6 +734,9 @@ const getTransactionTitle = (record: Transaction): string => {
   const cleanNote = (record.note || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   
   let baseTitle = '';
+  const nonExpenseCategories = ['轉帳', '帳單扣繳', '自動扣繳', '信用卡繳款', '提款', '自動加值', '還款', '儲值', '繳費', '手續費', '回饋', '退款'];
+  const isExpense = record.type === 'expense' && !nonExpenseCategories.includes(record.category);
+
   if (record.type === 'transfer' || record._isMergedTransfer) {
     if (cleanNote && cleanNote !== '轉帳' && cleanNote !== '未命名明細') {
       baseTitle = cleanNote;
@@ -731,7 +751,7 @@ const getTransactionTitle = (record: Transaction): string => {
     baseTitle = (cleanNote || cleanRemark || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   }
 
-  const smartTitle = parseSmartTransactionTitle(baseTitle);
+  const smartTitle = parseSmartTransactionTitle(baseTitle, isExpense);
 
   if (record.isInstallment && record.currentInstallment && record.totalInstallments) {
     if (!smartTitle.includes('(分期')) {
