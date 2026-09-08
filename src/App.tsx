@@ -3706,13 +3706,16 @@ export function calculateCreditCardStatementAmount(
     if (!isFromCard && !isToCard) return;
     if (r.category === '初始資金') return;
 
-    // 嚴格規則 1：【無入帳日（未入帳 / 待入帳 / isPending）之款項，絕對不可計入當期/上期帳單金額】！
-    if (!r.postingDate || r.isPending) return;
+    // 上期帳單 (isPrevious === true)：僅採計上一期已完結並填有銀行入帳日之交易款項 (!r.isPending && Boolean(r.postingDate))
+    // 本期帳單 (isPrevious === false)：即時動態累加當前結帳週期內所有消費 (無論是否已填寫銀行入帳日)
+    if (isPrevious && (!r.postingDate || r.isPending)) return;
+
+    const txDate = (isPrevious ? r.postingDate : (r.postingDate || r.date)) || r.date;
 
     if (cycleRange) {
-      if (r.postingDate < cycleRange.startStr || r.postingDate > cycleRange.endStr) return;
+      if (txDate < cycleRange.startStr || txDate > cycleRange.endStr) return;
     } else {
-      const d = new Date(r.postingDate.replace(/\//g, '-'));
+      const d = new Date(txDate.replace(/\//g, '-'));
       if (isNaN(d.getTime())) return;
       if (d.getFullYear() !== targetYear || d.getMonth() !== targetMonth) return;
     }
@@ -4306,7 +4309,7 @@ function AccountsView({
                                   {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
                                 </span>
                                 <span className="text-stone-300">|</span>
-                                <span>{hasCreditCardClosingDay(acc as Account, accounts) ? '當期帳單：' : '本月刷卡：'}</span>
+                                <span>{hasCreditCardClosingDay(acc as Account, accounts) ? '本期帳單：' : '本月刷卡：'}</span>
                                 <span className="font-black text-[#5D4037]">
                                   {showAmounts ? `$${calculateCreditCardMonthlySpending(acc as Account, accounts, records).toLocaleString()}` : '••••••'}
                                 </span>
@@ -4409,7 +4412,7 @@ function AccountsView({
                                           {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
                                         </span>
                                         <span className="text-stone-300">|</span>
-                                        <span>{hasCreditCardClosingDay(l2acc, accounts) ? '當期帳單：' : '本月刷卡：'}</span>
+                                        <span>{hasCreditCardClosingDay(l2acc, accounts) ? '本期帳單：' : '本月刷卡：'}</span>
                                         <span className="font-black text-[#5D4037]">
                                           {showAmounts ? `$${calculateCreditCardMonthlySpending(l2acc, accounts, records).toLocaleString()}` : '••••••'}
                                         </span>
@@ -4489,7 +4492,7 @@ function AccountsView({
                                                   {showAmounts ? `$${calculateCreditCardPreviousMonthSpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
                                                 </span>
                                                 <span className="text-stone-300">|</span>
-                                                <span>{(l3acc.closingDay || l3acc.statementDate) ? '當期帳單：' : '本月刷卡：'}</span>
+                                                <span>{(l3acc.closingDay || l3acc.statementDate) ? '本期帳單：' : '本月刷卡：'}</span>
                                                 <span className="font-black text-[#5D4037]">
                                                   {showAmounts ? `$${calculateCreditCardMonthlySpending(l3acc, accounts, records).toLocaleString()}` : '••••••'}
                                                 </span>
@@ -7165,7 +7168,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   ${calculateCreditCardPreviousMonthSpending(account, accounts, records).toLocaleString()}
                 </span>
                 <span className="text-stone-300">|</span>
-                <span>{hasCreditCardClosingDay(account, accounts) ? '當期帳單：' : '本月刷卡：'}</span>
+                <span>{hasCreditCardClosingDay(account, accounts) ? '本期帳單：' : '本月刷卡：'}</span>
                 <span className="font-black text-[#5D4037]">
                   ${calculateCreditCardMonthlySpending(account, accounts, records).toLocaleString()}
                 </span>
@@ -7259,7 +7262,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       {sortMode === 'date-asc' && '消費日 - 舊到新'}
                       {sortMode === 'posting-desc' && (account.type === 'credit' ? '入帳日 - 新到舊' : '入帳 - 新到舊')}
                       {sortMode === 'posting-asc' && (account.type === 'credit' ? '入帳日 - 舊到新' : '入帳 - 舊到新')}
-                      {sortMode === 'billing-cycle' && '💳 當期帳單明細 (依結帳日)'}
+                      {sortMode === 'billing-cycle' && '💳 本期帳單明細 (依結帳日)'}
                     </span>
                   </button>
                   {account.type === 'credit' && selectedCardFilterId && (
@@ -7286,11 +7289,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               {sortMode === 'billing-cycle' ? (
                 <>
                   <div className="flex items-center justify-between gap-1">
-                    <span>當期應繳 <span className="text-rose-500 font-black">${creditCardStats.billingCycleSum.toLocaleString()}</span></span>
+                    <span>本期應繳 <span className="text-rose-500 font-black">${creditCardStats.billingCycleSum.toLocaleString()}</span></span>
                     <span>/</span>
                   </div>
                   <div>
-                    <span>當期總計 <span className="text-[#5D4037] font-black">{creditCardStats.billingCycleCount}</span> 筆</span>
+                    <span>本期總計 <span className="text-[#5D4037] font-black">{creditCardStats.billingCycleCount}</span> 筆</span>
                   </div>
                 </>
               ) : account.type === 'credit' ? (
@@ -7544,7 +7547,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     { mode: 'date-asc', label: '消費日 - 舊到新' },
                     { mode: 'posting-desc', label: '入帳日 - 新到舊' },
                     { mode: 'posting-asc', label: '入帳日 - 舊到新' },
-                    { mode: 'billing-cycle', label: '💳 當期帳單明細 (依結帳日週期)' }
+                    { mode: 'billing-cycle', label: '💳 本期帳單明細 (依結帳日週期)' }
                   ] : [
                     { mode: 'date-desc', label: '消費日 - 新到舊' },
                     { mode: 'date-asc', label: '消費日 - 舊到新' },
