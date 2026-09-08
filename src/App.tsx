@@ -663,6 +663,55 @@ const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[
   return finalResult;
 };
 
+export const parseSmartTransactionTitle = (title: string): string => {
+  if (!title) return '';
+  if (title.includes('等') && title.includes('件商品')) return title;
+
+  // Split by common item delimiters: newline, comma, fullwidth comma, semicolon, fullwidth semicolon, plus, fullwidth plus, pipe, ideographic comma
+  const rawSegments = title.split(/[\n,，;；+＋|\u3001]/).map(s => s.trim()).filter(Boolean);
+
+  if (rawSegments.length <= 1) {
+    return title;
+  }
+
+  const freebieKeywords = /(^贈|^滿額禮|^滿額贈|^免運|^贈品|^試用品|^樣品|^折價券|^折扣金|免運費|免運優惠|滿額贈|滿額禮|紅利金|0元|\$0)/i;
+
+  const paidItems: string[] = [];
+
+  for (const seg of rawSegments) {
+    const hasZeroPrice = /\$[\s]*0(\.0+)?\b|0[\s]*(元|塊)|=\s*\$[\s]*0|1\.0\s*=\s*0/i.test(seg);
+    const hasPositivePrice = /\$[\s]*[1-9]\d*|[1-9]\d*[\s]*(元|塊)/i.test(seg);
+
+    if (hasZeroPrice || (freebieKeywords.test(seg) && !hasPositivePrice)) {
+      continue;
+    }
+
+    let cleanSeg = seg
+      .replace(/[\$＄]\s*\d+([.,]\d+)?(\s*\*[\s\d=]+)?/gi, '')
+      .replace(/\d+\s*(元|塊)/gi, '')
+      .replace(/=\s*[\$＄]?\s*\d+/gi, '')
+      .trim();
+
+    if (cleanSeg) {
+      paidItems.push(cleanSeg);
+    }
+  }
+
+  if (paidItems.length === 0) {
+    return title;
+  }
+
+  if (paidItems.length === 1) {
+    return paidItems[0];
+  }
+
+  if (paidItems.length === 2) {
+    return `${paidItems[0]}、${paidItems[1]} 等 2 件商品`;
+  }
+
+  return `${paidItems[0]}、${paidItems[1]} 等 ${paidItems.length} 件商品`;
+};
+
 const getTransactionTitle = (record: Transaction): string => {
   const cleanRemark = (record.remark || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   const cleanNote = (record.note || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
@@ -682,12 +731,14 @@ const getTransactionTitle = (record: Transaction): string => {
     baseTitle = (cleanNote || cleanRemark || record.category).replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   }
 
+  const smartTitle = parseSmartTransactionTitle(baseTitle);
+
   if (record.isInstallment && record.currentInstallment && record.totalInstallments) {
-    if (!baseTitle.includes('(分期')) {
-      return `${baseTitle} (分期 ${record.currentInstallment}/${record.totalInstallments})`;
+    if (!smartTitle.includes('(分期')) {
+      return `${smartTitle} (分期 ${record.currentInstallment}/${record.totalInstallments})`;
     }
   }
-  return baseTitle;
+  return smartTitle;
 };
 
 // Firestore sync functions
@@ -6903,10 +6954,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             </div>
                             
                             {/* 項目 3：備註明細 */}
-                            <div className="flex items-center gap-2">
-                              <span className="text-stone-400 font-bold min-w-[65px]">備註明細:</span>
-                              <input 
-                                type="text"
+                            <div className="flex items-start gap-2">
+                              <span className="text-stone-400 font-bold min-w-[65px] pt-1.5">備註明細:</span>
+                              <textarea 
                                 defaultValue={record.note || record.remark || ''}
                                 key={`${record.id}_${record.note || ''}_${record.remark || ''}`}
                                 onClick={e => e.stopPropagation()}
@@ -6920,12 +6970,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                     });
                                   }
                                 }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    (e.target as HTMLInputElement).blur();
-                                  }
-                                }}
-                                className="font-bold text-stone-700 break-all bg-white px-3 py-1.5 rounded-xl border border-stone-200 flex-1 min-h-[36px] outline-none focus:border-[#FFD54F] shadow-sm text-xs"
+                                className="font-bold text-stone-700 break-all bg-white px-3 py-1.5 rounded-xl border border-stone-200 flex-1 min-h-[38px] max-h-[120px] outline-none focus:border-[#FFD54F] shadow-sm text-xs resize-none"
                                 placeholder="無備註 (點擊輸入修改)..."
                               />
                             </div>
