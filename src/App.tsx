@@ -6572,15 +6572,22 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     // 篩選與目前檢視月份相關或非空之帳單群組
     const statementList = Object.values(groups)
-      .filter(g => {
-        if (!targetYearMonth) return g.records.length > 0;
-        return g.key === targetYearMonth || g.records.some(r => {
+      .map(g => {
+        // 嚴格依據當前月份 (targetYearMonth) 與排序模式 (filterBasis) 篩選該帳單卡片內之交易紀錄
+        // 避免次月 (例如 6/28) 的消費因為被分配到同一個帳單 key 而誤在 5 月檢視中顯示
+        const groupRecords = g.records.filter(r => {
+          if (sortMode === 'billing-cycle') {
+            if (!r.postingDate || r.isPending) return false;
+            return r.postingDate >= billingCycleRange.startStr && r.postingDate <= billingCycleRange.endStr;
+          }
+          if (!targetYearMonth) return true;
           const filterDate = filterBasis === 'date' ? r.date : (r.postingDate || r.date);
           return filterDate.startsWith(targetYearMonth);
         });
-      })
-      .map(g => {
-        const sortedRecords = getMergedRecords(g.records, accounts).sort((a, b) => {
+
+        if (groupRecords.length === 0) return null;
+
+        const sortedRecords = getMergedRecords(groupRecords, accounts).sort((a, b) => {
           if (sortMode === 'date-desc') {
             const tsA = getTimestamp(a.date, a.time);
             const tsB = getTimestamp(b.date, b.time);
@@ -6604,9 +6611,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           }
         });
 
-        // 帳單金額加總：統計該帳單卡片中包含的所有交易款項，確保頂部金額與明細列表總額 100% 一致
+        // 帳單金額加總：統計該帳單卡片中包含的當月符合交易款項，確保頂部金額與明細列表總額 100% 一致
         let bal = 0;
-        g.records.forEach(r => {
+        groupRecords.forEach(r => {
           const isFromCard = targetIds.includes(r.accountId);
           const isToCard = Boolean(r.toAccountId && targetIds.includes(r.toAccountId));
 
@@ -6648,7 +6655,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           records: sortedRecords,
           balance: bal
         };
-      });
+      })
+      .filter((g): g is { label: string; key: string; records: Transaction[]; balance: number } => g !== null && g.records.length > 0);
 
     statementList.sort((a, b) => b.key.localeCompare(a.key));
 
