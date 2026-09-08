@@ -8981,10 +8981,26 @@ function CalendarView({ records, accounts, categories, onBack }: { records: Tran
         </div>
       </div>
 
-      <div className="flex justify-around py-3 border-b border-stone-100 text-[10px] font-bold bg-white">
-        <div className="flex flex-col items-center"><span className="text-stone-300">收入</span><span className="text-blue-400">+{dayStats.income.toLocaleString()}</span></div>
-        <div className="flex flex-col items-center"><span className="text-stone-300">支出</span><span className="text-rose-400">-{dayStats.expense.toLocaleString()}</span></div>
-        <div className="flex flex-col items-center"><span className="text-stone-300">結餘</span><span className="text-[#5D4037]">{(dayStats.income - dayStats.expense).toLocaleString()}</span></div>
+      {/* 收入、支出、結餘 統計摘要列 (字體與數字加大，提升閱讀舒適度) */}
+      <div className="flex justify-around items-center py-3.5 px-4 border-b border-stone-100 bg-white" style={getFontFamily()}>
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs font-black text-stone-400">收入</span>
+          <span className="text-base font-black text-blue-500">
+            +{dayStats.income.toLocaleString()}
+          </span>
+        </div>
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs font-black text-stone-400">支出</span>
+          <span className="text-base font-black text-rose-500">
+            -{dayStats.expense.toLocaleString()}
+          </span>
+        </div>
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs font-black text-stone-400">結餘</span>
+          <span className={`text-base font-black ${(dayStats.income - dayStats.expense) >= 0 ? 'text-[#5D4037]' : 'text-rose-500'}`}>
+            {(dayStats.income - dayStats.expense).toLocaleString()}
+          </span>
+        </div>
       </div>
 
       <div className="p-4 space-y-4 flex-1 overflow-y-auto">
