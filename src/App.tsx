@@ -18049,7 +18049,8 @@ const filterTaiwanTerms = (text: string): string => {
     .replace(/屏幕/g, '螢幕')
     .replace(/視頻/g, '影片')
     .replace(/保存/g, '儲存')
-    .replace(/開小差/g, '分心');
+    .replace(/開小差/g, '分心')
+    .replace(/反饋/g, '回饋');
 };
 
 const getTimestamp = (dateStr: string, timeStr?: string): number => {
@@ -18223,6 +18224,16 @@ function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categ
   const [rawText, setRawText] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
   const [transactionDate, setTransactionDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [transactionTime, setTransactionTime] = useState(() => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  });
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const timeInputRef = useRef<HTMLInputElement>(null);
+  const dateInputRef2 = useRef<HTMLInputElement>(null);
+  const timeInputRef2 = useRef<HTMLInputElement>(null);
   const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('gemini_api_key') || '');
   const [isParsing, setIsParsing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -18270,7 +18281,7 @@ function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categ
     try {
       const typeText = targetType === 'income' ? '收入' : '支出';
       const categoriesString = targetCategories.join('\n');
-      const prompt = `你是一個專業的記帳助理。請幫我將這段發票、收據、明細或款項文字，拆分成多個獨立的${typeText}品項。
+      const prompt = `你是一個專業的記帳助理。請幫我將這段發票、收據、明細或款項文字，拆分成多個獨立的${typeText}品項，並同時自動提取該筆交易發生的日期與時間。
 
 這段明細的文字是：
 """
@@ -18280,19 +18291,24 @@ ${rawText}
 可用${typeText}分類清單（請務必只從以下清單中選擇最符合的「主分類 > 子分類」或「主分類」填入，若都不符合請填「其他」）：
 ${categoriesString}
 
-請輸出一個標準的 JSON 陣列，不可以包含任何解釋、Markdown格式（如 \`\`\`json）或前導後導文字。格式如下：
-[
-  {
-    "name": "品項名稱",
-    "amount": 100, // 正整數金額
-    "category": "選擇的分類", // 必須是可用${typeText}分類清單中的一項
-    "isPrepay": false // 如果明細中提到是「幫別人買、家裡代墊、代付、代購、代墊、代收、代收款」等，請設為 true，否則為 false
-  }
-]
+請輸出一個標準的 JSON 物件，不可以包含任何解釋、Markdown格式（如 \`\`\`json）或前導後導文字。格式如下：
+{
+  "date": "2026-09-09", // 若明細文字中有出現交易日期，請提取為 YYYY-MM-DD 格式；若文字中未提及日期，請填 null
+  "time": "17:35", // 若明細文字中有出現交易時間（例如 17:35、17:35:12、下午5點35分 等），請提取並轉換為 24 小時制 HH:mm 格式；若文字中未提及時間，請填 null
+  "items": [
+    {
+      "name": "品項名稱",
+      "amount": 100, // 正整數金額
+      "category": "選擇的分類", // 必須是可用${typeText}分類清單中的一項
+      "isPrepay": false // 如果明細中提到是「幫別人買、家裡代墊、代付、代購、代墊、代收、代收款」等，請設為 true，否則為 false
+    }
+  ]
+}
 
 請注意：
-1. 輸出必須為標準的 JSON 陣列，可以直接被 JSON.parse 解析。
-2. 品項名稱請徹底改善非台灣用語，例如將「視頻」改為「影片」，「屏幕」改為「螢幕」等。`;
+1. 輸出必須為標準的 JSON 物件，可以直接被 JSON.parse 解析。
+2. 若文字中有時間（例如 "2026/09/09 17:35"、"17:35:12"、"下午 05:35" 等），務必提取時間至 "time" 欄位（格式為 HH:mm）。
+3. 品項名稱請徹底改善非台灣用語，例如將「視頻」改為「影片」，「屏幕」改為「螢幕」，「反饋」改為「回饋」等。`;
 
       const requestBody = {
         contents: [{
@@ -18322,13 +18338,80 @@ ${categoriesString}
         throw new Error('Gemini API 未回傳任何文字結果，請確認金鑰是否正確。');
       }
 
-      let items = JSON.parse(responseText);
-      if (!Array.isArray(items)) {
-        throw new Error('回傳結果不是合法的陣列結構。');
+      let parsedResult: any;
+      try {
+        const cleanText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+        parsedResult = JSON.parse(cleanText);
+      } catch (_) {
+        throw new Error('回傳結果不是合法的 JSON 結構。');
+      }
+
+      let rawItems: any[] = [];
+      let extractedTime: string | null = null;
+      let extractedDate: string | null = null;
+
+      if (Array.isArray(parsedResult)) {
+        rawItems = parsedResult;
+      } else if (parsedResult && typeof parsedResult === 'object') {
+        if (Array.isArray(parsedResult.items)) {
+          rawItems = parsedResult.items;
+        }
+        if (typeof parsedResult.time === 'string' && parsedResult.time.trim() && parsedResult.time !== 'null') {
+          extractedTime = parsedResult.time.trim();
+        }
+        if (typeof parsedResult.date === 'string' && parsedResult.date.trim() && parsedResult.date !== 'null') {
+          extractedDate = parsedResult.date.trim();
+        }
+      }
+
+      // 備援正規式擷取時間 (若 AI 未提取到)
+      if (!extractedTime) {
+        const timeMatch = rawText.match(/\b([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?\b/);
+        if (timeMatch) {
+          extractedTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+        } else {
+          const chMatch = rawText.match(/(上午|下午|早上|中午|晚上)?\s*(\d{1,2})[點:時](\d{1,2})分?/);
+          if (chMatch) {
+            let h = parseInt(chMatch[2], 10);
+            const m = parseInt(chMatch[3], 10);
+            if ((chMatch[1] === '下午' || chMatch[1] === '晚上') && h < 12) h += 12;
+            if (chMatch[1] === '上午' && h === 12) h = 0;
+            if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+              extractedTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            }
+          }
+        }
+      }
+
+      // 備援正規式擷取日期 (若 AI 未提取到)
+      if (!extractedDate) {
+        const dateMatch = rawText.match(/\b(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})\b/);
+        if (dateMatch) {
+          const yyyy = dateMatch[1];
+          const mm = dateMatch[2].padStart(2, '0');
+          const dd = dateMatch[3].padStart(2, '0');
+          extractedDate = `${yyyy}-${mm}-${dd}`;
+        }
+      }
+
+      // 套用擷取到之時間
+      if (extractedTime) {
+        const tm = extractedTime.match(/([01]?\d|2[0-3]):([0-5]\d)/);
+        if (tm) {
+          setTransactionTime(`${tm[1].padStart(2, '0')}:${tm[2]}`);
+        }
+      }
+
+      // 套用擷取到之日期
+      if (extractedDate) {
+        const dm = extractedDate.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+        if (dm) {
+          setTransactionDate(`${dm[1]}-${dm[2].padStart(2, '0')}-${dm[3].padStart(2, '0')}`);
+        }
       }
 
       // Filter and clean items
-      items = items.map((item: any) => ({
+      const items = rawItems.map((item: any) => ({
         name: filterTaiwanTerms(item.name || '未命名項目'),
         amount: Math.abs(parseInt(item.amount) || 0),
         category: targetCategories.includes(item.category) ? item.category : (targetCategories[0] || '其他'),
@@ -18407,6 +18490,7 @@ ${categoriesString}
         category: filterTaiwanTerms(item.category),
         note: filterTaiwanTerms(item.name),
         date: transactionDate,
+        time: transactionTime,
         postingDate: transactionDate,
         type: targetType as 'income' | 'expense',
         accountId: selectedAccountId,
@@ -18457,19 +18541,20 @@ ${categoriesString}
                 <textarea
                   value={rawText}
                   onChange={e => setRawText(e.target.value)}
-                  placeholder="請在此貼上整筆發票品項、LINE 或網購明細文字。&#10;例如：&#10;7-11 購買清單：&#10;- 美式咖啡 45 元&#10;- 雞肉沙拉 65 元 (代墊)&#10;- 面紙 30 元"
-                  className="w-full h-40 p-4 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F] transition-all resize-none"
+                  placeholder="請在此貼上整筆發票品項、LINE 或網購明細文字。&#10;例如：&#10;2026/09/09 17:35 7-11 購買清單：&#10;- 美式咖啡 45 元&#10;- 雞肉沙拉 65 元 (代墊)&#10;- 面紙 30 元"
+                  className="w-full h-36 p-4 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F] transition-all resize-none"
                   style={getFontFamily()}
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* 中繼資料設定區：扣款帳戶、交易日期、交易時間 */}
+              <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[12px] font-bold text-[#5D4037]/70 uppercase ml-1">2. 扣款帳戶</label>
                   <select
                     value={selectedAccountId}
                     onChange={e => setSelectedAccountId(e.target.value)}
-                    className="w-full p-4 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F]"
+                    className="w-full p-3 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F]"
                     style={getFontFamily()}
                   >
                     {accounts.map(acc => (
@@ -18478,15 +18563,69 @@ ${categoriesString}
                   </select>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[12px] font-bold text-[#5D4037]/70 uppercase ml-1">3. 交易日期</label>
-                  <input
-                    type="date"
-                    value={transactionDate}
-                    onChange={e => setTransactionDate(e.target.value)}
-                    className="w-full p-4 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F]"
-                    style={getFontFamily()}
-                  />
+                {/* 交易日期與交易時間並列在同一排 */}
+                <div className="grid grid-cols-2 gap-3">
+                  {/* 交易日期 */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[12px] font-bold text-[#5D4037]/70 uppercase ml-1 flex items-center gap-1">
+                      <CalendarIcon size={13} className="text-[#FFD54F]" />
+                      <span>交易日期</span>
+                    </label>
+                    <div 
+                      onClick={() => {
+                        try {
+                          dateInputRef.current?.showPicker?.();
+                        } catch (_) {}
+                      }}
+                      className="relative w-full p-3 bg-white border-2 border-[#5D4037]/10 rounded-2xl flex items-center justify-between cursor-pointer hover:border-[#FFD54F] transition-all"
+                      style={getFontFamily()}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CalendarIcon size={15} className="text-[#5D4037]/70 shrink-0" />
+                        <span className="font-bold text-[#5D4037] text-sm truncate">
+                          {transactionDate.replace(/-/g, '/')}
+                        </span>
+                      </div>
+                      <input
+                        ref={dateInputRef}
+                        type="date"
+                        value={transactionDate}
+                        onChange={e => e.target.value && setTransactionDate(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 交易時間 */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[12px] font-bold text-[#5D4037]/70 uppercase ml-1 flex items-center gap-1">
+                      <Clock size={13} className="text-[#FFD54F]" />
+                      <span>交易時間</span>
+                    </label>
+                    <div 
+                      onClick={() => {
+                        try {
+                          timeInputRef.current?.showPicker?.();
+                        } catch (_) {}
+                      }}
+                      className="relative w-full p-3 bg-white border-2 border-[#5D4037]/10 rounded-2xl flex items-center justify-between cursor-pointer hover:border-[#FFD54F] transition-all"
+                      style={getFontFamily()}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Clock size={15} className="text-[#5D4037]/70 shrink-0" />
+                        <span className="font-bold text-[#5D4037] text-sm truncate">
+                          {transactionTime || '00:00'}
+                        </span>
+                      </div>
+                      <input
+                        ref={timeInputRef}
+                        type="time"
+                        value={transactionTime}
+                        onChange={e => e.target.value && setTransactionTime(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -18535,6 +18674,49 @@ ${categoriesString}
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Step 2 Meta Bar: 扣款帳戶與交易時間微調列 */}
+              <div 
+                className="bg-white/80 p-3 rounded-2xl border border-[#5D4037]/10 shadow-sm flex items-center justify-between gap-2 text-xs text-[#5D4037]"
+                style={getFontFamily()}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-stone-400 shrink-0">帳戶：</span>
+                  <span className="font-bold truncate">{accounts.find(a => a.id === selectedAccountId)?.name}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div 
+                    onClick={() => { try { dateInputRef2.current?.showPicker?.(); } catch (_) {} }}
+                    className="relative flex items-center gap-1.5 cursor-pointer hover:bg-stone-100 transition-colors bg-stone-50 px-2.5 py-1 rounded-xl border border-stone-200/60 font-bold text-[#5D4037]"
+                    title="點擊微調交易日期"
+                  >
+                    <CalendarIcon size={12} className="text-[#FFD54F]" />
+                    <span>{transactionDate.replace(/-/g, '/')}</span>
+                    <input 
+                      ref={dateInputRef2}
+                      type="date"
+                      value={transactionDate}
+                      onChange={e => e.target.value && setTransactionDate(e.target.value)}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                  </div>
+                  <div 
+                    onClick={() => { try { timeInputRef2.current?.showPicker?.(); } catch (_) {} }}
+                    className="relative flex items-center gap-1.5 cursor-pointer hover:bg-stone-100 transition-colors bg-stone-50 px-2.5 py-1 rounded-xl border border-stone-200/60 font-bold text-[#5D4037]"
+                    title="點擊微調交易時間"
+                  >
+                    <Clock size={12} className="text-[#FFD54F]" />
+                    <span>{transactionTime || '00:00'}</span>
+                    <input 
+                      ref={timeInputRef2}
+                      type="time"
+                      value={transactionTime}
+                      onChange={e => e.target.value && setTransactionTime(e.target.value)}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex justify-between items-center px-1">
                 <span className="text-[12px] font-bold text-[#5D4037]/70">4. 逐筆核對與分類</span>
                 <button
@@ -18676,3 +18858,4 @@ ${categoriesString}
     </div>
   );
 }
+

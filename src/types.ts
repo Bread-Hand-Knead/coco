@@ -14,6 +14,7 @@ export interface Transaction {
   category: string;
   note?: string;
   date: string;
+  time?: string;
   postingDate?: string;
   isPending?: boolean;
   type: 'income' | 'expense' | 'transfer';
