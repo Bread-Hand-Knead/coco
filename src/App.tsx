@@ -16062,6 +16062,13 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const [isPending, setIsPending] = useState(false);
   const [isDateExpanded, setIsDateExpanded] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || 'p1');
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const timeInputRef = useRef<HTMLInputElement>(null);
+  const postingDateInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedProject = useMemo(() => {
+    return projects.find(p => p.id === selectedProjectId);
+  }, [projects, selectedProjectId]);
   // Ensure currency mode affects new records too
   const [currency, setCurrency] = useState(accounts.find(a => a.id === (tab === 'transfer' ? 'acc1' : 'acc1'))?.currency || 'TWD');
 
@@ -16929,196 +16936,180 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     </div>
   );
 
-  const renderDateProjectCamera = () => (
-    <>
-      {tab !== 'transfer' && (
-        <>
-          <label className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment"
-              className="hidden" 
-              onChange={handleScanReceipt} 
-              disabled={isScanningReceipt}
-            />
-            {isScanningReceipt ? (
-              <div className="flex flex-col items-center gap-1">
-                <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
-                <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-1">
-                <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
-                <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
-              </div>
-            )}
-          </label>
+  const renderCompactBar = () => (
+    <div 
+      className="w-full h-11 bg-[#FFFDF5] rounded-2xl border-2 border-[#5D4037]/10 shadow-sm flex items-center divide-x divide-stone-200/80 overflow-hidden text-[#5D4037] select-none shrink-0"
+      style={{ ...getFontFamily(), whiteSpace: 'nowrap' }}
+    >
+      {/* 1. 日期選擇區塊 */}
+      <div 
+        onClick={() => {
+          try {
+            dateInputRef.current?.showPicker?.();
+          } catch (_) {}
+        }}
+        className="relative flex-1 h-full flex items-center justify-center gap-1.5 px-2 hover:bg-stone-50/80 active:bg-stone-100 transition-colors cursor-pointer min-w-0"
+        title="點擊選擇消費日期"
+      >
+        <CalendarIcon size={14} className="text-[#FFD54F] shrink-0" />
+        <span className="text-xs sm:text-sm font-bold text-[#5D4037] truncate whitespace-nowrap">
+          {consumptionDate.replace(/-/g, '/')}
+        </span>
+        <input 
+          ref={dateInputRef}
+          type="date"
+          value={consumptionDate}
+          onChange={e => {
+            if (e.target.value) {
+              setConsumptionDate(e.target.value);
+              setPostingDate(e.target.value);
+            }
+          }}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+      </div>
 
-          {/* AI 智慧拆分 button */}
-          <button
-            type="button"
-            onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
-            className="flex-shrink-0 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
-            style={getFontFamily()}
-          >
-            <Sparkles size={26} className="text-[#0369A1] group-hover:scale-110 transition-transform" />
-            <span className="text-[9px] font-black text-[#0369A1]">AI 智慧拆分</span>
-          </button>
-        </>
-      )}
+      {/* 2. 時間選擇區塊 */}
+      <div 
+        onClick={() => {
+          try {
+            timeInputRef.current?.showPicker?.();
+          } catch (_) {}
+        }}
+        className="relative flex-1 h-full flex items-center justify-center gap-1.5 px-2 hover:bg-stone-50/80 active:bg-stone-100 transition-colors cursor-pointer min-w-0"
+        title="點擊選擇消費時間"
+      >
+        <Clock size={14} className="text-[#FFD54F] shrink-0" />
+        <span className="text-xs sm:text-sm font-bold text-[#5D4037] truncate whitespace-nowrap">
+          {consumptionTime || '00:00'}
+        </span>
+        <input 
+          ref={timeInputRef}
+          type="time"
+          value={consumptionTime}
+          onChange={e => {
+            if (e.target.value) {
+              setConsumptionTime(e.target.value);
+            }
+          }}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+      </div>
 
-      <div className="flex-1 flex flex-col gap-2 min-w-0">
-        <AnimatePresence mode="wait">
-          {!isCreditCard || (tab !== 'expense' && tab !== 'income') ? (
-            <motion.div 
-              key="single-date"
-              initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-              animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
-              exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-              className="w-full flex flex-col gap-2 p-2 bg-[#FFFDF5] rounded-[22px] border border-[#5D4037]/10 shadow-sm"
-              style={getFontFamily()}
-            >
-              {/* Row 1: 【日期：YYYY/MM/DD】 100% 寬度 */}
-              <div className="flex items-center justify-between bg-white px-3.5 py-2 rounded-xl border border-stone-100 shadow-sm w-full">
-                <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#5D4037]">
-                  <CalendarIcon size={14} className="text-[#FFD54F] shrink-0" />
-                  <span>日期：</span>
-                </div>
-                <input 
-                  type="date"
-                  value={consumptionDate}
-                  onChange={e => {
-                    setConsumptionDate(e.target.value);
-                    setPostingDate(e.target.value);
-                  }}
-                  className="bg-transparent outline-none cursor-pointer text-xs font-black text-[#5D4037] text-right flex-1 min-w-0"
-                  style={getFontFamily()}
-                />
-              </div>
-
-              {/* Row 2: 【時間：HH:mm】 100% 寬度 */}
-              <div className="flex items-center justify-between bg-white px-3.5 py-2 rounded-xl border border-stone-100 shadow-sm w-full">
-                <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#5D4037]">
-                  <Clock size={14} className="text-[#FFD54F] shrink-0" />
-                  <span>時間：</span>
-                </div>
-                <input 
-                  type="time"
-                  value={consumptionTime}
-                  onChange={e => setConsumptionTime(e.target.value)}
-                  className="bg-transparent outline-none cursor-pointer text-xs font-black text-[#5D4037] text-right flex-1 min-w-0"
-                  style={getFontFamily()}
-                />
-              </div>
-            </motion.div>
-          ) : isDateExpanded ? (
-            <motion.div 
-              key="expanded"
-              initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-              animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
-              exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-              className="bg-[#FFFDF5] p-3.5 pb-3.5 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3.5 w-full" 
-              style={getFontFamily()}
-            >
-              {/* Row 1: 消費日 (50%) + 時間 (50%) */}
-              <div className="grid grid-cols-2 gap-3 w-full">
-                <div className="flex flex-col gap-1 w-full min-w-0">
-                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
-                    <CalendarIcon size={12} className="text-[#FFD54F]" /> 消費日
-                  </label>
-                  <input 
-                    type="date"
-                    value={consumptionDate}
-                    onChange={e => setConsumptionDate(e.target.value)}
-                    className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
-                    style={getFontFamily()}
-                  />
-                </div>
-                <div className="flex flex-col gap-1 w-full min-w-0">
-                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
-                    <Clock size={12} className="text-[#FFD54F]" /> 時間
-                  </label>
-                  <input 
-                    type="time"
-                    value={consumptionTime}
-                    onChange={e => setConsumptionTime(e.target.value)}
-                    className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
-                    style={getFontFamily()}
-                  />
-                </div>
-              </div>
-
-              {/* Row 2: 左側【入帳日】，右側【完成按鈕】與【待入帳開關】 */}
-              <div className="flex items-end justify-between gap-3 w-full border-t border-stone-100/80 pt-2.5">
-                <div className={`flex flex-col gap-1 flex-1 min-w-0 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
-                    <Banknote size={12} className="text-[#FFD54F]" /> 入帳日
-                  </label>
-                  <input 
-                    type="date"
-                    value={postingDate}
-                    onChange={e => setPostingDate(e.target.value)}
-                    className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
-                    style={getFontFamily()}
-                  />
-                </div>
-                <div className="flex items-center gap-2.5 shrink-0 pb-0.5">
-                  <button 
-                    type="button"
-                    onClick={() => setIsDateExpanded(false)}
-                    className="text-[#5D4037] text-[11px] font-black bg-[#FFD54F] px-3.5 py-1.5 rounded-full shadow-sm active:scale-95 transition-all hover:bg-[#ffe082]"
-                  >
-                    完成
-                  </button>
-                  <div className="flex items-center gap-1.5 bg-stone-100/60 px-2 py-1 rounded-full border border-stone-200/40">
-                    <span className="text-[10px] font-bold text-stone-500">待入帳</span>
-                    <button 
-                      type="button"
-                      onClick={() => setIsPending(!isPending)}
-                      className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-300'}`}
-                    >
-                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+      {/* 3. 專案選擇區塊 */}
+      <button 
+        type="button"
+        onClick={() => setIsProjectPickerOpen(true)}
+        className="flex-1 h-full flex items-center justify-center gap-1.5 px-2 hover:bg-[#FFD54F]/10 active:bg-[#FFD54F]/20 transition-colors cursor-pointer min-w-0 text-left outline-none"
+        title="點擊選擇所屬專案"
+      >
+        <div className="shrink-0 flex items-center justify-center text-sm">
+          {selectedProject?.icon ? (
+            <AccountIcon icon={selectedProject.icon} sizeClassName="w-3.5 h-3.5" />
           ) : (
-            <motion.div 
-              key="collapsed"
-              initial={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
-              animate={{ opacity: 1, y: 0, height: "auto", marginBottom: 0 }}
-              exit={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
-              onClick={() => setIsDateExpanded(true)}
-              className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 cursor-pointer hover:bg-stone-50 transition-colors shadow-sm"
-              style={getFontFamily()}
-            >
-              <div className="flex items-center gap-2 text-[12px] font-bold text-[#5D4037] truncate px-2">
-                <CalendarIcon size={13} className="text-[#FFD54F]" />
-                <span>消費：{consumptionDate.replace(/-/g, '/')}</span>
-                <span className="text-stone-300">|</span>
-                <span>入帳：{isPending ? '待入帳' : postingDate.replace(/-/g, '/')}</span>
-              </div>
-            </motion.div>
+            <Layers size={13} className="text-[#FFD54F]" />
           )}
-        </AnimatePresence>
+        </div>
+        <span className="text-xs sm:text-sm font-bold text-[#5D4037] truncate whitespace-nowrap">
+          {selectedProject?.name || '無特別專案'}
+        </span>
+      </button>
+    </div>
+  );
 
-        <div 
-          onClick={() => setIsProjectPickerOpen(true)}
-          className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm animate-fade-in"
-          style={getFontFamily()}
-        >
-          <Layers size={13} className="text-[#FFD54F]" />
-          <span className="text-[12px] font-bold text-[#5D4037]">所屬專案：</span>
-          <span className="text-[12px] font-black text-[#5D4037] truncate flex items-center gap-1.5">
-            <AccountIcon icon={projects.find(p => p.id === selectedProjectId)?.icon || ''} sizeClassName="w-4 h-4" />
-            <span>{projects.find(p => p.id === selectedProjectId)?.name || '無特別專案'}</span>
+  const renderCreditCardSubBar = () => {
+    if (!isCreditCard || (tab !== 'expense' && tab !== 'income')) return null;
+    return (
+      <div 
+        className="w-full flex items-center justify-between px-3 py-1 bg-amber-50/70 rounded-xl border border-amber-200/50 text-[11px] font-bold text-[#5D4037] shrink-0"
+        style={getFontFamily()}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Banknote size={12} className="text-[#FFD54F] shrink-0" />
+          <span className="shrink-0">入帳日：</span>
+          <span className={isPending ? 'text-orange-500 font-black' : 'font-bold truncate'}>
+            {isPending ? '待入帳' : postingDate.replace(/-/g, '/')}
           </span>
+          {!isPending && (
+            <label 
+              onClick={() => {
+                try {
+                  postingDateInputRef.current?.showPicker?.();
+                } catch (_) {}
+              }}
+              className="relative cursor-pointer text-stone-400 hover:text-[#5D4037] underline text-[10px] ml-1 shrink-0"
+            >
+              <span>修改</span>
+              <input 
+                ref={postingDateInputRef}
+                type="date" 
+                value={postingDate}
+                onChange={e => e.target.value && setPostingDate(e.target.value)}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+            </label>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+          <span className="text-[10px] text-stone-500">待入帳</span>
+          <button 
+            type="button"
+            onClick={() => setIsPending(!isPending)}
+            className={`w-7 h-3.5 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-300'}`}
+          >
+            <div className={`absolute top-0.5 w-2.5 h-2.5 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-3.5' : 'left-0.5'}`} />
+          </button>
         </div>
       </div>
-    </>
+    );
+  };
+
+  const renderDateProjectCamera = () => (
+    <div className="w-full flex flex-col gap-2">
+      <div className="flex items-center gap-2 w-full">
+        {tab !== 'transfer' && (
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="h-11 px-3.5 bg-white hover:bg-[#FFD54F]/10 active:scale-95 transition-all rounded-2xl border-2 border-[#5D4037]/10 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#5D4037]">
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment"
+                className="hidden" 
+                onChange={handleScanReceipt} 
+                disabled={isScanningReceipt}
+              />
+              {isScanningReceipt ? (
+                <>
+                  <Loader2 className="w-4 h-4 text-[#5D4037] animate-spin" />
+                  <span className="text-xs font-black">辨識中</span>
+                </>
+              ) : (
+                <>
+                  <Camera size={16} className="text-[#5D4037]" />
+                  <span className="text-xs font-black">發票掃描</span>
+                </>
+              )}
+            </label>
+            <button
+              type="button"
+              onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
+              className="h-11 px-3.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#0369A1]"
+              style={getFontFamily()}
+            >
+              <Sparkles size={16} className="text-[#0369A1]" />
+              <span className="text-xs font-black">AI 智慧拆分</span>
+            </button>
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          {renderCompactBar()}
+        </div>
+      </div>
+      {renderCreditCardSubBar()}
+    </div>
   );
+
+
 
   const renderCalculator = () => (
     <>
@@ -17222,10 +17213,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         {/* Date & Project & Camera Selection Area (Mobile only) */}
         {tab !== 'template' && !showCalculator && (
           <div className="mx-6 flex flex-col gap-2 md:hidden shrink-0">
-            {/* Top row: camera & AI buttons (hidden in transfer mode) */}
             {tab !== 'transfer' && (
-              <div className="flex items-center gap-3">
-                <label className="flex-shrink-0 w-[68px] h-[68px] bg-[#FFFDF5] hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-[24px] border-2 border-[#FFD54F]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer relative overflow-hidden group">
+              <div className="flex items-center gap-2">
+                <label className="flex-1 h-9 bg-white hover:bg-[#FFD54F]/10 active:scale-95 transition-all rounded-xl border border-stone-200/80 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#5D4037]">
                   <input 
                     type="file" 
                     accept="image/*" 
@@ -17235,183 +17225,35 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     disabled={isScanningReceipt}
                   />
                   {isScanningReceipt ? (
-                    <div className="flex flex-col items-center gap-1">
-                      <Loader2 className="w-6 h-6 text-[#5D4037] animate-spin" />
-                      <span className="text-[9px] font-black text-[#5D4037]">辨識中</span>
-                    </div>
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 text-[#5D4037] animate-spin" />
+                      <span className="text-xs font-bold">辨識中...</span>
+                    </>
                   ) : (
-                    <div className="flex flex-col items-center gap-1">
-                      <Camera size={26} className="text-[#5D4037] group-hover:scale-110 transition-transform" />
-                      <span className="text-[9px] font-black text-[#5D4037]/70">發票掃描</span>
-                    </div>
+                    <>
+                      <Camera size={14} className="text-[#5D4037]" />
+                      <span className="text-xs font-bold">發票掃描</span>
+                    </>
                   )}
                 </label>
                 <button
                   type="button"
                   onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
-                  className="flex-shrink-0 w-[68px] h-[68px] bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-[24px] border-2 border-[#0284C7]/60 shadow-sm flex flex-col items-center justify-center cursor-pointer text-[#0369A1] group"
+                  className="flex-1 h-9 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-xl border border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#0369A1]"
                   style={getFontFamily()}
                 >
-                  <Sparkles size={26} className="text-[#0369A1] group-hover:scale-110 transition-transform" />
-                  <span className="text-[9px] font-black text-[#0369A1]">AI 智慧拆分</span>
+                  <Sparkles size={14} className="text-[#0369A1]" />
+                  <span className="text-xs font-bold">AI 智慧拆分</span>
                 </button>
               </div>
             )}
-            {/* Bottom row: full-width date block */}
-            <div className="w-full">
-              <AnimatePresence mode="wait">
-                {!isCreditCard || (tab !== 'expense' && tab !== 'income') ? (
-                  <motion.div 
-                    key="single-date"
-                    initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    animate={{ opacity: 1, height: "auto", marginBottom: 0 }}
-                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    className="w-full flex flex-col gap-2 p-2 bg-[#FFFDF5] rounded-[22px] border border-[#5D4037]/10 shadow-sm"
-                    style={getFontFamily()}
-                  >
-                    {/* Row 1: 【日期：YYYY/MM/DD】 100% 寬度 */}
-                    <div className="flex items-center justify-between bg-white px-3.5 py-2 rounded-xl border border-stone-100 shadow-sm w-full">
-                      <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#5D4037]">
-                        <CalendarIcon size={14} className="text-[#FFD54F] shrink-0" />
-                        <span>日期：</span>
-                      </div>
-                      <input 
-                        type="date"
-                        value={consumptionDate}
-                        onChange={e => {
-                          setConsumptionDate(e.target.value);
-                          setPostingDate(e.target.value);
-                        }}
-                        className="bg-transparent outline-none cursor-pointer text-xs font-black text-[#5D4037] text-right flex-1 min-w-0"
-                        style={getFontFamily()}
-                      />
-                    </div>
-
-                    {/* Row 2: 【時間：HH:mm】 100% 寬度 */}
-                    <div className="flex items-center justify-between bg-white px-3.5 py-2 rounded-xl border border-stone-100 shadow-sm w-full">
-                      <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#5D4037]">
-                        <Clock size={14} className="text-[#FFD54F] shrink-0" />
-                        <span>時間：</span>
-                      </div>
-                      <input 
-                        type="time"
-                        value={consumptionTime}
-                        onChange={e => setConsumptionTime(e.target.value)}
-                        className="bg-transparent outline-none cursor-pointer text-xs font-black text-[#5D4037] text-right flex-1 min-w-0"
-                        style={getFontFamily()}
-                      />
-                    </div>
-                  </motion.div>
-                ) : isDateExpanded ? (
-                  <motion.div 
-                    key="expanded"
-                    initial={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-                    animate={{ opacity: 1, scale: 1, height: "auto", marginBottom: 0 }}
-                    exit={{ opacity: 0, scale: 0.98, height: 0, marginBottom: 0 }}
-                    className="bg-[#FFFDF5] p-3.5 pb-3.5 rounded-[22px] border border-stone-100 shadow-sm flex flex-col gap-3.5 w-full" 
-                    style={getFontFamily()}
-                  >
-                    {/* Row 1: 消費日 (50%) + 時間 (50%) */}
-                    <div className="grid grid-cols-2 gap-3 w-full">
-                      <div className="flex flex-col gap-1 w-full min-w-0">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
-                          <CalendarIcon size={12} className="text-[#FFD54F]" /> 消費日
-                        </label>
-                        <input 
-                          type="date"
-                          value={consumptionDate}
-                          onChange={e => setConsumptionDate(e.target.value)}
-                          className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
-                          style={getFontFamily()}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1 w-full min-w-0">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
-                          <Clock size={12} className="text-[#FFD54F]" /> 時間
-                        </label>
-                        <input 
-                          type="time"
-                          value={consumptionTime}
-                          onChange={e => setConsumptionTime(e.target.value)}
-                          className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
-                          style={getFontFamily()}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Row 2: 左側【入帳日】，右側【完成按鈕】與【待入帳開關】 */}
-                    <div className="flex items-end justify-between gap-3 w-full border-t border-stone-100/80 pt-2.5">
-                      <div className={`flex flex-col gap-1 flex-1 min-w-0 transition-opacity duration-300 ${isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider flex items-center gap-1 px-1">
-                          <Banknote size={12} className="text-[#FFD54F]" /> 入帳日
-                        </label>
-                        <input 
-                          type="date"
-                          value={postingDate}
-                          onChange={e => setPostingDate(e.target.value)}
-                          className="bg-white border-2 border-stone-100 rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all w-full"
-                          style={getFontFamily()}
-                        />
-                      </div>
-                      <div className="flex items-center gap-2.5 shrink-0 pb-0.5">
-                        <button 
-                          type="button"
-                          onClick={() => setIsDateExpanded(false)}
-                          className="text-[#5D4037] text-[11px] font-black bg-[#FFD54F] px-3.5 py-1.5 rounded-full shadow-sm active:scale-95 transition-all hover:bg-[#ffe082]"
-                        >
-                          完成
-                        </button>
-                        <div className="flex items-center gap-1.5 bg-stone-100/60 px-2 py-1 rounded-full border border-stone-200/40">
-                          <span className="text-[10px] font-bold text-stone-500">待入帳</span>
-                          <button 
-                            type="button"
-                            onClick={() => setIsPending(!isPending)}
-                            className={`w-8 h-4 rounded-full transition-all relative ${isPending ? 'bg-orange-400' : 'bg-stone-300'}`}
-                          >
-                            <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-all ${isPending ? 'left-4.5' : 'left-0.5'}`} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                ) : (
-                  <motion.div 
-                    key="collapsed"
-                    initial={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
-                    animate={{ opacity: 1, y: 0, height: "auto", marginBottom: 0 }}
-                    exit={{ opacity: 0, y: -5, height: 0, marginBottom: 0 }}
-                    onClick={() => setIsDateExpanded(true)}
-                    className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border border-[#5D4037]/5 cursor-pointer hover:bg-stone-50 transition-colors shadow-sm"
-                    style={getFontFamily()}
-                  >
-                    <div className="flex items-center gap-2 text-[12px] font-bold text-[#5D4037] truncate px-2">
-                      <CalendarIcon size={13} className="text-[#FFD54F]" />
-                      <span>消費：{consumptionDate.replace(/-/g, '/')}</span>
-                      <span className="text-stone-300">|</span>
-                      <span>入帳：{isPending ? '待入帳' : postingDate.replace(/-/g, '/')}</span>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Project selector button (Mobile) */}
-            <div 
-              onClick={() => setIsProjectPickerOpen(true)}
-              className="w-full flex items-center justify-center gap-2 py-2 bg-[#FFFDF5] rounded-2xl border-2 border-[#FFD54F]/30 cursor-pointer hover:bg-[#FFD54F]/5 transition-all shadow-sm active:scale-95"
-              style={getFontFamily()}
-            >
-              <Layers size={13} className="text-[#FFD54F]" />
-              <span className="text-[12px] font-bold text-[#5D4037]">所屬專案：</span>
-              <span className="text-[12px] font-black text-[#5D4037] truncate flex items-center gap-1.5">
-                <AccountIcon icon={projects.find(p => p.id === selectedProjectId)?.icon || ''} sizeClassName="w-4 h-4" />
-                <span>{projects.find(p => p.id === selectedProjectId)?.name || '無特別專案'}</span>
-              </span>
-            </div>
+            {renderCompactBar()}
+            {renderCreditCardSubBar()}
           </div>
         )}
 
-        {/* Scrollable / Grid Content Area */}
+        
+{/* Scrollable / Grid Content Area */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {tab === 'template' ? (
             <div className="flex-1 overflow-y-auto space-y-4 py-2">
