@@ -13425,6 +13425,27 @@ function MoreView({
       return acc?.id;
     };
 
+    // Virtual mapping for new accounts detected in importPreview
+    const pendingAccountMap = new Map<string, string>();
+    importPreview.transactions.forEach(t => {
+      const candidates = [(t as any)._importMainAccountName, t._importSourceAccountName, t._importDestAccountName];
+      candidates.forEach(raw => {
+        if (!raw || raw === '-') return;
+        const trimmed = raw.trim();
+        if (!trimmed) return;
+        const cleaned = cleanAccName(trimmed);
+        const lower = trimmed.toLowerCase();
+        if (!existingAccountNamesMap.has(lower) && !findExistingAccountId(trimmed)) {
+          if (!pendingAccountMap.has(lower)) {
+            const tempId = `pending_acc_${cleaned}`;
+            pendingAccountMap.set(lower, tempId);
+            pendingAccountMap.set(cleaned, tempId);
+            pendingAccountMap.set(trimmed, tempId);
+          }
+        }
+      });
+    });
+
     const unique: Transaction[] = [];
     const duplicates: Transaction[] = [];
     const currentRecords = [...records];
@@ -13440,46 +13461,28 @@ function MoreView({
         const trimmed = nameText.trim();
         const target = existingAccountNamesMap.get(trimmed) || 
                        existingAccountNamesMap.get(trimmed.toLowerCase()) || 
-                       findExistingAccountId(trimmed);
+                       findExistingAccountId(trimmed) ||
+                       pendingAccountMap.get(trimmed) ||
+                       pendingAccountMap.get(trimmed.toLowerCase()) ||
+                       pendingAccountMap.get(cleanAccName(trimmed));
         return target || defaultId;
       };
 
       let resolvedAccountId = imported.accountId;
       let resolvedToAccountId = imported.toAccountId;
 
-      if (mainRawName && mainRawName !== '-') {
-        resolvedAccountId = getMappedAccountId(mainRawName, imported.accountId);
-        if (imported.type === 'transfer') {
-          let targetName = '';
-          if (sourceName && sourceName !== '-' && sourceName !== mainRawName) {
-            targetName = sourceName;
-          } else if (destName && destName !== '-' && destName !== mainRawName) {
-            targetName = destName;
-          }
-          if (targetName) {
-            resolvedToAccountId = getMappedAccountId(targetName, imported.toAccountId || '');
-          } else {
-            resolvedToAccountId = imported.toAccountId;
-          }
-        } else {
-          resolvedToAccountId = undefined;
-        }
-      } else {
-        if (imported.type === 'income') {
-          resolvedAccountId = (destName && destName !== '-') ? getMappedAccountId(destName, imported.accountId) : 
-                             ((sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId);
-          resolvedToAccountId = undefined;
-        } else if (imported.type === 'expense') {
-          resolvedAccountId = (sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId;
-          resolvedToAccountId = undefined;
-        } else if (imported.type === 'transfer') {
-          const isPos = imported.amount > 0;
-          const mainName = isPos ? destName : sourceName;
-          const targetName = isPos ? sourceName : destName;
-
-          resolvedAccountId = (mainName && mainName !== '-') ? getMappedAccountId(mainName, imported.accountId) : imported.accountId;
-          resolvedToAccountId = (targetName && targetName !== '-') ? getMappedAccountId(targetName, imported.toAccountId || '') : imported.toAccountId;
-        }
+      if (imported.type === 'transfer') {
+        resolvedAccountId = sourceName ? getMappedAccountId(sourceName, imported.accountId) : (mainRawName ? getMappedAccountId(mainRawName, imported.accountId) : imported.accountId);
+        resolvedToAccountId = destName ? getMappedAccountId(destName, imported.toAccountId || '') : (imported.toAccountId || '');
+      } else if (imported.type === 'income') {
+        resolvedAccountId = (destName && destName !== '-') ? getMappedAccountId(destName, imported.accountId) : 
+                           (mainRawName ? getMappedAccountId(mainRawName, imported.accountId) : 
+                           ((sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId));
+        resolvedToAccountId = undefined;
+      } else { // expense
+        resolvedAccountId = (sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : 
+                           (mainRawName ? getMappedAccountId(mainRawName, imported.accountId) : imported.accountId);
+        resolvedToAccountId = undefined;
       }
 
       if (imported.type === 'transfer') {
@@ -13550,6 +13553,33 @@ function MoreView({
 
     return { unique, duplicates };
   }, [importPreview, records, accounts, projects]);
+
+  const pendingNewAccountNames = useMemo(() => {
+    if (!importPreview) return [];
+    const cleanAccName = (s: string) => String(s).replace(/\s+/g, '').replace(/[-_@()（）]/g, '').trim().toLowerCase();
+    const existingCleaned = new Set(accounts.map(a => cleanAccName(a.name)));
+    const existingRaw = new Set(accounts.map(a => a.name.trim().toLowerCase()));
+
+    const newNames = new Set<string>();
+    importPreview.transactions.forEach(t => {
+      const candidates = [
+        (t as any)._importMainAccountName,
+        t._importSourceAccountName,
+        t._importDestAccountName
+      ];
+      candidates.forEach(raw => {
+        if (!raw || raw === '-') return;
+        const trimmed = raw.trim();
+        if (!trimmed) return;
+        const cleaned = cleanAccName(trimmed);
+        const lower = trimmed.toLowerCase();
+        if (!existingRaw.has(lower) && !existingCleaned.has(cleaned)) {
+          newNames.add(trimmed);
+        }
+      });
+    });
+    return Array.from(newNames);
+  }, [importPreview, accounts]);
 
   useEffect(() => {
     if (importClassification.unique.length === 0 && importClassification.duplicates.length > 0) {
@@ -14029,43 +14059,18 @@ function MoreView({
         let resolvedAccountId = imported.accountId;
         let resolvedToAccountId = imported.toAccountId;
 
-        if (mainRawName && mainRawName !== '-') {
-          // Rule 1: Strict Primary Account Binding - strictly bind to the "Account / 主帳戶" name written on this row!
-          resolvedAccountId = getMappedAccountId(mainRawName, imported.accountId);
-          
-          if (imported.type === 'transfer') {
-            // Determine counterpart account name
-            let targetName = '';
-            if (sourceName && sourceName !== '-' && sourceName !== mainRawName) {
-              targetName = sourceName;
-            } else if (destName && destName !== '-' && destName !== mainRawName) {
-              targetName = destName;
-            }
-            if (targetName) {
-              resolvedToAccountId = getMappedAccountId(targetName, imported.toAccountId || '');
-            } else {
-              resolvedToAccountId = imported.toAccountId;
-            }
-          } else {
-            resolvedToAccountId = undefined;
-          }
-        } else {
-          // Fallback if mainRawName is empty/not present (preserving original fallback rules)
-          if (imported.type === 'income') {
-            resolvedAccountId = (destName && destName !== '-') ? getMappedAccountId(destName, imported.accountId) : 
-                               ((sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId);
-            resolvedToAccountId = undefined;
-          } else if (imported.type === 'expense') {
-            resolvedAccountId = (sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId;
-            resolvedToAccountId = undefined;
-          } else if (imported.type === 'transfer') {
-            const isPos = imported.amount > 0;
-            const mainName = isPos ? destName : sourceName;
-            const targetName = isPos ? sourceName : destName;
-
-            resolvedAccountId = (mainName && mainName !== '-') ? getMappedAccountId(mainName, imported.accountId) : imported.accountId;
-            resolvedToAccountId = (targetName && targetName !== '-') ? getMappedAccountId(targetName, imported.toAccountId || '') : imported.toAccountId;
-          }
+        if (imported.type === 'transfer') {
+          resolvedAccountId = sourceName ? getMappedAccountId(sourceName, imported.accountId) : (mainRawName ? getMappedAccountId(mainRawName, imported.accountId) : imported.accountId);
+          resolvedToAccountId = destName ? getMappedAccountId(destName, imported.toAccountId || '') : (imported.toAccountId || '');
+        } else if (imported.type === 'income') {
+          resolvedAccountId = (destName && destName !== '-') ? getMappedAccountId(destName, imported.accountId) : 
+                             (mainRawName ? getMappedAccountId(mainRawName, imported.accountId) : 
+                             ((sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : imported.accountId));
+          resolvedToAccountId = undefined;
+        } else { // expense
+          resolvedAccountId = (sourceName && sourceName !== '-') ? getMappedAccountId(sourceName, imported.accountId) : 
+                             (mainRawName ? getMappedAccountId(mainRawName, imported.accountId) : imported.accountId);
+          resolvedToAccountId = undefined;
         }
 
         // Defensive checks for transfers
@@ -14433,10 +14438,31 @@ function MoreView({
           workbook.SheetNames.forEach(sheetName => {
             const sheet = workbook.Sheets[sheetName];
             const sheetData = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[];
+            sheetData.forEach((row: any) => {
+              row._sheetName = sheetName;
+            });
             jsonData = jsonData.concat(sheetData);
           });
           
           if (jsonData.length === 0) throw new Error('檔案中沒有資料');
+
+          // Try to deduce an account name from sheetName or file.name
+          let deducedAccountName = '';
+          for (const sName of workbook.SheetNames) {
+            const cleanS = sName.trim();
+            const matched = accounts.find(a => cleanS.toLowerCase() === a.name.trim().toLowerCase() || cleanS.includes(a.name));
+            if (matched) {
+              deducedAccountName = matched.name;
+              break;
+            }
+          }
+          if (!deducedAccountName && file.name) {
+            const baseFileName = file.name.replace(/\.[^.]+$/, '');
+            const matched = accounts.find(a => baseFileName.includes(a.name) || (a.name.length >= 2 && baseFileName.toLowerCase().includes(a.name.toLowerCase())));
+            if (matched) {
+              deducedAccountName = matched.name;
+            }
+          }
 
           // Helper to get value from row using case-insensitive trimmed alias matching
           const getVal = (row: any, aliases: string[]) => {
@@ -14539,18 +14565,27 @@ function MoreView({
             // Ensure BOTH date and postingDate are stored (use date as fallback for postingDate if not pending)
             const finalPostingDate = postingDateVal || (isPendingValue ? undefined : date);
             
-            const mainCat = String(getVal(row, ['主分類', '類別', 'category']) || '').trim();
-            const subCat = String(getVal(row, ['子分類']) || '').trim();
+            const mainCat = String(getVal(row, ['主分類', '類別', 'category', '分類', '主類別']) || '').trim();
+            const subCat = String(getVal(row, ['子分類', '次分類', 'subCategory', '子類別', '次類別']) || '').trim();
             const category = (mainCat && subCat) ? `${mainCat} > ${subCat}` : (mainCat || subCat || '其他');
             
             // 2. Resolve Accounts
-            let expAcc = String(getVal(row, ['支出帳戶', '來源帳戶', '轉出帳戶', '轉出', '從帳戶', 'Source Account']) || '').trim();
-            let incAcc = String(getVal(row, ['收入帳戶', '目的帳戶', '目標帳戶', '目標', '轉入帳戶', '轉帳帳戶', '轉入', '轉至', '到帳戶', 'Dest Account', 'Destination Account']) || '').trim();
-            let genAcc = String(getVal(row, ['帳戶', '帳戶名稱', 'Account']) || '').trim();
+            let expAcc = String(getVal(row, ['支出帳戶', '來源帳戶', '轉出帳戶', '轉出', '從帳戶', 'Source Account', '轉出帳號']) || '').trim();
+            let incAcc = String(getVal(row, ['收入帳戶', '目的帳戶', '目標帳戶', '目標', '轉入帳戶', '轉帳帳戶', '轉入', '轉至', '到帳戶', 'Dest Account', 'Destination Account', '轉入帳號']) || '').trim();
+            let genAcc = String(getVal(row, ['帳戶', '帳戶名稱', 'Account', '主要帳戶', '本戶帳戶', '本戶', '帳號', '帳戶/卡號']) || '').trim();
+
+            if (!genAcc && (row as any)._sheetName) {
+              const sheetMatched = accounts.find(a => (row as any)._sheetName.trim().toLowerCase() === a.name.trim().toLowerCase() || (row as any)._sheetName.includes(a.name));
+              if (sheetMatched) {
+                genAcc = sheetMatched.name;
+              }
+            }
 
             if (expAcc === '-') expAcc = '';
             if (incAcc === '-') incAcc = '';
             if (genAcc === '-') genAcc = '';
+
+            const currentAccName = genAcc || deducedAccountName || accounts[0]?.name || '主要帳戶';
 
             const findAccByName = (name: string) => {
               if (!name) return undefined;
@@ -14571,7 +14606,18 @@ function MoreView({
               return isNaN(num) ? 0 : num;
             };
 
+            const expenseColAmt = parseSignedVal(getVal(row, ['支出金額', '提款金額', '轉出金額', '提款', '提出金額', '借方金額', '借方', '支出']));
+            const incomeColAmt = parseSignedVal(getVal(row, ['存入金額', '存款金額', '轉入金額', '存入', '貸方金額', '貸方', '收入金額', '收入']));
             let rawAmount = parseSignedVal(getVal(row, ['金額', '小計', 'amount']));
+
+            if (rawAmount === 0) {
+              if (expenseColAmt !== 0) {
+                rawAmount = -Math.abs(expenseColAmt);
+              } else if (incomeColAmt !== 0) {
+                rawAmount = Math.abs(incomeColAmt);
+              }
+            }
+
             let importedToAmount: number | undefined = undefined;
             let importedExchangeRate: number | undefined = undefined;
 
@@ -14581,7 +14627,7 @@ function MoreView({
 
             if (rawAmount === 0 && (foreignAmt !== 0 || twdAmt !== 0)) {
               // Determine currency based on account lookup
-              const sAcc = findAccByName(expAcc || genAcc);
+              const sAcc = findAccByName(expAcc || currentAccName);
               const dAcc = findAccByName(incAcc);
 
               if (sAcc && sAcc.currency && sAcc.currency !== 'TWD') {
@@ -14601,8 +14647,7 @@ function MoreView({
               // Check if rate is present
               if (rateVal !== 0) {
                 importedExchangeRate = rateVal;
-                // If it is a transfer, we can compute toAmount
-                const sAcc = findAccByName(expAcc || genAcc);
+                const sAcc = findAccByName(expAcc || currentAccName);
                 const dAcc = findAccByName(incAcc);
                 if (sAcc && dAcc) {
                   importedToAmount = Math.abs(rawAmount) * rateVal;
@@ -14615,37 +14660,114 @@ function MoreView({
             const isBalanceEmpty = rawBalanceText === undefined || rawBalanceText === null || String(rawBalanceText).trim() === '';
             const balanceVal = isBalanceEmpty ? 0 : parseSignedVal(rawBalanceText);
 
-            const rawTypeText = String(getVal(row, ['類型', '交易類型', 'Type']) || '').trim();
-            const rawCategoryText = String(getVal(row, ['主分類', '類別', 'category']) || '').trim();
+            const rawTypeText = String(getVal(row, ['類型', '交易類型', 'Type', '收支類型']) || '').trim();
+            const rawCategoryText = String(mainCat || '').trim();
+            const rawSubCategoryText = String(subCat || '').trim();
             const rawNoteText = String(getVal(row, ['明細', '項目', '品項', '名稱', '內容', '消費項目', '備註', '說明']) || '').trim();
-            
-            let type: Transaction['type'] = 'expense';
-            
-            const isDoubleAccount = (expAcc && incAcc && expAcc !== '-' && incAcc !== '-');
+            const rawProjectText = String(getVal(row, ['專案', 'Project', '專案名稱']) || '').trim();
+
+            const isDoubleAccount = Boolean(expAcc && incAcc && expAcc !== '-' && incAcc !== '-');
             const isAutoReloadText = rawNoteText.includes('自動加值') || rawCategoryText.includes('自動加值') || rawTypeText.includes('自動加值') || rawCategoryText.includes('加值');
 
-            // 1. Double account signature forces "transfer" regardless of positive or negative amount
-            if (isDoubleAccount) {
+            const isTransferSignal = 
+              rawTypeText.includes('轉帳') || 
+              rawTypeText.includes('轉出') || 
+              rawTypeText.includes('轉入') ||
+              rawCategoryText.includes('轉帳') || 
+              rawCategoryText === '轉出' || 
+              rawCategoryText === '轉入' ||
+              rawCategoryText.includes('轉出') || 
+              rawCategoryText.includes('轉入') ||
+              isAutoReloadText ||
+              isDoubleAccount;
+
+            let type: Transaction['type'] = 'expense';
+            if (isTransferSignal) {
               type = 'transfer';
+            } else if (rawTypeText.includes('收入') || rawCategoryText.includes('收入') || (incomeColAmt !== 0 && expenseColAmt === 0)) {
+              type = 'income';
+            } else if (rawTypeText.includes('支出') || rawCategoryText.includes('支出') || (expenseColAmt !== 0 && incomeColAmt === 0)) {
+              type = 'expense';
             } else if (rawAmount < 0) {
-              const isTransfer = rawTypeText.includes('轉帳') || isAutoReloadText;
-              type = isTransfer ? 'transfer' : 'expense';
+              type = 'expense';
+            } else if (rawAmount > 0) {
+              type = 'income';
             } else {
-              if (rawTypeText.includes('收入')) type = 'income';
-              else if (rawTypeText.includes('支出')) type = 'expense';
-              else if (rawTypeText.includes('轉帳') || isAutoReloadText) type = 'transfer';
-              else {
-                if (incAcc) type = 'income';
-                else type = 'expense';
-              }
+              type = incAcc ? 'income' : 'expense';
             }
 
-            let sourceAccName = expAcc;
-            let destAccName = incAcc;
+            // 清理子分類或專案作為對應帳戶候選名稱
+            const cleanCounterpartCandidate = (s: string) => {
+              if (!s) return '';
+              const trimmed = s.trim();
+              if (trimmed === '-' || trimmed.toLowerCase() === 'null' || trimmed === '其他' || trimmed === '一般' || trimmed === '未分類' || trimmed === '轉帳') return '';
+              if (trimmed.includes('>')) {
+                const parts = trimmed.split('>').map(p => p.trim()).filter(Boolean);
+                return parts[parts.length - 1] || '';
+              }
+              return trimmed;
+            };
 
-            if (!sourceAccName && !destAccName && genAcc) {
-              if (type === 'income') destAccName = genAcc;
-              else sourceAccName = genAcc;
+            const subCatTarget = cleanCounterpartCandidate(rawSubCategoryText);
+            const projectTarget = cleanCounterpartCandidate(rawProjectText);
+            const counterpartCandidate = subCatTarget || projectTarget || '';
+
+            // 轉帳方向判斷規則：
+            // 1. 若【主分類】為「轉出」（或類型為轉出、或金額為負數/支出欄位有值）:
+            //    - 來源帳戶 (From Account)：自動指定為「當前匯入的帳戶」（例如：中國信託）
+            //    - 目的帳戶 (To Account)：自動對應【子分類】或【專案】所標記的目標帳戶（例如：LINE Pay、元大銀行）
+            //    - 判定為資產由本戶轉出
+            // 2. 若【主分類】為「轉入」（或類型為轉入、或金額為正數/存入欄位有值）:
+            //    - 來源帳戶 (From Account)：自動對應【子分類】或【專案】所標記的來源帳戶（例如：京城銀行）
+            //    - 目的帳戶 (To Account)：自動指定為「當前匯入的帳戶」（例如：中國信託）
+            //    - 判定為外部資金轉入本戶
+            let isTransferOut = false;
+            if (rawCategoryText.includes('轉出') || rawTypeText.includes('轉出')) {
+              isTransferOut = true;
+            } else if (rawCategoryText.includes('轉入') || rawTypeText.includes('轉入')) {
+              isTransferOut = false;
+            } else if (expenseColAmt !== 0 && incomeColAmt === 0) {
+              isTransferOut = true;
+            } else if (incomeColAmt !== 0 && expenseColAmt === 0) {
+              isTransferOut = false;
+            } else if (rawAmount < 0) {
+              isTransferOut = true;
+            } else if (rawAmount > 0) {
+              isTransferOut = false;
+            } else {
+              isTransferOut = true;
+            }
+
+            let sourceAccName = '';
+            let destAccName = '';
+
+            if (type === 'transfer') {
+              if (isDoubleAccount) {
+                sourceAccName = expAcc;
+                destAccName = incAcc;
+              } else if (isTransferOut) {
+                sourceAccName = currentAccName;
+                destAccName = counterpartCandidate || incAcc || '';
+                // 若目的帳戶尚未找到，嘗試自備註尋找提及之其他既有帳戶
+                if (!destAccName) {
+                  const matchedAcc = accounts.find(a => a.name !== currentAccName && rawNoteText.includes(a.name));
+                  if (matchedAcc) destAccName = matchedAcc.name;
+                }
+              } else {
+                sourceAccName = counterpartCandidate || expAcc || '';
+                destAccName = currentAccName;
+                // 若來源帳戶尚未找到，嘗試自備註尋找提及之其他既有帳戶
+                if (!sourceAccName) {
+                  const matchedAcc = accounts.find(a => a.name !== currentAccName && rawNoteText.includes(a.name));
+                  if (matchedAcc) sourceAccName = matchedAcc.name;
+                }
+              }
+            } else if (type === 'income') {
+              destAccName = incAcc || currentAccName;
+              sourceAccName = '';
+            } else {
+              sourceAccName = expAcc || currentAccName;
+              destAccName = '';
             }
 
             const cleanAccName = (s: string) => {
@@ -14654,54 +14776,24 @@ function MoreView({
 
             const sourceAcc = findAccByName(sourceAccName);
             const destAcc = findAccByName(destAccName);
-            const mainAcc = findAccByName(genAcc);
+            const mainAcc = findAccByName(currentAccName);
             
-            let finalAccountId = mainAcc?.id || sourceAcc?.id || '';
-            let finalToAccountId = destAcc?.id || '';
+            let finalAccountId = '';
+            let finalToAccountId = '';
             let amountVal = rawAmount;
 
             if (type === 'income') {
-              finalAccountId = mainAcc?.id || destAcc?.id || sourceAcc?.id || '';
+              finalAccountId = destAcc?.id || mainAcc?.id || sourceAcc?.id || '';
               finalToAccountId = '';
-              if (amountVal < 0) amountVal = -amountVal;
+              amountVal = Math.abs(rawAmount || incomeColAmt || 0);
             } else if (type === 'expense') {
-              finalAccountId = mainAcc?.id || sourceAcc?.id || '';
+              finalAccountId = sourceAcc?.id || mainAcc?.id || '';
               finalToAccountId = '';
-              if (amountVal > 0) amountVal = -amountVal;
+              amountVal = -Math.abs(rawAmount || expenseColAmt || 0);
             } else if (type === 'transfer') {
-              if (mainAcc) {
-                // If "主帳戶（Account）" is written on this row, strictly bind finalAccountId to it!
-                finalAccountId = mainAcc.id;
-                // Determine counterpart (the other account name specified on the same row)
-                let otherAcc = undefined;
-                if (sourceAcc && sourceAcc.id !== mainAcc.id) {
-                  otherAcc = sourceAcc;
-                } else if (destAcc && destAcc.id !== mainAcc.id) {
-                  otherAcc = destAcc;
-                }
-                finalToAccountId = otherAcc?.id || '';
-                // Since this row is treated strictly under its own main account,
-                // we preserve the exact rawAmount sign (be it transfer in / out)
-                // because the sign on this row reflects whether it increased or decreased this main account.
-                amountVal = rawAmount;
-              } else {
-                // Fallback if genAcc is not found on the row
-                const srcId = sourceAcc?.id || '';
-                const dstId = destAcc?.id || '';
-                if (srcId && dstId) {
-                  finalAccountId = srcId;
-                  finalToAccountId = dstId;
-                  amountVal = -Math.abs(rawAmount);
-                } else if (dstId) {
-                  finalAccountId = dstId;
-                  finalToAccountId = '';
-                  amountVal = Math.abs(rawAmount);
-                } else {
-                  finalAccountId = srcId;
-                  finalToAccountId = '';
-                  amountVal = -Math.abs(rawAmount);
-                }
-              }
+              finalAccountId = sourceAcc?.id || '';
+              finalToAccountId = destAcc?.id || '';
+              amountVal = -Math.abs(rawAmount || expenseColAmt || incomeColAmt || 0);
             }
 
             // 3. Resolve Project
@@ -14754,7 +14846,7 @@ function MoreView({
               remark: remarkVal || undefined,
               projectId: projectId as string | undefined,
               _importBalance: isBalanceEmpty ? undefined : balanceVal, // Store for logic sync
-              _importMainAccountName: genAcc,
+              _importMainAccountName: currentAccName,
               _importSourceAccountName: sourceAccName,
               _importDestAccountName: destAccName,
               _importProjectName: projectName ? String(projectName) : undefined,
@@ -14774,17 +14866,7 @@ function MoreView({
           const txsByAccountName: Record<string, { rawName: string, transactions: Transaction[] }> = {};
           importedTransactions.forEach(t => {
             if (t._importBalance !== undefined) {
-              let rawName = '';
-              if (t.amount > 0) {
-                // Positive amount (transfer-in / income): bind balance strictly to the destination (income) account
-                rawName = t._importDestAccountName || (t as any)._importMainAccountName || '';
-              } else if (t.amount < 0) {
-                // Negative amount (transfer-out / expense): bind balance strictly to the source (expense) account
-                rawName = t._importSourceAccountName || (t as any)._importMainAccountName || '';
-              } else {
-                // Fallback for zero amounts
-                rawName = (t as any)._importMainAccountName || t._importSourceAccountName || t._importDestAccountName || '';
-              }
+              const rawName = (t as any)._importMainAccountName || (t.amount > 0 ? t._importDestAccountName : t._importSourceAccountName) || '';
               const cleanedName = rawName.trim().toLowerCase();
               if (cleanedName) {
                 if (!txsByAccountName[cleanedName]) {
@@ -15555,6 +15637,35 @@ function MoreView({
               </div>
             </div>
 
+            {/* Pending New Accounts Banner */}
+            {pendingNewAccountNames.length > 0 && (
+              <div className="mx-6 mt-2 mb-2 bg-amber-50/90 border border-amber-200/80 rounded-2xl p-3.5 flex items-start gap-3 shadow-sm">
+                <div className="w-7 h-7 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5 text-amber-700 text-sm font-black">
+                  ✨
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-black text-amber-900">
+                      偵測到未建立之帳戶 ({pendingNewAccountNames.length})
+                    </span>
+                    <span className="text-[10px] font-bold text-amber-700/80 bg-amber-100/60 px-2 py-0.5 rounded-full">
+                      確認匯入時將自動建立
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {pendingNewAccountNames.map((name, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 bg-white border border-amber-200/80 px-2.5 py-0.5 rounded-lg font-black text-amber-900 text-xs shadow-xs">
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[11px] font-bold text-amber-800/60 mt-1.5 leading-normal">
+                    系統已自動對應轉帳或收支對象，確認匯入後將自動為您新增上述帳戶，確保資產流水完整不遺漏。
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Tabs (if there are duplicates) */}
             {importClassification.duplicates.length > 0 && (
               <div className="px-8 pb-2 flex gap-2">
@@ -15641,18 +15752,42 @@ function MoreView({
                           (() => {
                             const sName = r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name;
                             const dName = r._importDestAccountName || accounts.find(a => a.id === r.toAccountId)?.name;
+                            const isNewSource = Boolean(sName && pendingNewAccountNames.includes(sName));
+                            const isNewDest = Boolean(dName && pendingNewAccountNames.includes(dName));
                             return (sName && dName && dName !== '-') ? (
                               <div className="flex items-center gap-1" style={getFontFamily()}>
-                                <span style={getFontFamily()}>{sName}</span>
+                                <span className={isNewSource ? "text-amber-700 font-black" : ""} style={getFontFamily()}>
+                                  {sName}
+                                  {isNewSource && <span className="text-[10px] bg-amber-100 text-amber-800 px-1 py-0.5 rounded-md ml-0.5 font-bold">新</span>}
+                                </span>
                                 <span className="text-stone-300" style={getFontFamily()}>→</span>
-                                <span style={getFontFamily()}>{dName}</span>
+                                <span className={isNewDest ? "text-amber-700 font-black" : ""} style={getFontFamily()}>
+                                  {dName}
+                                  {isNewDest && <span className="text-[10px] bg-amber-100 text-amber-800 px-1 py-0.5 rounded-md ml-0.5 font-bold">新</span>}
+                                </span>
                               </div>
-                            ) : (sName || dName || '未知帳戶');
+                            ) : (
+                              <span>
+                                {sName || dName || '未知帳戶'}
+                                {((sName && isNewSource) || (dName && isNewDest)) && (
+                                  <span className="text-[10px] bg-amber-100 text-amber-800 px-1 py-0.5 rounded-md ml-0.5 font-bold">新</span>
+                                )}
+                              </span>
+                            );
                           })()
                         ) : (
-                          r.type === 'income' 
-                            ? (r._importDestAccountName || r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name)
-                            : (r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name)
+                          (() => {
+                            const accName = r.type === 'income' 
+                              ? (r._importDestAccountName || r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name)
+                              : (r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name);
+                            const isNew = Boolean(accName && pendingNewAccountNames.includes(accName));
+                            return (
+                              <span className={isNew ? "text-amber-700 font-black" : ""}>
+                                {accName}
+                                {isNew && <span className="text-[10px] bg-amber-100 text-amber-800 px-1 py-0.5 rounded-md ml-0.5 font-bold">新</span>}
+                              </span>
+                            );
+                          })()
                         )}
                       </div>
                     </div>
