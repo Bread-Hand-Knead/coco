@@ -12553,7 +12553,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   onReorder: (records: Transaction[]) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
-  const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'income'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'income' | 'transfer'>('all');
 
   const filteredRecords = useMemo(() => {
     const base = parseLocalDate(filter.date);
@@ -12602,8 +12602,9 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   }, [records, filter, currencyMode, accounts]);
 
   const displayedRecords = useMemo(() => {
-    if (typeFilter === 'expense') return filteredRecords.filter(r => r.type === 'expense' || r.amount < 0);
-    if (typeFilter === 'income') return filteredRecords.filter(r => r.type === 'income' || r.amount > 0);
+    if (typeFilter === 'expense') return filteredRecords.filter(r => r.type === 'expense');
+    if (typeFilter === 'income') return filteredRecords.filter(r => r.type === 'income');
+    if (typeFilter === 'transfer') return filteredRecords.filter(r => r.type === 'transfer');
     return filteredRecords;
   }, [filteredRecords, typeFilter]);
 
@@ -12615,12 +12616,24 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
     return '';
   }, [filter]);
 
-  const historyBalance = useMemo(() => {
-    return displayedRecords.reduce((acc, r) => {
-      if (r.type === 'income' || r.type === 'expense') return acc + r.amount;
-      return acc;
-    }, 0);
-  }, [displayedRecords]);
+  // 實質收支與移轉統計（隔離計算內部轉帳）
+  const summaryStats = useMemo(() => {
+    const totalExpense = filteredRecords
+      .filter(r => r.type === 'expense')
+      .reduce((sum, r) => sum + Math.abs(r.amount) + (r.fee || 0), 0);
+
+    const totalIncome = filteredRecords
+      .filter(r => r.type === 'income')
+      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+    const totalTransfer = filteredRecords
+      .filter(r => r.type === 'transfer')
+      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+    const netBalance = totalIncome - totalExpense;
+
+    return { totalExpense, totalIncome, totalTransfer, netBalance };
+  }, [filteredRecords]);
 
   return (
     <motion.div 
@@ -12628,12 +12641,12 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
       <div className="flex-1 px-4 overflow-y-auto pb-10 pt-4">
-        {/* Type Filter Segment Tabs (All / Expense / Income) */}
-        <div className="mx-2 mb-3 flex items-center justify-center gap-2" style={getFontFamily()}>
+        {/* Type Filter Segment Tabs (All / Expense / Income / Transfer) */}
+        <div className="mx-2 mb-3 flex items-center justify-center gap-1.5 sm:gap-2" style={getFontFamily()}>
           <button
             type="button"
             onClick={() => setTypeFilter('all')}
-            className={`px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
+            className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
               typeFilter === 'all'
                 ? 'bg-[#5D4037] border-[#5D4037] text-white shadow-sm'
                 : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
@@ -12644,7 +12657,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
           <button
             type="button"
             onClick={() => setTypeFilter('expense')}
-            className={`px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
+            className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
               typeFilter === 'expense'
                 ? 'bg-rose-500 border-rose-500 text-white shadow-sm'
                 : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
@@ -12655,13 +12668,24 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
           <button
             type="button"
             onClick={() => setTypeFilter('income')}
-            className={`px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
+            className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
               typeFilter === 'income'
                 ? 'bg-blue-500 border-blue-500 text-white shadow-sm'
                 : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
             }`}
           >
             收入
+          </button>
+          <button
+            type="button"
+            onClick={() => setTypeFilter('transfer')}
+            className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
+              typeFilter === 'transfer'
+                ? 'bg-amber-600 border-amber-600 text-white shadow-sm'
+                : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
+            }`}
+          >
+            轉帳
           </button>
         </div>
 
@@ -12671,9 +12695,38 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
             <CalendarIcon size={14} className="text-[#FFD54F]" />
             <span>{filterLabel}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="bg-white/50 px-2 py-0.5 rounded-lg border border-[#FFD54F]/10">{displayedRecords.length} 筆紀錄</span>
-            <span>結餘：<span className={historyBalance >= 0 ? 'text-blue-600' : 'text-red-500'}>${Math.abs(historyBalance).toLocaleString()}</span></span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="bg-white/50 px-2 py-0.5 rounded-lg border border-[#FFD54F]/10">
+              {displayedRecords.length} {typeFilter === 'transfer' ? '筆轉帳' : '筆紀錄'}
+            </span>
+            {typeFilter === 'all' && (
+              <span>
+                結餘：<span className={summaryStats.netBalance >= 0 ? 'text-blue-600' : 'text-red-500'}>
+                  {summaryStats.netBalance < 0 ? '-' : ''}${Math.abs(summaryStats.netBalance).toLocaleString()}
+                </span>
+              </span>
+            )}
+            {typeFilter === 'expense' && (
+              <span>
+                實質總支出：<span className="text-rose-600 font-black">
+                  ${summaryStats.totalExpense.toLocaleString()}
+                </span>
+              </span>
+            )}
+            {typeFilter === 'income' && (
+              <span>
+                實質總收入：<span className="text-blue-600 font-black">
+                  ${summaryStats.totalIncome.toLocaleString()}
+                </span>
+              </span>
+            )}
+            {typeFilter === 'transfer' && (
+              <span>
+                資金移轉總額：<span className="text-amber-800 font-black">
+                  ${summaryStats.totalTransfer.toLocaleString()}
+                </span>
+              </span>
+            )}
           </div>
         </div>
 
@@ -12688,7 +12741,11 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                 className="flex-1 flex items-center gap-4 cursor-pointer"
               >
                 <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
-                  {getCategoryIcon(record.category, record.type, categories)}
+                  {record.type === 'transfer' ? (
+                    <ArrowRightLeft size={24} className="text-stone-400" />
+                  ) : (
+                    getCategoryIcon(record.category, record.type, categories)
+                  )}
                 </div>
                 
                 <div className="flex-1 flex flex-col gap-1 min-w-0">
@@ -12746,11 +12803,11 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                 )}
                 <div className="flex items-baseline justify-between mt-1 flex-wrap">
                   <span className={`font-black text-xl ${
-                    (record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? 'text-[#E91E63]' : 'text-[#03A9F4]') :
+                    record.type === 'transfer' ? 'text-[#5D4037]' :
                     record.type === 'income' ? 'text-[#03A9F4]' :
                     record.type === 'expense' ? 'text-[#E91E63]' : 'text-stone-400'
                   }`} style={getFontFamily()}>
-                    {((record.type === 'transfer' || record._isMergedTransfer) ? (record.amount < 0 ? '-' : '+') : record.type === 'income' ? '+' : record.type === 'expense' ? '-' : '')} $ {Math.abs(record.amount).toLocaleString()}
+                    {record.type === 'transfer' ? '' : (record.type === 'income' ? '+' : '-')} $ {Math.abs(record.amount).toLocaleString()}
                   </span>
                   {(() => {
                     const twdText = getTwdEquivalentText(records, accounts, record);
@@ -12765,7 +12822,11 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
           )) : (
             <div className="flex flex-col items-center justify-center py-20 text-stone-300 gap-4">
               <AlertCircle size={48} />
-              <span className="font-bold">此期間無紀錄</span>
+              <span className="font-bold">
+                {typeFilter === 'expense' ? '此期間無支出紀錄' :
+                 typeFilter === 'income' ? '此期間無收入紀錄' :
+                 typeFilter === 'transfer' ? '此期間無轉帳紀錄' : '此期間無紀錄'}
+              </span>
             </div>
           )}
         </div>
