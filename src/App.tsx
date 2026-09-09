@@ -207,7 +207,7 @@ interface Category {
   id: string;
   name: string;
   icon: string;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
   sub: string[];
   order?: number;
   budget?: number;
@@ -340,6 +340,21 @@ interface Project {
 
 // --- Initial Data ---
 
+export const DEFAULT_TRANSFER_CATEGORIES: Category[] = [
+  { id: 'cat_tf_credit', name: '信用卡繳款', icon: '💳', type: 'transfer', sub: ['自動扣繳', '自行轉帳繳款'], order: 1 },
+  { id: 'cat_tf_invest', name: '投資理財', icon: '📈', type: 'transfer', sub: ['定期定額交割', '買入股票扣款', '基金扣款'], order: 2 },
+  { id: 'cat_tf_savings', name: '儲蓄調度', icon: '🏦', type: 'transfer', sub: ['活存互轉', '定存存入', '備用金'], order: 3 },
+  { id: 'cat_tf_ticket', name: '電子票證加值', icon: '🚌', type: 'transfer', sub: ['悠遊卡加值', 'icash加值', '一卡通加值'], order: 4 },
+];
+
+export const ensureTransferCategories = (cats: Category[]): Category[] => {
+  if (!cats || cats.length === 0) return [...INITIAL_CATEGORIES];
+  if (!cats.some(c => c.type === 'transfer')) {
+    return [...cats, ...DEFAULT_TRANSFER_CATEGORIES];
+  }
+  return cats;
+};
+
 const INITIAL_CATEGORIES: Category[] = [
   { id: 'c1', name: '食物', icon: '🍱', type: 'expense', sub: ['早餐', '午餐', '晚餐', '飲料', '零食'], order: 1 },
   { id: 'c2', name: '交通', icon: '🚗', type: 'expense', sub: ['捷運', '公車', '火車', '加油', '停車'], order: 2 },
@@ -351,6 +366,7 @@ const INITIAL_CATEGORIES: Category[] = [
   { id: 'c7', name: '其他', icon: '✨', type: 'expense', sub: ['雜項', '捐款', '禮物'], order: 8 },
   { id: 'c8', name: '薪資', icon: '💼', type: 'income', sub: ['月薪', '獎金', '兼職'], order: 1 },
   { id: 'c9', name: '投資', icon: '📈', type: 'income', sub: ['股利', '利息', '價差'], order: 2 },
+  ...DEFAULT_TRANSFER_CATEGORIES,
 ];
 
 const INITIAL_ACCOUNTS: Account[] = [
@@ -823,7 +839,7 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>(() => {
     try {
       const cached = localStorage.getItem('coco_categories_cache');
-      return cached ? JSON.parse(cached) : INITIAL_CATEGORIES;
+      return cached ? ensureTransferCategories(JSON.parse(cached)) : INITIAL_CATEGORIES;
     } catch (e) {
       return INITIAL_CATEGORIES;
     }
@@ -1047,7 +1063,17 @@ export default function App() {
 
     const unsubCategories = onSnapshot(collection(db, 'users', user.uid, 'categories'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Category);
-      const res = snapshot.docs.length > 0 ? data : INITIAL_CATEGORIES;
+      let res = snapshot.docs.length > 0 ? data : INITIAL_CATEGORIES;
+      if (!res.some(c => c.type === 'transfer')) {
+        res = [...res, ...DEFAULT_TRANSFER_CATEGORIES];
+        if (user) {
+          const batch = writeBatch(db);
+          DEFAULT_TRANSFER_CATEGORIES.forEach(cat => {
+            batch.set(doc(db, 'users', user.uid, 'categories', cat.id), cleanData(cat));
+          });
+          batch.commit().catch(err => console.warn('Sync transfer categories error:', err));
+        }
+      }
       setCategories(res);
       try { localStorage.setItem('coco_categories_cache', JSON.stringify(res)); } catch (e) {}
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/categories`));
@@ -10436,7 +10462,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
   onSave: (cats: Category[]) => void,
   onBack: () => void 
 }) {
-  const [tab, setTab] = useState<'expense' | 'income'>('expense');
+  const [tab, setTab] = useState<'expense' | 'income' | 'transfer'>('expense');
   const [internalSelectedCategoryId, setInternalSelectedCategoryId] = useState<string | null>(null);
   
   const selectedCategoryId = selectedCategoryIdProp !== undefined ? selectedCategoryIdProp : internalSelectedCategoryId;
@@ -10553,7 +10579,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
     }
     setIsAddModalOpen(false);
     setEditingCat(null);
-    setNewCat({ name: '', icon: '✨', type: 'expense', sub: [] });
+    setNewCat({ name: '', icon: '✨', type: tab, sub: [] });
   };
 
   const handleSaveSubCategory = () => {
@@ -10596,13 +10622,13 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
       {!selectedCategoryId ? (
         <div className="p-6 pb-0 flex flex-col gap-6">
           <div className="flex bg-white/50 p-1.5 rounded-2xl border-2 border-white shadow-sm">
-            {(['expense', 'income'] as const).map(t => (
+            {(['expense', 'income', 'transfer'] as const).map(t => (
               <button 
                 key={t}
-                onClick={() => setTab(t)}
+                onClick={() => { setTab(t); setSelectedCategoryId(null); }}
                 className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${tab === t ? 'bg-[#5D4037] text-white shadow-md' : 'text-stone-400'}`}
               >
-                {t === 'expense' ? '支出分類' : '收入分類'}
+                {t === 'expense' ? '支出分類' : (t === 'income' ? '收入分類' : '轉帳分類')}
               </button>
             ))}
           </div>
@@ -10630,25 +10656,69 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
       {/* List Content */}
       <div className="flex-1 overflow-y-auto px-6 space-y-3 pb-24 pt-4">
         {!selectedCategoryId ? (
-          filtered.map(cat => (
-            <div 
-              key={cat.id}
-              onClick={() => setSelectedCategoryId(cat.id)}
-              className="bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex flex-col md:flex-row md:items-center md:justify-between group gap-4 md:gap-0 cursor-pointer hover:border-[#FFD54F] transition-all"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50 shrink-0 overflow-hidden">
-                  <AccountIcon icon={cat.icon} sizeClassName="w-8 h-8" />
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <span className="font-black text-[#5D4037] text-lg md:text-base truncate break-all leading-tight">{cat.name}</span>
-                  <span className="text-xs md:text-[10px] font-bold text-stone-400 md:text-stone-300 uppercase tracking-widest truncate mt-0.5">
-                    {cat.sub.length} 個子分類
-                  </span>
-                </div>
+          <>
+            {filtered.length === 0 ? (
+              <div className="text-center py-12 bg-white/30 rounded-[30px] border-2 border-dashed border-white">
+                <span className="text-stone-400 font-bold">目前無{tab === 'expense' ? '支出' : (tab === 'income' ? '收入' : '轉帳')}分類</span>
               </div>
-            </div>
-          ))
+            ) : (
+              filtered.map(cat => (
+                <div 
+                  key={cat.id}
+                  onClick={() => setSelectedCategoryId(cat.id)}
+                  className="bg-white p-4 rounded-[25px] border-2 border-white shadow-sm flex flex-col md:flex-row md:items-center md:justify-between group gap-4 md:gap-0 cursor-pointer hover:border-[#FFD54F] transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-[#FFFDF5] rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-stone-50 shrink-0 overflow-hidden">
+                      <AccountIcon icon={cat.icon} sizeClassName="w-8 h-8" />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-black text-[#5D4037] text-lg md:text-base truncate break-all leading-tight">{cat.name}</span>
+                      <span className="text-xs md:text-[10px] font-bold text-stone-400 md:text-stone-300 uppercase tracking-widest truncate mt-0.5">
+                        {cat.sub.length} 個子分類
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 self-end md:self-auto" onClick={e => e.stopPropagation()}>
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation();
+                        setEditingCat(cat); 
+                        setNewCat(cat); 
+                        setIsAddModalOpen(true); 
+                      }}
+                      className="p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] transition-all"
+                      title="編輯分類"
+                    >
+                      <Pencil size={18} />
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`確定要刪除主分類「${cat.name}」嗎？這將會同時刪除其所有子分類。`)) {
+                          onSave(categories.filter(c => c.id !== cat.id));
+                        }
+                      }}
+                      className="p-2 hover:bg-rose-50 rounded-xl text-stone-200 hover:text-rose-400 transition-all"
+                      title="刪除分類"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+            <button 
+              onClick={() => {
+                setNewCat({ name: '', icon: '✨', type: tab, sub: [] });
+                setEditingCat(null);
+                setIsAddModalOpen(true);
+              }}
+              className="w-full py-4 border-2 border-dashed border-stone-200 rounded-[25px] text-stone-400 font-bold hover:bg-white transition-all flex items-center justify-center gap-2 mt-2"
+            >
+              <Plus size={20} /> 新增{tab === 'expense' ? '支出' : (tab === 'income' ? '收入' : '轉帳')}主分類
+            </button>
+          </>
         ) : (
           selectedCategory?.sub.map((sub, idx) => (
             <div 
@@ -10658,6 +10728,22 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
               <div className="flex flex-col min-w-0">
                 <span className="font-black text-[#5D4037] text-lg md:text-sm truncate break-all leading-tight">{sub}</span>
                 <span className="text-xs md:text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">歸類於 {selectedCategory.name}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => { setNewSubName(sub); setEditingSubIndex(idx); setIsSubModalOpen(true); }}
+                  className="p-2 hover:bg-stone-50 rounded-xl text-stone-300 hover:text-[#5D4037] transition-all"
+                  title="編輯子分類"
+                >
+                  <Pencil size={18} />
+                </button>
+                <button 
+                  onClick={() => removeSubByIndex(selectedCategoryId!, idx)}
+                  className="p-2 hover:bg-rose-50 rounded-xl text-stone-200 hover:text-rose-400 transition-all"
+                  title="刪除子分類"
+                >
+                  <Trash2 size={18} />
+                </button>
               </div>
             </div>
           ))
@@ -10695,7 +10781,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
               className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[85vh]"
             >
               <div className="p-8 pb-4 flex items-center justify-between">
-                <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯主分類' : '新增主分類'}</h3>
+                <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯主分類' : (tab === 'transfer' ? '新增轉帳主分類' : (tab === 'income' ? '新增收入主分類' : '新增支出主分類'))}</h3>
                 <button onClick={() => setIsAddModalOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
                   <X size={20} className="text-stone-400" />
                 </button>
@@ -10866,7 +10952,7 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
   onBack: () => void,
   onMoveSubCategory: (subName: string, fromCatName: string, toCatName: string) => Promise<void>
 }) {
-  const [tab, setTab] = useState<'expense' | 'income'>('expense');
+  const [tab, setTab] = useState<'expense' | 'income' | 'transfer'>('expense');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
@@ -10972,13 +11058,13 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
     >
       <div className="p-6 pb-0 flex flex-col gap-6">
         <div className="flex bg-white/50 p-1.5 rounded-2xl border-2 border-white shadow-sm">
-          {(['expense', 'income'] as const).map(t => (
+          {(['expense', 'income', 'transfer'] as const).map(t => (
             <button 
               key={t}
               onClick={() => { setTab(t); setSelectedCategoryId(null); }}
               className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${tab === t ? 'bg-[#5D4037] text-white shadow-md' : 'text-stone-400'}`}
             >
-              {t === 'expense' ? '支出管理' : '收入管理'}
+              {t === 'expense' ? '支出管理' : (t === 'income' ? '收入管理' : '轉帳管理')}
             </button>
           ))}
         </div>
@@ -11115,7 +11201,7 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
               className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[85vh]"
             >
               <div className="p-8 pb-4 flex items-center justify-between">
-                <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯主分類' : '新增主分類'}</h3>
+                <h3 className="text-xl font-black text-[#5D4037]">{editingCat ? '編輯主分類' : (tab === 'transfer' ? '新增轉帳主分類' : (tab === 'income' ? '新增收入主分類' : '新增支出主分類'))}</h3>
                 <button onClick={() => setIsAddModalOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
                   <X size={20} className="text-stone-400" />
                 </button>
@@ -16506,7 +16592,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       id: `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       name: newCategoryName.trim(),
       icon: newCategoryIcon,
-      type: tab === 'income' ? 'income' : 'expense',
+      type: tab === 'transfer' ? 'transfer' : (tab === 'income' ? 'income' : 'expense'),
       sub: []
     };
     onUpdateCategories([...categories, newCat]);
@@ -16535,6 +16621,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const filteredCategories = categories.filter(c => {
     if (tab === 'expense') return c.type === 'expense';
     if (tab === 'income') return c.type === 'income';
+    if (tab === 'transfer') return c.type === 'transfer';
     return false;
   });
 
@@ -16581,7 +16668,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       return;
     }
 
-    const catName = subCategory || mainCategory || "其他";
+    const catName = subCategory ? (mainCategory ? `${mainCategory} > ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'));
     const cat = categories.find(c => c.name === catName || c.sub.includes(catName));
     const resolvedType = (tab === 'template' ? 'expense' : tab);
 
@@ -16629,7 +16716,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     onSave({ 
       amount: finalAmount, 
       fee: finalFee,
-      category: subCategory || mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'), 
+      category: subCategory ? (mainCategory ? `${mainCategory} > ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他')), 
       note: note.trim() || undefined,
       type: resolvedType, 
       accountId: selectedAccountId, 
@@ -16708,7 +16795,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       onSave({ 
         amount: finalAmount, 
         fee: finalFee,
-        category: subCategory || mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'), 
+        category: subCategory ? (mainCategory ? `${mainCategory} > ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他')), 
         note: note.trim() || undefined,
         type: resolvedType, 
         accountId: selectedAccountId, 
@@ -17048,7 +17135,14 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
           <span className="text-[#000000]">{currentAccount?.name}</span>
           <span>&gt;</span>
           {tab === 'transfer' ? (
-            <span className="text-[#000000]">{currentToAccount?.name}</span>
+            <>
+              <span className="text-[#000000]">{currentToAccount?.name}</span>
+              {(mainCategory || subCategory) && (
+                <span className="text-xs text-stone-500 ml-1 bg-stone-200/60 px-2 py-0.5 rounded-full font-medium">
+                  {subCategory ? (mainCategory ? `${mainCategory} > ${subCategory}` : subCategory) : mainCategory}
+                </span>
+              )}
+            </>
           ) : (
             <>
               <span>{mainCategory}</span>
@@ -17422,51 +17516,77 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                   </div>
                 )}
 
-                {/* Step 2: Main Category Selection */}
-                {tab !== 'transfer' && (
-                  <div className="space-y-2">
-                    <span className="text-[18px] font-bold text-[#000000] uppercase px-2">2. 選擇主分類</span>
-                    <HorizontalScrollArea className="px-8">
-                      {filteredCategories.map(cat => (
-                        <button 
-                          key={cat.id}
-                          onClick={() => {
-                            setMainCategory(cat.name);
-                            setSubCategory(null);
-                            setShowCalculator(false);
-                          }}
-                          className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                            mainCategory === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
-                          }`}
-                        >
-                          <div className={`w-10 h-10 ${mainCategory === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
-                            <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
-                          </div>
-                          <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
-                        </button>
-                      ))}
-                      <button 
-                        onClick={() => setShowAddCategoryModal(true)}
-                        className="flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 border-dashed border-stone-200 bg-[#FDF5E6] text-stone-400 hover:bg-stone-50 transition-all active:scale-95"
+                {/* Step 2 (or Step 3 for transfer): Main Category Selection */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-2">
+                    <span className="text-[18px] font-bold text-[#000000] uppercase">
+                      {tab === 'transfer' ? '3. 選擇轉帳分類 (可選)' : '2. 選擇主分類'}
+                    </span>
+                    {tab === 'transfer' && mainCategory && (
+                      <button
+                        type="button"
+                        onClick={() => { setMainCategory(null); setSubCategory(null); }}
+                        className="text-xs font-bold text-stone-400 hover:text-stone-600 underline"
                       >
-                        <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-xl shadow-sm">
-                          <Plus size={20} className="text-[#5D4037]" />
-                        </div>
-                        <span className="text-[12px] font-bold text-[#5D4037] text-center px-1 leading-tight">新增分類</span>
+                        清除分類
                       </button>
-                    </HorizontalScrollArea>
+                    )}
                   </div>
-                )}
+                  <HorizontalScrollArea className="px-8">
+                    {filteredCategories.map(cat => (
+                      <button 
+                        key={cat.id}
+                        onClick={() => {
+                          if (tab === 'transfer' && mainCategory === cat.name) {
+                            setMainCategory(null);
+                            setSubCategory(null);
+                            return;
+                          }
+                          setMainCategory(cat.name);
+                          setSubCategory(null);
+                          if (tab === 'transfer' && (!cat.sub || cat.sub.length === 0)) {
+                            setShowCalculator(true);
+                          } else {
+                            setShowCalculator(false);
+                          }
+                        }}
+                        className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                          mainCategory === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
+                        }`}
+                      >
+                        <div className={`w-10 h-10 ${mainCategory === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
+                          <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
+                        </div>
+                        <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
+                      </button>
+                    ))}
+                    <button 
+                      onClick={() => setShowAddCategoryModal(true)}
+                      className="flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 border-dashed border-stone-200 bg-[#FDF5E6] text-stone-400 hover:bg-stone-50 transition-all active:scale-95"
+                    >
+                      <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-xl shadow-sm">
+                        <Plus size={20} className="text-[#5D4037]" />
+                      </div>
+                      <span className="text-[12px] font-bold text-[#5D4037] text-center px-1 leading-tight">新增分類</span>
+                    </button>
+                  </HorizontalScrollArea>
+                </div>
 
-                {/* Step 3: Sub Category Selection */}
-                {tab !== 'transfer' && mainCategory && (
+                {/* Step 3 (or Step 4 for transfer): Sub Category Selection */}
+                {mainCategory && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
-                    <span className="text-[18px] font-bold text-[#000000] uppercase px-2">3. 選擇子分類</span>
+                    <span className="text-[18px] font-bold text-[#000000] uppercase px-2">
+                      {tab === 'transfer' ? '4. 選擇子分類' : '3. 選擇子分類'}
+                    </span>
                     <HorizontalScrollArea className="px-8">
                       {currentMainCat?.sub.map((sub, i) => (
                         <button 
                           key={`${currentMainCat.id}-sub-${i}`}
                           onClick={() => {
+                            if (tab === 'transfer' && subCategory === sub) {
+                              setSubCategory(null);
+                              return;
+                            }
                             setSubCategory(sub);
                             setShowCalculator(true);
                           }}
@@ -17494,7 +17614,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                       onClick={() => setShowCalculator(true)}
                       className="px-8 py-3 bg-[#5D4037] text-white rounded-full font-bold shadow-lg"
                     >
-                      輸入轉帳金額
+                      {mainCategory ? '確認並輸入轉帳金額' : '略過分類，直接輸入金額'}
                     </button>
                   </div>
                 )}
@@ -17877,16 +17997,25 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                   </div>
                 )}
 
-                {/* Category Selection (Non-Transfer) */}
-                {editingTemplate.type !== 'transfer' && (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-[14px] font-bold text-stone-600 uppercase px-1">主分類</label>
-                      <HorizontalScrollArea>
-                        {categories.map(cat => (
+                {/* Category Selection */}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[14px] font-bold text-stone-600 uppercase px-1">
+                      {editingTemplate.type === 'transfer' ? '轉帳分類 (可選)' : '主分類'}
+                    </label>
+                    <HorizontalScrollArea>
+                      {categories
+                        .filter(c => c.type === (editingTemplate.type || 'expense'))
+                        .map(cat => (
                           <button 
                             key={cat.id}
-                            onClick={() => setEditingTemplate({...editingTemplate, category: cat.name})}
+                            onClick={() => {
+                              const isSelected = editingTemplate.category.split(' > ')[0] === cat.name;
+                              setEditingTemplate({
+                                ...editingTemplate, 
+                                category: isSelected && editingTemplate.type === 'transfer' ? '' : cat.name
+                              });
+                            }}
                             className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
                               editingTemplate.category.split(' > ')[0] === cat.name 
                                 ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' 
@@ -17899,10 +18028,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                             <span className={`text-[14px] font-bold text-center px-1 leading-tight ${editingTemplate.category.split(' > ')[0] === cat.name ? 'text-white' : 'text-[#000000]'}`}>{cat.name}</span>
                           </button>
                         ))}
-                      </HorizontalScrollArea>
-                    </div>
+                    </HorizontalScrollArea>
+                  </div>
 
-                    {/* Sub Category */}
+                  {/* Sub Category */}
+                  {Boolean(categories.find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub?.length) && (
                     <div className="space-y-2">
                       <label className="text-[14px] font-bold text-stone-600 uppercase px-1">子分類</label>
                       <div className="grid grid-cols-3 gap-2">
@@ -17911,7 +18041,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                             key={sub}
                             onClick={() => setEditingTemplate({...editingTemplate, category: `${editingTemplate.category.split(' > ')[0]} > ${sub}`})}
                             className={`py-3.5 px-3 rounded-xl border-2 transition-all text-[15px] font-bold ${
-                              editingTemplate.category.includes(sub) 
+                              editingTemplate.category.split(' > ')[1] === sub || editingTemplate.category === sub
                                 ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F] font-black shadow-sm' 
                                 : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-50 hover:bg-stone-50/50'
                             }`}
@@ -17921,8 +18051,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                         ))}
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Save Button */}
                 <div className="pt-2">
@@ -17969,7 +18099,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-black text-[#5D4037]">新增分類</h3>
+                <h3 className="text-xl font-black text-[#5D4037]">新增{tab === 'transfer' ? '轉帳' : (tab === 'income' ? '收入' : '支出')}分類</h3>
                 <button onClick={() => setShowAddCategoryModal(false)} className="p-2 hover:bg-black/5 rounded-full">
                   <X size={24} className="text-[#5D4037]" />
                 </button>
@@ -17983,7 +18113,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     value={newCategoryName}
                     onChange={e => setNewCategoryName(e.target.value)}
                     className="w-full p-4 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-lg outline-none focus:border-[#FFD54F] transition-all"
-                    placeholder="例如：追星、烘焙"
+                    placeholder={tab === 'transfer' ? '例如：信用卡繳款、投資理財' : '例如：追星、烘焙'}
                   />
                 </div>
 
