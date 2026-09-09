@@ -11660,6 +11660,8 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
   onEditProject: (p: Project) => void,
   onBack: () => void 
 }) {
+  const [searchQuery, setSearchQuery] = useState('');
+
   const getProjectStats = (projectId: string): { expense: number, income: number } => {
     // Support hierarchical summation
     const childProjectIds = projects.filter(p => p.parentId === projectId).map(p => p.id);
@@ -11678,9 +11680,48 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
     return { expense, income };
   };
 
+  const query = searchQuery.trim().toLowerCase();
+
   // Group projects into a tree
-  const rootProjects = projects.filter(p => !p.parentId);
+  const rootProjects = useMemo(() => {
+    const parentIds = new Set(projects.map(p => p.id));
+    return projects.filter(p => !p.parentId || !parentIds.has(p.parentId));
+  }, [projects]);
+
   const getChildren = (parentId: string) => projects.filter(p => p.parentId === parentId);
+
+  const filteredTree = useMemo(() => {
+    if (!query) {
+      return rootProjects.map(project => ({
+        project,
+        children: getChildren(project.id),
+      }));
+    }
+
+    const result: { project: Project; children: Project[] }[] = [];
+
+    rootProjects.forEach(project => {
+      const allChildren = getChildren(project.id);
+      const isParentMatch = project.name.toLowerCase().includes(query);
+      const matchingChildren = allChildren.filter(c => c.name.toLowerCase().includes(query));
+
+      if (isParentMatch) {
+        // 比對到母專案時列出該專案，並保留其子專案
+        result.push({
+          project,
+          children: allChildren,
+        });
+      } else if (matchingChildren.length > 0) {
+        // 比對到子專案時同步保留所屬層級結構
+        result.push({
+          project,
+          children: matchingChildren,
+        });
+      }
+    });
+
+    return result;
+  }, [rootProjects, projects, query]);
 
   return (
     <motion.div 
@@ -11688,11 +11729,42 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
       className="flex flex-col h-full bg-white shadow-inner"
       style={getFontFamily()}
     >
+      {/* 頂部即時關鍵字搜尋欄 */}
+      <div className="px-4 py-3 bg-white border-b border-stone-100 flex-shrink-0">
+        <div className="relative flex items-center">
+          <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="搜尋專案名稱..."
+            className="w-full pl-10 pr-10 py-2.5 bg-stone-50 hover:bg-stone-100/70 focus:bg-white border border-stone-200 focus:border-[#FFD54F] rounded-full text-sm font-bold text-[#5D4037] placeholder-stone-300 outline-none transition-all shadow-sm"
+            style={getFontFamily()}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-stone-200 hover:bg-stone-300 text-stone-500 flex items-center justify-center transition-colors active:scale-95"
+              aria-label="清空搜尋"
+            >
+              <X size={12} strokeWidth={2.5} />
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="flex-1 overflow-y-auto">
-        <div className="divide-y divide-stone-100">
-          {rootProjects.map(project => {
-            const children = getChildren(project.id);
-            return (
+        {filteredTree.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-stone-300 gap-2 opacity-60">
+            <Search size={36} className="text-stone-300" />
+            <span className="text-sm font-bold text-stone-400" style={getFontFamily()}>
+              找不到相符的專案
+            </span>
+          </div>
+        ) : (
+          <div className="divide-y divide-stone-100">
+            {filteredTree.map(({ project, children }) => (
               <React.Fragment key={project.id}>
                 <ProjectItem 
                   project={project} 
@@ -11711,9 +11783,9 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
                   />
                 ))}
               </React.Fragment>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );
