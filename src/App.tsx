@@ -281,6 +281,12 @@ interface Account {
   initialBalance?: number; // 初始金額
   order?: number;      // 排序權重
   creditLimit?: number; // 信用總額度
+  statementDate?: number;
+  dueDate?: number;
+  interestRate?: number;
+  interestLimit?: number;
+  benefits?: string;
+  excludeFromNetWorth?: boolean; // 是否不計入個人總資產與淨資產
 }
 
 interface Template {
@@ -535,6 +541,15 @@ export const getGroupedAndUngrouped = (accountsList: Account[]) => {
   });
 
   return { groupedList: grouped, singleList: single };
+};
+
+const isAccountExcludedFromNetWorth = (acc: Account, allAccounts: Account[]): boolean => {
+  if (acc.excludeFromNetWorth) return true;
+  if (acc.parentId) {
+    const parent = allAccounts.find(p => p.id === acc.parentId);
+    if (parent) return isAccountExcludedFromNetWorth(parent, allAccounts);
+  }
+  return false;
 };
 
 const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: string; type: string }, accB: { id: string; name: string; parentId?: string; type: string }, accountsList: Account[]): boolean => {
@@ -1645,7 +1660,7 @@ export default function App() {
 
     const getRecursiveBalance = (id: string): number => {
       let total = getBaseBalance(id);
-      const children = accounts.filter(a => a.parentId === id);
+      const children = accounts.filter(a => a.parentId === id && !isAccountExcludedFromNetWorth(a, accounts));
       children.forEach(child => {
         total += getRecursiveBalance(child.id);
       });
@@ -1695,6 +1710,7 @@ export default function App() {
     let liabilities = 0;
     
     const filteredAccounts = accounts.filter(a => {
+      if (isAccountExcludedFromNetWorth(a, accounts)) return false;
       const cur = a.currency || 'TWD';
       if (currencyMode === 'FOREIGN') return cur !== 'TWD';
       return cur === 'TWD';
@@ -3545,7 +3561,7 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
     const acc = accounts.find(a => a.id === id);
     if (!acc) return 0;
     let total = getBaseBalance(acc);
-    const children = accounts.filter(a => a.parentId === id);
+    const children = accounts.filter(a => a.parentId === id && !isAccountExcludedFromNetWorth(a, accounts));
     children.forEach(child => {
       const childBal = getRecursiveBalance(child.id);
       total += childBal;
@@ -3831,23 +3847,25 @@ function DynamicAccountBalance({
   };
 
   const isNegative = calculatedBalance < 0;
+  const isPoints = account.type === 'points';
   const colorClass = isNegative ? 'text-rose-400' : 'text-[#5D4037]';
 
   const twdText = useMemo(() => {
     if (!showAmounts) return null;
-    if (account.isBrandGroup || !account.currency || account.currency === 'TWD') return null;
+    if (isPoints || account.isBrandGroup || !account.currency || account.currency === 'TWD') return null;
     const rate = getLatestExchangeRate(transactions, accounts, account.currency);
     const twdBal = Math.round(calculatedBalance * rate);
     return `(約 NT$ ${twdBal.toLocaleString()})`;
-  }, [account, accounts, transactions, calculatedBalance, showAmounts]);
+  }, [account, accounts, transactions, calculatedBalance, showAmounts, isPoints]);
 
   const showTwdSymbol = currencyMode === 'FOREIGN' && (account.isBrandGroup || account.currency === 'TWD');
 
   return (
     <div className="flex items-baseline gap-1.5 flex-wrap" style={getFontFamily()}>
       <span className={`${className} ${colorClass}`} style={getFontFamily()}>
-        <span className="mr-1" style={getFontFamily()}>{showTwdSymbol ? 'NT$' : '$'}</span>
+        {!isPoints && <span className="mr-1" style={getFontFamily()}>{showTwdSymbol ? 'NT$' : '$'}</span>}
         {formatAmount(calculatedBalance)}
+        {isPoints && <span className="ml-1 text-sm sm:text-base font-black text-stone-500" style={getFontFamily()}>點</span>}
       </span>
       {twdText && (
         <span className="text-xs font-bold text-stone-400" style={getFontFamily()}>
@@ -4006,7 +4024,7 @@ function AccountsView({
     credit: '信用卡',
     'e-ticket': '電子票證',
     'e-payment': '電子支付',
-    points: '點數',
+    points: '點數 / 回饋金',
     deposit: '定存',
     insurance: '保險',
     other: '其他'
@@ -4276,7 +4294,11 @@ function AccountsView({
               <div className="px-2 flex justify-between items-end border-b border-[#5D4037]/10 pb-2">
                 <span className="text-lg font-black text-[#5D4037]">{accountTypeLabels[type]}</span>
                 <span className="text-sm font-bold text-stone-400 flex items-center gap-1.5" style={getFontFamily()}>
-                  <span>合計 {currencyMode === 'FOREIGN' ? 'NT$ ' : '$ '}{formatAmount(typeTotal)}</span>
+                  <span>
+                    合計 {type === 'points' ? '' : (currencyMode === 'FOREIGN' ? 'NT$ ' : '$ ')}
+                    {formatAmount(typeTotal)}
+                    {type === 'points' ? ' 點' : ''}
+                  </span>
                   {type === 'credit' && (
                     <>
                       <span>|</span>
@@ -4310,9 +4332,16 @@ function AccountsView({
                             <AccountIcon icon={acc.icon} sizeClassName="w-8 h-8 sm:w-10 sm:h-10" />
                           </div>
                           <div className="flex flex-col flex-1 min-w-0">
-                            <span className="text-[10px] sm:text-xs font-bold text-stone-300 uppercase tracking-widest mb-1 leading-none truncate" style={getFontFamily()}>
-                              {isBrandGroup ? `${acc.name}總額` : (acc.type === 'bank' ? `${acc.name}總額` : (acc.type === 'credit' ? '目前未繳金額' : accountTypeLabels[acc.type as Account['type']]))}
-                            </span>
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="text-[10px] sm:text-xs font-bold text-stone-300 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>
+                                {isBrandGroup ? `${acc.name}總額` : (acc.type === 'bank' ? `${acc.name}總額` : (acc.type === 'credit' ? '目前未繳金額' : accountTypeLabels[acc.type as Account['type']]))}
+                              </span>
+                              {acc.excludeFromNetWorth && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-400 font-bold border border-stone-200" style={getFontFamily()}>
+                                  不計入資產
+                                </span>
+                              )}
+                            </div>
                             <span className="text-lg sm:text-xl font-black text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{acc.name}</span>
                             <DynamicAccountBalance
                               account={acc}
@@ -4405,17 +4434,24 @@ function AccountsView({
                                     <AccountIcon icon={l2acc.icon} sizeClassName="w-5 h-5 sm:w-6 sm:h-6" />
                                   </div>
                                   <div className="flex flex-col flex-1 min-w-0 justify-center">
-                                    {l2acc.type === 'credit' ? (
-                                      <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate" style={getFontFamily()}>
-                                        目前未繳金額
-                                      </span>
-                                    ) : (
-                                      l2acc.type !== 'e-ticket' && (
-                                        <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">
-                                          主帳號
+                                    <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                                      {l2acc.type === 'credit' ? (
+                                        <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>
+                                          目前未繳金額
                                         </span>
-                                      )
-                                    )}
+                                      ) : (
+                                        l2acc.type !== 'e-ticket' && (
+                                          <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none truncate">
+                                            主帳號
+                                          </span>
+                                        )
+                                      )}
+                                      {l2acc.excludeFromNetWorth && (
+                                        <span className="text-[8px] px-1 py-0.2 rounded bg-stone-100 text-stone-400 font-bold border border-stone-200" style={getFontFamily()}>
+                                          不計入資產
+                                        </span>
+                                      )}
+                                    </div>
                                     <span className="text-sm sm:text-base font-black text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{l2acc.name}</span>
                                     <DynamicAccountBalance
                                       account={l2acc}
@@ -4489,13 +4525,20 @@ function AccountsView({
                                             <AccountIcon icon={l3acc.icon} sizeClassName="w-4 h-4 sm:w-5 sm:h-5" />
                                           </div>
                                           <div className="flex flex-col flex-1 min-w-0 justify-center">
-                                            {l3acc.type === 'credit' ? (
-                                              <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate" style={getFontFamily()}>目前未繳金額</span>
-                                            ) : (
-                                              l3acc.type !== 'e-ticket' && (
-                                                <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none mb-0.5 truncate">子帳戶</span>
-                                              )
-                                            )}
+                                            <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                                              {l3acc.type === 'credit' ? (
+                                                <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>目前未繳金額</span>
+                                              ) : (
+                                                l3acc.type !== 'e-ticket' && (
+                                                  <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none truncate">子帳戶</span>
+                                                )
+                                              )}
+                                              {l3acc.excludeFromNetWorth && (
+                                                <span className="text-[8px] px-1 py-0.2 rounded bg-stone-100 text-stone-400 font-bold border border-stone-200" style={getFontFamily()}>
+                                                  不計入資產
+                                                </span>
+                                              )}
+                                            </div>
                                             <span className="text-xs sm:text-sm font-bold text-[#5D4037] leading-tight truncate" style={getFontFamily()}>{l3acc.name}</span>
                                             <DynamicAccountBalance
                                               account={l3acc}
@@ -7161,13 +7204,23 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]" style={getFontFamily()}>
                 {account.type === 'credit' ? '目前未繳金額' : '目前餘額'}
               </span>
+              {account.excludeFromNetWorth && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-400 font-bold border border-stone-200" style={getFontFamily()}>
+                  不計入資產
+                </span>
+              )}
             </div>
             <div className="flex items-baseline gap-1 flex-wrap" style={getFontFamily()}>
-              <span className="text-sm font-black text-stone-300">$</span>
+              {account.type !== 'points' && <span className="text-sm font-black text-stone-300">$</span>}
               <span className={`text-4xl font-black tracking-tight ${calculatedBalance < 0 ? 'text-rose-400' : 'text-[#5D4037]'}`} style={getFontFamily()}>
                 {calculatedBalance.toLocaleString()}
               </span>
-              {(() => {
+              {account.type === 'points' && (
+                <span className="text-lg font-black text-stone-500 ml-1" style={getFontFamily()}>
+                  點
+                </span>
+              )}
+              {account.type !== 'points' && (() => {
                 const activeCurrency = selectedCardFilterId 
                   ? accounts.find(a => a.id === selectedCardFilterId)?.currency || account.currency 
                   : account.currency;
@@ -8285,11 +8338,15 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket', 'e-payment', 'points', 'deposit', 'insurance', 'other'];
   const isNew = !accounts.find(a => a.id === account.id);
   const [editedAcc, setEditedAcc] = useState<Account>(() => {
+    const baseAcc = { ...account };
+    if (baseAcc.type === 'points' && baseAcc.excludeFromNetWorth === undefined) {
+      baseAcc.excludeFromNetWorth = true;
+    }
     // Migrate initialBalance from records if not present on account
-    if (account.initialBalance !== undefined) return { ...account };
+    if (account.initialBalance !== undefined) return baseAcc;
     const initRec = records.find(r => r.accountId === account.id && r.category === '初始資金');
     const legacyInit = initRec ? (initRec.type === 'income' ? initRec.amount : -initRec.amount) : 0;
-    return { ...account, initialBalance: legacyInit };
+    return { ...baseAcc, initialBalance: legacyInit };
   });
   const [initialBalanceStr, setInitialBalanceStr] = useState<string>(
     (account.initialBalance !== undefined ? account.initialBalance : (records.find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)) === 0 
@@ -8469,7 +8526,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                     credit: '信用卡',
                     'e-ticket': '電子票證',
                     'e-payment': '電子支付',
-                    points: '點數',
+                    points: '點數 / 虛擬資產',
                     deposit: '定存',
                     insurance: '保險',
                     other: '其他'
@@ -8477,7 +8534,14 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                   return (
                     <button 
                       key={t}
-                      onClick={() => setEditedAcc({ ...editedAcc, type: t })}
+                      onClick={() => {
+                        const isPoints = t === 'points';
+                        setEditedAcc({
+                          ...editedAcc,
+                          type: t,
+                          ...(isPoints ? { excludeFromNetWorth: true } : {})
+                        });
+                      }}
                       className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${editedAcc.type === t ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-stone-50 shadow-sm'}`}
                       style={getFontFamily()}
                     >
@@ -8590,6 +8654,29 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
                 </select>
                 <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
               </div>
+            </div>
+
+            {/* Exclude From Net Worth Toggle Switch */}
+            <div className="p-4 bg-white border-2 border-stone-50 rounded-2xl flex items-center justify-between shadow-sm">
+              <div className="flex flex-col gap-0.5 pr-2">
+                <span className="font-black text-sm text-[#5D4037]" style={getFontFamily()}>不計入總資產 / 淨資產</span>
+                <span className="text-[11px] font-bold text-stone-400 leading-tight" style={getFontFamily()}>
+                  開啟後，此帳戶餘額將不計入個人總資產與淨資產統計（點數帳戶預設開啟）
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditedAcc({ ...editedAcc, excludeFromNetWorth: !editedAcc.excludeFromNetWorth })}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  editedAcc.excludeFromNetWorth ? 'bg-[#5D4037]' : 'bg-stone-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    editedAcc.excludeFromNetWorth ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
 
             {/* Credit Card Fields */}
@@ -9677,7 +9764,7 @@ function AccountSortModal({ accounts, onClose, onSave }: {
     investment: { label: '證券', bg: 'bg-[#78909C]', icon: '📈' },
     deposit: { label: '定存', bg: 'bg-[#9CCC65]', icon: '🏦' },
     insurance: { label: '保險', bg: 'bg-[#FF7043]', icon: '🛡️' },
-    points: { label: '點數', bg: 'bg-[#FDD835]', icon: '⭐' },
+    points: { label: '點數 / 虛擬資產', bg: 'bg-[#FDD835]', icon: '⭐' },
     other: { label: '其他', bg: 'bg-[#8D6E63]', icon: '💼' }
   };
 
@@ -13744,7 +13831,8 @@ function MoreView({
             type: resolvedType,
             icon: resolvedIcon,
             currency: 'TWD',
-            order: accounts.length + newAccountsToCreate.length + 1
+            order: accounts.length + newAccountsToCreate.length + 1,
+            ...(resolvedType === 'points' ? { excludeFromNetWorth: true } : {})
           };
           newAccountsToCreate.push(newAccount);
           existingAccountNamesMap.set(lowercaseName, targetId);

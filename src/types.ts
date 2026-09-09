@@ -43,6 +43,7 @@ export interface Account {
   dueDate?: number; // 每月繳款日 (1-31)
   interestRate?: number; // 銀行存款帳戶/定存年利率 %
   interestLimit?: number; // 銀行高利活存計息上限金額
+  excludeFromNetWorth?: boolean; // 是否不計入個人總資產與淨資產
 }
 
 export interface Template {
