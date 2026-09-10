@@ -17211,44 +17211,42 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
   const renderDateProjectCamera = () => (
     <div className="w-full flex flex-col gap-2">
-      <div className="flex items-center gap-2 w-full">
-        {tab !== 'transfer' && (
-          <div className="flex items-center gap-2 shrink-0">
-            <label className="h-11 px-3.5 bg-white hover:bg-[#FFD54F]/10 active:scale-95 transition-all rounded-2xl border-2 border-[#5D4037]/10 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#5D4037]">
-              <input 
-                type="file" 
-                accept="image/*" 
-                capture="environment"
-                className="hidden" 
-                onChange={handleScanReceipt} 
-                disabled={isScanningReceipt}
-              />
-              {isScanningReceipt ? (
-                <>
-                  <Loader2 className="w-4 h-4 text-[#5D4037] animate-spin" />
-                  <span className="text-xs font-black">辨識中</span>
-                </>
-              ) : (
-                <>
-                  <Camera size={16} className="text-[#5D4037]" />
-                  <span className="text-xs font-black">發票掃描</span>
-                </>
-              )}
-            </label>
-            <button
-              type="button"
-              onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
-              className="h-11 px-3.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#0369A1]"
-              style={getFontFamily()}
-            >
-              <Sparkles size={16} className="text-[#0369A1]" />
-              <span className="text-xs font-black">AI 智慧拆分</span>
-            </button>
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          {renderCompactBar()}
+      {tab !== 'transfer' && (
+        <div className="flex items-center gap-2 w-full">
+          <label className="flex-1 h-11 px-3.5 bg-white hover:bg-[#FFD54F]/10 active:scale-95 transition-all rounded-2xl border-2 border-[#5D4037]/10 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#5D4037]">
+            <input 
+              type="file" 
+              accept="image/*" 
+              capture="environment"
+              className="hidden" 
+              onChange={handleScanReceipt} 
+              disabled={isScanningReceipt}
+            />
+            {isScanningReceipt ? (
+              <>
+                <Loader2 className="w-4 h-4 text-[#5D4037] animate-spin" />
+                <span className="text-xs font-black">辨識中</span>
+              </>
+            ) : (
+              <>
+                <Camera size={16} className="text-[#5D4037]" />
+                <span className="text-xs font-black">發票掃描</span>
+              </>
+            )}
+          </label>
+          <button
+            type="button"
+            onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
+            className="flex-1 h-11 px-3.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#0369A1]"
+            style={getFontFamily()}
+          >
+            <Sparkles size={16} className="text-[#0369A1]" />
+            <span className="text-xs font-black">AI 智慧拆分</span>
+          </button>
         </div>
+      )}
+      <div className="w-full">
+        {renderCompactBar()}
       </div>
       {renderCreditCardSubBar()}
     </div>
@@ -17470,7 +17468,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
 
                 {/* Date & Project & Camera Selection Area (Desktop only) */}
-                <div className="hidden md:flex items-center gap-3 shrink-0">
+                <div className="hidden md:flex flex-col gap-2 shrink-0 w-full">
                   {renderDateProjectCamera()}
                 </div>
 
