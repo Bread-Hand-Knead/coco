@@ -3,7 +3,7 @@ import { Category } from '../types';
 
 export const getCategoryIcon = (categoryName: string, type: 'income' | 'expense' | 'transfer', categories: Category[]) => {
   const cleanName = (categoryName || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
-  const mainCategoryName = cleanName.split(' > ')[0].trim();
+  const mainCategoryName = cleanName.split(/ > | ＞ /)[0].trim();
   
   const getIconNode = (icon: string) => {
     const isImage = icon.startsWith('http') || icon.startsWith('data:image/') || icon.startsWith('/');
@@ -36,8 +36,8 @@ export const getCategoryIcon = (categoryName: string, type: 'income' | 'expense'
   if (category) return getIconNode(category.icon);
 
   // Fallback to searching subcategory if not found in main
-  if (cleanName.includes(' > ')) {
-    const subPart = cleanName.split(' > ')[1]?.trim();
+  if (cleanName.includes(' > ') || cleanName.includes(' ＞ ')) {
+    const subPart = cleanName.split(/ > | ＞ /)[1]?.trim();
     if (subPart) {
       const subCategory = categories.find(c => c.sub && c.sub.some(s => s.trim() === subPart));
       if (subCategory) return getIconNode(subCategory.icon);

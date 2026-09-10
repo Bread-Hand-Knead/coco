@@ -5939,6 +5939,7 @@ function InvestmentSection({
           record={editingRecord}
           accounts={accounts}
           projects={projects}
+          categories={categories}
           onClose={() => setEditingRecord(null)}
           onSave={(updated) => {
             onUpdateRecord(editingRecord, updated);
@@ -7520,9 +7521,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               <div className="overflow-y-auto p-6 space-y-6">
                 {paymentRecords.length > 0 && (
                   <div className="space-y-3">
-                    <div className="flex justify-between items-center px-1" style={getFontFamily()}>
-                      <span className="font-black text-sm text-[#5D4037]">扣繳資訊</span>
-                      <span className="text-xs font-bold text-stone-400">
+                    <div className="px-1 font-black text-sm text-[#5D4037]">
+                      轉帳紀錄
+                      <span className="text-xs font-bold text-stone-400 ml-2">
                         金額: <span className="font-black text-sm text-[#5D4037]">
                           $ {paymentRecords.reduce((sum, r) => sum + (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1))), 0).toLocaleString()}
                         </span>
@@ -7593,6 +7594,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             record={editingRecord}
             accounts={accounts}
             projects={projects}
+            categories={categories}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onUpdateRecord(editingRecord, updated);
@@ -7706,10 +7708,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   );
 }
 
-function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete }: {
+function EditRecordModal({ record, accounts, projects, categories = [], onClose, onSave, onDelete }: {
   record: Transaction,
   accounts: Account[],
   projects: Project[],
+  categories?: Category[],
   onClose: () => void,
   onSave: (updated: Transaction) => void,
   onDelete: () => void
@@ -7731,6 +7734,15 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
+  const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
+  const [selectedMainCat, setSelectedMainCat] = useState<string | null>(null);
+
+  const availableCategories = useMemo(() => {
+    const rawCats = categories && categories.length > 0 ? categories : INITIAL_CATEGORIES;
+    const cats = ensureTransferCategories(rawCats);
+    const targetType = edited.type || 'expense';
+    return cats.filter(c => c.type === targetType);
+  }, [categories, edited.type]);
   const [isInstallment, setIsInstallment] = useState(() => !!record.isInstallment || !!record.installmentGroupId || !!record.installmentId);
   const [totalInstallments, setTotalInstallments] = useState(() => record.totalInstallments || 12);
   const [amountStr, setAmountStr] = useState<string>(() => {
@@ -7880,6 +7892,122 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
               </motion.div>
             </div>
           )}
+
+          {isCategoryPickerOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6" onClick={e => e.stopPropagation()}>
+              <motion.div 
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md"
+                onClick={() => setIsCategoryPickerOpen(false)}
+              />
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+                className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh] z-10"
+                style={getFontFamily()}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="p-6 pb-4 border-b border-stone-50 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    {selectedMainCat && (
+                      <button 
+                        onClick={() => setSelectedMainCat(null)} 
+                        className="p-1 hover:bg-stone-100 rounded-full transition-colors text-[#5D4037]"
+                      >
+                        <ChevronLeft size={20} />
+                      </button>
+                    )}
+                    <h3 className="text-xl font-black text-[#5D4037]">
+                      {selectedMainCat ? `${selectedMainCat} ＞ 子分類` : '選取分類'}
+                    </h3>
+                  </div>
+                  <button 
+                    onClick={() => setIsCategoryPickerOpen(false)} 
+                    className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+                  >
+                    <X size={20} className="text-stone-400" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
+                  {!selectedMainCat ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {availableCategories.map(cat => (
+                        <button
+                          key={cat.id}
+                          onClick={() => {
+                            if (cat.sub && cat.sub.length > 0) {
+                              setSelectedMainCat(cat.name);
+                            } else {
+                              setEdited(prev => ({ ...prev, category: cat.name }));
+                              setIsCategoryPickerOpen(false);
+                            }
+                          }}
+                          className={`p-3.5 rounded-3xl flex items-center gap-3 transition-all text-left ${
+                            edited.category === cat.name || edited.category.startsWith(`${cat.name} ＞`) || edited.category.startsWith(`${cat.name} >`)
+                              ? 'bg-[#FFD54F] shadow-md scale-[1.02]' 
+                              : 'bg-white hover:bg-[#FFFDF5] shadow-sm border border-stone-100'
+                          }`}
+                        >
+                          <div className="w-10 h-10 rounded-2xl bg-white/60 flex items-center justify-center text-xl shrink-0 shadow-sm">
+                            <AccountIcon icon={cat.icon} sizeClassName="w-5 h-5" className="text-xl" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-black text-[#5D4037] text-sm truncate">{cat.name}</div>
+                            {cat.sub && cat.sub.length > 0 && (
+                              <div className="text-[11px] font-bold text-stone-400 truncate">
+                                {cat.sub.length} 個子分類
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => {
+                          setEdited(prev => ({ ...prev, category: selectedMainCat }));
+                          setIsCategoryPickerOpen(false);
+                        }}
+                        className={`w-full p-4 rounded-3xl flex items-center justify-between transition-all ${
+                          edited.category === selectedMainCat
+                            ? 'bg-[#FFD54F] shadow-md scale-[1.01]'
+                            : 'bg-white hover:bg-stone-50 shadow-sm border border-stone-100'
+                        }`}
+                      >
+                        <span className="font-black text-[#5D4037]">（僅使用主分類：{selectedMainCat}）</span>
+                        {edited.category === selectedMainCat && <Check size={18} className="text-[#5D4037]" />}
+                      </button>
+
+                      {availableCategories
+                        .find(c => c.name === selectedMainCat)
+                        ?.sub.map((sub, idx) => {
+                          const fullCatName = `${selectedMainCat} ＞ ${sub}`;
+                          const isSelected = edited.category === fullCatName || edited.category === `${selectedMainCat} > ${sub}`;
+                          return (
+                            <button
+                              key={`${selectedMainCat}-sub-${idx}`}
+                              onClick={() => {
+                                setEdited(prev => ({ ...prev, category: fullCatName }));
+                                setIsCategoryPickerOpen(false);
+                              }}
+                              className={`w-full p-4 rounded-3xl flex items-center justify-between transition-all ${
+                                isSelected
+                                  ? 'bg-[#FFD54F] shadow-md scale-[1.01]'
+                                  : 'bg-white hover:bg-stone-50 shadow-sm border border-stone-100'
+                              }`}
+                            >
+                              <span className="font-bold text-[#5D4037] text-sm">{sub}</span>
+                              {isSelected && <Check size={18} className="text-[#5D4037]" />}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          )}
         </AnimatePresence>
 
         {/* Delete Confirmation Overlay */}
@@ -7954,11 +8082,25 @@ function EditRecordModal({ record, accounts, projects, onClose, onSave, onDelete
 
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類</label>
-              <input 
-                value={edited.category}
-                onChange={e => setEdited({ ...edited, category: e.target.value })}
-                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedMainCat(null);
+                  setIsCategoryPickerOpen(true);
+                }}
+                className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm hover:border-[#FFD54F] transition-all flex items-center justify-between group text-left"
+                style={getFontFamily()}
+              >
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="w-8 h-8 rounded-full bg-[#FFFDF5] border border-stone-100 flex items-center justify-center text-lg shrink-0">
+                    {getCategoryIcon(edited.category, edited.type, availableCategories)}
+                  </div>
+                  <span className="truncate text-base font-black text-[#5D4037]">
+                    {edited.category || '選擇分類'}
+                  </span>
+                </div>
+                <ChevronDown size={20} className="text-stone-400 group-hover:text-[#5D4037] transition-colors shrink-0" />
+              </button>
             </div>
 
             <div className="space-y-2">
@@ -9061,6 +9203,7 @@ function SearchView({
             record={editingRecord}
             accounts={accounts}
             projects={projects}
+            categories={categories}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onUpdateRecord(editingRecord, updated);
@@ -12130,6 +12273,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
             record={editingRecord}
             accounts={accounts}
             projects={projects}
+            categories={categories}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onUpdateRecord(editingRecord, updated);
@@ -13084,6 +13228,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
             record={editingRecord}
             accounts={accounts}
             projects={projects}
+            categories={categories}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onUpdateRecord(editingRecord, updated);
@@ -16675,7 +16820,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       return;
     }
 
-    const catName = subCategory ? (mainCategory ? `${mainCategory} > ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'));
+    const catName = subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'));
     const cat = categories.find(c => c.name === catName || c.sub.includes(catName));
     const resolvedType = (tab === 'template' ? 'expense' : tab);
 
@@ -16723,7 +16868,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     onSave({ 
       amount: finalAmount, 
       fee: finalFee,
-      category: subCategory ? (mainCategory ? `${mainCategory} > ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他')), 
+      category: subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他')), 
       note: note.trim() || undefined,
       type: resolvedType, 
       accountId: selectedAccountId, 
@@ -16802,7 +16947,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       onSave({ 
         amount: finalAmount, 
         fee: finalFee,
-        category: subCategory ? (mainCategory ? `${mainCategory} > ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他')), 
+        category: subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他')), 
         note: note.trim() || undefined,
         type: resolvedType, 
         accountId: selectedAccountId, 
@@ -17130,7 +17275,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               <span className="text-[#000000]">{currentToAccount?.name}</span>
               {(mainCategory || subCategory) && (
                 <span className="text-xs text-stone-500 ml-1 bg-stone-200/60 px-2 py-0.5 rounded-full font-medium">
-                  {subCategory ? (mainCategory ? `${mainCategory} > ${subCategory}` : subCategory) : mainCategory}
+                  {subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : mainCategory}
                 </span>
               )}
             </>
@@ -18194,6 +18339,7 @@ function PrepaymentsView({
             record={editingRecord}
             accounts={accounts}
             projects={projects}
+            categories={categories}
             onClose={() => setEditingRecord(null)}
             onSave={(updated) => {
               onUpdateRecord(editingRecord, updated);
