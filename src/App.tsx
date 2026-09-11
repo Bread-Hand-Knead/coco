@@ -356,6 +356,50 @@ export const ensureTransferCategories = (cats: Category[]): Category[] => {
   return cats;
 };
 
+// 規範為 24 小時制 HH:mm (例如: "19:15", "07:15")
+export function formatTime24(timeStr?: string): string {
+  if (!timeStr || !timeStr.trim()) return '';
+  const raw = timeStr.trim();
+  
+  // 檢查是否含有「下午」、「晚上」、「pm」、「p.m.」
+  const isPM = /下午|晚上|pm|p\.m\./i.test(raw);
+  const isAM = /上午|早上|清晨|am|a\.m\./i.test(raw);
+  
+  const match = raw.match(/(\d{1,2})[:：點](\d{1,2})/);
+  if (!match) return raw;
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  
+  if (isPM && hours < 12) {
+    hours += 12;
+  } else if (isAM && hours === 12) {
+    hours = 0;
+  }
+  
+  const hh = String(hours).padStart(2, '0');
+  const mm = String(minutes).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+// 友善顯示格式：明確標記 24 小時制與 12 小時制前綴 (例如: "19:15 (下午 07:15)" 或 "07:15 (上午 07:15)")
+export function formatTimeDisplay(timeStr?: string): string {
+  if (!timeStr || !timeStr.trim()) return '';
+  const t24 = formatTime24(timeStr);
+  const match = t24.match(/(\d{2}):(\d{2})/);
+  if (!match) return t24;
+  
+  const h = parseInt(match[1], 10);
+  const m = match[2];
+  
+  const period = h >= 12 ? '下午' : '上午';
+  const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+  const h12Str = String(h12).padStart(2, '0');
+  
+  return `${t24} (${period} ${h12Str}:${m})`;
+}
+
+
 const INITIAL_CATEGORIES: Category[] = [
   { id: 'c1', name: '食物', icon: '🍱', type: 'expense', sub: ['早餐', '午餐', '晚餐', '飲料', '零食'], order: 1 },
   { id: 'c2', name: '交通', icon: '🚗', type: 'expense', sub: ['捷運', '公車', '火車', '加油', '停車'], order: 2 },
@@ -6882,15 +6926,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
           className="flex items-center justify-between gap-2.5 sm:gap-3 py-3 cursor-pointer hover:bg-stone-50/60 rounded-2xl px-2.5 -mx-2 transition-colors select-none"
         >
-          {/* 左側資訊區：包含圖示、標題、日期標籤等，min-w-0 與 overflow-hidden 確保絕不溢出至金額區 */}
-          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0 overflow-hidden">
+          {/* 左側資訊區：包含圖示、標題、日期標籤等 */}
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
             {/* 左邊圖示 */}
             <div className="w-12 h-12 sm:w-14 sm:h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-xs border border-white">
               {getCategoryIcon(record.category, record.type, categories)}
             </div>
             
             {/* 中間主要資訊 (直向分層排版) */}
-            <div className="flex-1 min-w-0 flex flex-col gap-[3px] overflow-hidden" style={getFontFamily()}>
+            <div className="flex-1 min-w-0 flex flex-col gap-[3px]" style={getFontFamily()}>
               {/* 第一層（頂部標題） */}
               <span className="font-black text-base text-[#5D4037] break-words leading-snug block">
                 {getTransactionTitle(record)}
@@ -6906,12 +6950,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   const secondAccName = isPos ? currentAccName : counterpartAccName;
                   return (
                     <>
-                      {/* 第二層（日期時間） */}
-                      <div className="text-xs font-bold text-stone-400 truncate block">
+                      {/* 第二層（日期時間）：完整單行呈現時間，移除 truncate 省略號 */}
+                      <div className="text-xs font-bold text-stone-400 whitespace-nowrap block leading-none">
                         {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
                           ? `入帳: ${record.postingDate}` 
                           : `轉帳: ${record.date}`}
-                        {record.time && ` ${record.time}`}
+                        {record.time && ` ${formatTime24(record.time)}`}
                       </div>
                       {/* 第三層（轉帳路徑與標籤） */}
                       <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-[#5D4037]">
@@ -6929,12 +6973,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 })()
               ) : (
                 <>
-                  {/* 第二層（日期時間）：使用 truncate block 避免長字元衝出碰撞金額 */}
-                  <div className="text-xs font-bold text-stone-500 truncate block">
+                  {/* 第二層（日期時間）：完整單行呈現消費日與時間，移除過嚴的省略號截斷 */}
+                  <div className="text-xs font-bold text-stone-500 whitespace-nowrap block leading-none">
                     {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
                       ? `入帳: ${record.postingDate}` 
                       : `消費: ${record.date}`}
-                    {record.time && ` ${record.time}`}
+                    {record.time && ` ${formatTime24(record.time)}`}
                   </div>
 
                   {/* 第三層（狀態標籤：待請款/順延、已轉帳、代墊） */}
@@ -6973,8 +7017,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             </div>
           </div>
           
-          {/* 右側金額與箭頭區：display: flex, align-items: center, flex-shrink: 0 確保金額獨立且不被壓縮 */}
-          <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0 ml-2">
+          {/* 右側金額與箭頭區：固定緊湊配置，flex-shrink: 0 確保金額獨立且不被壓縮，剩餘空間全部分配給左側 */}
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0 ml-1">
             <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
               {/* 金額顯示 */}
               {(() => {
@@ -7090,11 +7134,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   </div>
                 </div>
                 
-                {/* 項目 2：日期 (獨立一行，完整顯示日期與入帳日，禁止垂直斷行) */}
+                {/* 項目 2：日期 (獨立一行，完整顯示日期、時間與入帳日，禁止垂直斷行) */}
                 <div className="flex items-center gap-2.5 w-full">
                   <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">交易日期:</span>
                   <div className="flex-1 min-w-0 font-black text-stone-600 text-xs sm:text-[13px] whitespace-nowrap overflow-x-auto">
-                    {record.date} {record.postingDate ? `(入帳: ${record.postingDate})` : ''}
+                    {record.date} {record.time ? `${formatTime24(record.time)} ` : ''}{record.postingDate ? `(入帳: ${record.postingDate})` : ''}
                   </div>
                 </div>
                 
@@ -7801,8 +7845,12 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
       const otherAcc = accounts.find(a => a.id !== initial.accountId);
       initial.toAccountId = otherAcc?.id || '';
     }
+    if (initial.time) {
+      initial.time = formatTime24(initial.time);
+    }
     return initial;
   });
+  const editTimeInputRef = useRef<HTMLInputElement>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
@@ -8317,15 +8365,37 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-stone-300 uppercase flex items-center gap-1">
-                    <Clock size={10} /> 交易時間
+                    <Clock size={10} /> 交易時間 (24小時制)
                   </label>
-                  <input 
-                    type="time"
-                    value={edited.time || ''}
-                    onChange={e => setEdited({ ...edited, time: e.target.value || undefined })}
-                    className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                  <div 
+                    onClick={() => {
+                      try {
+                        editTimeInputRef.current?.showPicker?.();
+                      } catch (_) {}
+                    }}
+                    className="relative w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus-within:border-[#FFD54F] transition-all flex items-center justify-between cursor-pointer min-h-[48px]"
                     style={getFontFamily()}
-                  />
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <Clock size={15} className="text-[#FFD54F] shrink-0" />
+                      <span className="text-xs sm:text-sm font-black text-[#5D4037] truncate whitespace-nowrap">
+                        {formatTimeDisplay(edited.time) || '未設定時間 (點擊設定)'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-black text-amber-800 bg-[#FFF9E3] border border-[#FFD54F]/40 px-2 py-0.5 rounded-lg flex-shrink-0 ml-1">
+                      24H
+                    </span>
+                    <input 
+                      ref={editTimeInputRef}
+                      type="time"
+                      value={formatTime24(edited.time) || ''}
+                      onChange={e => {
+                        const val = formatTime24(e.target.value);
+                        setEdited({ ...edited, time: val || undefined });
+                      }}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                  </div>
                 </div>
               </div>
               <div className={`flex flex-col gap-1 transition-opacity ${edited.isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
