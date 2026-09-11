@@ -65,6 +65,7 @@ import {
   GripVertical,
   RefreshCw,
   Clock,
+  Copy,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { 
@@ -853,6 +854,12 @@ export default function App() {
     }
   });
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
+  const [duplicatingRecord, setDuplicatingRecord] = useState<Transaction | null>(null);
+
+  const handleDuplicateTransaction = (record: Transaction) => {
+    setDuplicatingRecord(record);
+    setIsRecordModalOpen(true);
+  };
   const [isAiSplitModalOpen, setIsAiSplitModalOpen] = useState(false);
   const [aiSplitInitialTab, setAiSplitInitialTab] = useState<'expense' | 'income'>('expense');
   const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
@@ -2760,6 +2767,7 @@ export default function App() {
                 }}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
+                onDuplicateRecord={handleDuplicateTransaction}
                 accounts={accounts}
                 projects={projects}
                 balance={accountBalances[selectedAccountForDetail.id] || 0}
@@ -2778,6 +2786,7 @@ export default function App() {
                 onBack={() => setCurrentView('home')}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
+                onDuplicateRecord={handleDuplicateTransaction}
                 onReorder={handleReorderRecords}
               />
             )}
@@ -2819,6 +2828,7 @@ export default function App() {
                   onBack={() => setSelectedProjectId(null)}
                   onUpdateRecord={handleUpdateRecord}
                   onDeleteRecord={handleDeleteRecord}
+                  onDuplicateRecord={handleDuplicateTransaction}
                   onAddRecord={() => setIsRecordModalOpen(true)}
                 />
               ) : (
@@ -2858,6 +2868,7 @@ export default function App() {
                 categories={categories}
                 onBack={() => setCurrentView('more')}
                 onUpdateRecord={handleUpdateRecord}
+                onDuplicateRecord={handleDuplicateTransaction}
               />
             )}
             {currentView === 'installments' && (
@@ -2917,6 +2928,7 @@ export default function App() {
                 onBack={() => setCurrentView('home')}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
+                onDuplicateRecord={handleDuplicateTransaction}
                 onReorder={handleReorderRecords}
               />
             )}
@@ -2976,13 +2988,25 @@ export default function App() {
               templates={templates}
               projects={projects}
               initialProjectId={selectedProjectId || undefined}
+              initialRecord={duplicatingRecord}
               onUpdateTemplates={handleUpdateTemplates}
               onUpdateCategories={handleUpdateCategories}
-              onClose={() => setIsRecordModalOpen(false)}
-              onSave={handleSaveRecord}
+              onClose={() => {
+                setIsRecordModalOpen(false);
+                setDuplicatingRecord(null);
+              }}
+              onSave={(r, keepOpen) => {
+                handleSaveRecord(r, keepOpen);
+                if (!keepOpen) setDuplicatingRecord(null);
+              }}
               selectedDate={selectedDate}
               records={records}
-              onOpenAiSplit={(modeTab) => { setAiSplitInitialTab(modeTab); setIsRecordModalOpen(false); setIsAiSplitModalOpen(true); }}
+              onOpenAiSplit={(modeTab) => { 
+                setAiSplitInitialTab(modeTab); 
+                setIsRecordModalOpen(false); 
+                setDuplicatingRecord(null);
+                setIsAiSplitModalOpen(true); 
+              }}
             />
           )}
         </AnimatePresence>
@@ -6066,7 +6090,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   projects: Project[],
   balance: number,
   categories: Category[],
-  onUpdateAccountsList?: React.Dispatch<React.SetStateAction<Account[]>>
+  onUpdateAccountsList?: React.Dispatch<React.SetStateAction<Account[]>>,
+  onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -7197,16 +7222,33 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                             </div>
                           </div>
                           
-                          {/* 項目 5：鉛筆編輯按鈕 */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingRecord(record);
-                            }}
-                            className="w-12 h-12 rounded-2xl bg-[#5D4037] text-white flex items-center justify-center shadow-md active:scale-90 hover:bg-[#4E342E] transition-all flex-shrink-0"
-                          >
-                            <Pencil size={18} />
-                          </button>
+                          {/* 項目 5：再記一筆與鉛筆編輯按鈕 */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {onDuplicateRecord && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDuplicateRecord(record);
+                                }}
+                                className="h-12 px-3.5 rounded-2xl bg-[#FFD54F] text-[#5D4037] flex items-center justify-center gap-1.5 shadow-md active:scale-90 hover:bg-[#ffe082] transition-all font-black text-xs"
+                                title="以此紀錄再記一筆"
+                              >
+                                <Copy size={16} />
+                                <span>再記一筆</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingRecord(record);
+                              }}
+                              className="w-12 h-12 rounded-2xl bg-[#5D4037] text-white flex items-center justify-center shadow-md active:scale-90 hover:bg-[#4E342E] transition-all flex-shrink-0"
+                              title="編輯此紀錄"
+                            >
+                              <Pencil size={18} />
+                            </button>
+                          </div>
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -7604,6 +7646,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               onDeleteRecord(editingRecord);
               setEditingRecord(null);
             }}
+            onDuplicate={(rec) => {
+              setEditingRecord(null);
+              onDuplicateRecord?.(rec);
+            }}
           />
         )}
       </AnimatePresence>
@@ -7708,14 +7754,15 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   );
 }
 
-function EditRecordModal({ record, accounts, projects, categories = [], onClose, onSave, onDelete }: {
+function EditRecordModal({ record, accounts, projects, categories = [], onClose, onSave, onDelete, onDuplicate }: {
   record: Transaction,
   accounts: Account[],
   projects: Project[],
   categories?: Category[],
   onClose: () => void,
   onSave: (updated: Transaction) => void,
-  onDelete: () => void
+  onDelete: () => void,
+  onDuplicate?: (record: Transaction) => void
 }) {
   const [edited, setEdited] = useState<Transaction>(() => {
     const initial = { ...record };
@@ -8047,12 +8094,29 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
             </button>
             <h3 className="text-xl font-black text-[#5D4037]">編輯紀錄</h3>
           </div>
-          <button 
-            onClick={() => setShowDeleteConfirm(true)}
-            className="p-3 text-rose-400 hover:bg-rose-50 rounded-2xl transition-colors active:scale-90"
-          >
-            <Trash2 size={24} />
-          </button>
+          <div className="flex items-center gap-2">
+            {onDuplicate && (
+              <button 
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onDuplicate(record);
+                }}
+                className="px-3.5 py-1.5 bg-[#FFD54F] hover:bg-[#ffe082] text-[#5D4037] rounded-2xl text-xs font-black transition-all flex items-center gap-1.5 shadow-sm active:scale-95 border border-[#FFD54F]"
+                title="以此紀錄再記一筆"
+              >
+                <Copy size={15} className="text-[#5D4037]" />
+                <span>再記一筆</span>
+              </button>
+            )}
+            <button 
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-2 text-rose-400 hover:bg-rose-50 rounded-2xl transition-colors active:scale-90"
+              title="刪除此紀錄"
+            >
+              <Trash2 size={22} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
@@ -9067,7 +9131,8 @@ function SearchView({
   onBack,
   onUpdateRecord,
   onDeleteRecord,
-  onReorder
+  onReorder,
+  onDuplicateRecord
 }: { 
   records: Transaction[], 
   accounts: Account[], 
@@ -9076,7 +9141,8 @@ function SearchView({
   onBack: () => void,
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
   onDeleteRecord: (record: Transaction) => void,
-  onReorder: (records: Transaction[]) => void
+  onReorder: (records: Transaction[]) => void,
+  onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
@@ -9212,6 +9278,10 @@ function SearchView({
             onDelete={() => {
               onDeleteRecord(editingRecord);
               setEditingRecord(null);
+            }}
+            onDuplicate={(rec) => {
+              setEditingRecord(null);
+              onDuplicateRecord?.(rec);
             }}
           />
         )}
@@ -12071,7 +12141,7 @@ function ProjectItem({ project, stats, onProjectClick, onEditProject, isChild }:
   );
 }
 
-function ProjectDetailView({ project, records, accounts, categories, projects, onBack, onUpdateRecord, onDeleteRecord, onAddRecord }: { 
+function ProjectDetailView({ project, records, accounts, categories, projects, onBack, onUpdateRecord, onDeleteRecord, onAddRecord, onDuplicateRecord }: { 
   project: Project, 
   records: Transaction[], 
   accounts: Account[], 
@@ -12080,7 +12150,8 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   onBack: () => void,
   onUpdateRecord: (oldRec: Transaction, newRec: Transaction) => void,
   onDeleteRecord: (rec: Transaction) => void,
-  onAddRecord: () => void
+  onAddRecord: () => void,
+  onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
@@ -12282,6 +12353,10 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
             onDelete={() => {
               onDeleteRecord(editingRecord);
               setEditingRecord(null);
+            }}
+            onDuplicate={(rec) => {
+              setEditingRecord(null);
+              onDuplicateRecord?.(rec);
             }}
           />
         )}
@@ -12929,7 +13004,7 @@ function PlaceholderView({ title, icon, onBack, content }: { title: string, icon
   );
 }
 
-function HistoryView({ records, accounts, categories, projects, filter, currencyMode, onBack, onUpdateRecord, onDeleteRecord, onReorder }: { 
+function HistoryView({ records, accounts, categories, projects, filter, currencyMode, onBack, onUpdateRecord, onDeleteRecord, onReorder, onDuplicateRecord }: { 
   records: Transaction[], 
   accounts: Account[], 
   categories: Category[],
@@ -12939,7 +13014,8 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   onBack: () => void,
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
   onDeleteRecord: (record: Transaction) => void,
-  onReorder: (records: Transaction[]) => void
+  onReorder: (records: Transaction[]) => void,
+  onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'income' | 'transfer'>('all');
@@ -13237,6 +13313,10 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
             onDelete={() => {
               onDeleteRecord(editingRecord);
               setEditingRecord(null);
+            }}
+            onDuplicate={(rec) => {
+              setEditingRecord(null);
+              onDuplicateRecord?.(rec);
             }}
           />
         )}
@@ -16161,12 +16241,13 @@ function HorizontalScrollArea({
   );
 }
 
-function RecordModal({ accounts, categories, templates, projects, initialProjectId, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate, records, onOpenAiSplit }: { 
+function RecordModal({ accounts, categories, templates, projects, initialProjectId, initialRecord, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate, records, onOpenAiSplit }: { 
   accounts: Account[], 
   categories: Category[],
   templates: Template[], 
   projects: Project[],
   initialProjectId?: string,
+  initialRecord?: Transaction | null,
   onUpdateTemplates: (t: Template[]) => void,
   onUpdateCategories: (c: Category[]) => void,
   onClose: () => void, 
@@ -16175,20 +16256,55 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   records: Transaction[],
   onOpenAiSplit: (tab: 'expense' | 'income') => void
 }) {
-  const [tab, setTab] = useState<'template' | 'expense' | 'income' | 'transfer'>('template');
-  const [amount, setAmount] = useState('0');
-  const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
-  const [toAccountId, setToAccountId] = useState(accounts.length > 1 ? accounts[1].id : accounts[0]?.id || '');
-  const [mainCategory, setMainCategory] = useState<string | null>(null);
-  const [subCategory, setSubCategory] = useState<string | null>(null);
-  const [note, setNote] = useState('');
-  const [fee, setFee] = useState('0');
-  const [exchangeRate, setExchangeRate] = useState('1');
-  const [toAmount, setToAmount] = useState('0');
+  const parseCategoryString = (rawCat?: string) => {
+    if (!rawCat) return { main: null, sub: null };
+    if (rawCat.includes(' ＞ ')) {
+      const parts = rawCat.split(' ＞ ');
+      return { main: parts[0].trim(), sub: parts[1]?.trim() || null };
+    }
+    if (rawCat.includes(' > ')) {
+      const parts = rawCat.split(' > ');
+      return { main: parts[0].trim(), sub: parts[1]?.trim() || null };
+    }
+    const catObj = categories.find(c => c.name === rawCat || (c.sub && c.sub.includes(rawCat)));
+    if (catObj) {
+      if (catObj.name === rawCat) {
+        return { main: rawCat, sub: null };
+      } else {
+        return { main: catObj.name, sub: rawCat };
+      }
+    }
+    return { main: rawCat, sub: null };
+  };
+
+  const initialCatParsed = useMemo(() => parseCategoryString(initialRecord?.category), [initialRecord, categories]);
+
+  const [tab, setTab] = useState<'template' | 'expense' | 'income' | 'transfer'>(() => {
+    if (initialRecord) return initialRecord.type;
+    return 'template';
+  });
+  const [amount, setAmount] = useState(() => {
+    if (initialRecord) return Math.abs(initialRecord.amount).toString();
+    return '0';
+  });
+  const [selectedAccountId, setSelectedAccountId] = useState(() => {
+    if (initialRecord?.accountId) return initialRecord.accountId;
+    return accounts[0]?.id || '';
+  });
+  const [toAccountId, setToAccountId] = useState(() => {
+    if (initialRecord?.toAccountId) return initialRecord.toAccountId;
+    return accounts.length > 1 ? accounts[1].id : accounts[0]?.id || '';
+  });
+  const [mainCategory, setMainCategory] = useState<string | null>(() => initialCatParsed.main);
+  const [subCategory, setSubCategory] = useState<string | null>(() => initialCatParsed.sub);
+  const [note, setNote] = useState(() => initialRecord?.note || '');
+  const [fee, setFee] = useState(() => initialRecord?.fee ? initialRecord.fee.toString() : '0');
+  const [exchangeRate, setExchangeRate] = useState(() => initialRecord?.exchangeRate ? initialRecord.exchangeRate.toString() : '1');
+  const [toAmount, setToAmount] = useState(() => initialRecord?.toAmount ? initialRecord.toAmount.toString() : '0');
   const [isInstallment, setIsInstallment] = useState(false);
-  const [isPrepay, setIsPrepay] = useState(false);
+  const [isPrepay, setIsPrepay] = useState(() => !!initialRecord?.isPrepay);
   const [totalInstallments, setTotalInstallments] = useState(1);
-  const [showCalculator, setShowCalculator] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(() => !!initialRecord);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [isTemplateSortOpen, setIsTemplateSortOpen] = useState(false);
 
@@ -16196,8 +16312,21 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     return [...templates].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   }, [templates]);
 
-  const [consumptionDate, setConsumptionDate] = useState(selectedDate);
-  const [postingDate, setPostingDate] = useState(selectedDate);
+  // Date and Time: 當前時間點 (今天的日期與現在的時間)
+  const [consumptionDate, setConsumptionDate] = useState(() => {
+    if (initialRecord) {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+    return selectedDate;
+  });
+  const [postingDate, setPostingDate] = useState(() => {
+    if (initialRecord) {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+    return selectedDate;
+  });
   const [consumptionTime, setConsumptionTime] = useState(() => {
     const now = new Date();
     const hh = String(now.getHours()).padStart(2, '0');
@@ -16206,7 +16335,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   });
   const [isPending, setIsPending] = useState(false);
   const [isDateExpanded, setIsDateExpanded] = useState(true);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId || 'p1');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(
+    initialRecord?.projectId || initialProjectId || 'p1'
+  );
   const dateInputRef = useRef<HTMLInputElement>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
   const postingDateInputRef = useRef<HTMLInputElement>(null);
@@ -16214,6 +16345,39 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const selectedProject = useMemo(() => {
     return projects.find(p => p.id === selectedProjectId);
   }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    if (initialRecord) {
+      setTab(initialRecord.type);
+      setAmount(Math.abs(initialRecord.amount).toString());
+      setSelectedAccountId(initialRecord.accountId || accounts[0]?.id || '');
+      if (initialRecord.toAccountId) {
+        setToAccountId(initialRecord.toAccountId);
+      }
+      const parsed = parseCategoryString(initialRecord.category);
+      setMainCategory(parsed.main);
+      setSubCategory(parsed.sub);
+      setNote(initialRecord.note || '');
+      setSelectedProjectId(initialRecord.projectId || initialProjectId || 'p1');
+      setFee(initialRecord.fee ? initialRecord.fee.toString() : '0');
+      setExchangeRate(initialRecord.exchangeRate ? initialRecord.exchangeRate.toString() : '1');
+      setToAmount(initialRecord.toAmount ? initialRecord.toAmount.toString() : '0');
+      setIsPrepay(!!initialRecord.isPrepay);
+
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const MM = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const todayStr = `${yyyy}-${MM}-${dd}`;
+      setConsumptionDate(todayStr);
+      setPostingDate(todayStr);
+      setConsumptionTime(`${hh}:${mm}`);
+      setShowCalculator(true);
+    }
+  }, [initialRecord]);
+
   // Ensure currency mode affects new records too
   const [currency, setCurrency] = useState(accounts.find(a => a.id === (tab === 'transfer' ? 'acc1' : 'acc1'))?.currency || 'TWD');
 
@@ -18221,17 +18385,19 @@ const getTimestamp = (dateStr: string, timeStr?: string): number => {
 function PrepaymentsView({ 
   records, 
   accounts, 
-  projects,
+  projects, 
   categories, 
   onBack, 
-  onUpdateRecord 
+  onUpdateRecord,
+  onDuplicateRecord
 }: { 
   records: Transaction[], 
   accounts: Account[], 
   projects: Project[],
   categories: Category[], 
-  onBack: () => void,
-  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction) => void
+  onBack: () => void, 
+  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction) => void,
+  onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
 
@@ -18345,6 +18511,10 @@ function PrepaymentsView({
             }}
             onDelete={() => {
               setEditingRecord(null);
+            }}
+            onDuplicate={(rec) => {
+              setEditingRecord(null);
+              onDuplicateRecord?.(rec);
             }}
           />
         )}
