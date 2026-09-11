@@ -6874,401 +6874,411 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   }, [account, accounts, records, dateRangeStrings.filter, creditCardStatements]);
 
   const renderRecord = (record: Transaction) => {
-                const isExpanded = expandedRecordId === record.id;
-                return (
-                  <div key={record.id} className="flex flex-col border-b border-stone-50 last:border-0 py-1">
-                    {/* 主資訊行 (可點選展開) */}
-                    <div 
-                      onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
-                      className="flex items-center gap-4 py-3 cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
-                    >
-                      {/* 左邊圖示 */}
-                      <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
-                        {getCategoryIcon(record.category, record.type, categories)}
+    const isExpanded = expandedRecordId === record.id;
+    return (
+      <div key={record.id} className="flex flex-col border-b border-stone-100/80 last:border-0 py-1">
+        {/* 主資訊行 (可點選展開)：左右分離配置，禁止重疊 */}
+        <div 
+          onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
+          className="flex items-center justify-between gap-2.5 sm:gap-3 py-3 cursor-pointer hover:bg-stone-50/60 rounded-2xl px-2.5 -mx-2 transition-colors select-none"
+        >
+          {/* 左側資訊區：包含圖示、標題、日期標籤等，min-w-0 與 overflow-hidden 確保絕不溢出至金額區 */}
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0 overflow-hidden">
+            {/* 左邊圖示 */}
+            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-xs border border-white">
+              {getCategoryIcon(record.category, record.type, categories)}
+            </div>
+            
+            {/* 中間主要資訊 (直向分層排版) */}
+            <div className="flex-1 min-w-0 flex flex-col gap-[3px] overflow-hidden" style={getFontFamily()}>
+              {/* 第一層（頂部標題） */}
+              <span className="font-black text-base text-[#5D4037] break-words leading-snug block">
+                {getTransactionTitle(record)}
+              </span>
+              
+              {/* 第二層至第四層資訊 */}
+              {record.type === 'transfer' ? (
+                (() => {
+                  const isPos = record.amount > 0;
+                  const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                  const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                  const firstAccName = isPos ? counterpartAccName : currentAccName;
+                  const secondAccName = isPos ? currentAccName : counterpartAccName;
+                  return (
+                    <>
+                      {/* 第二層（日期時間） */}
+                      <div className="text-xs font-bold text-stone-400 truncate block">
+                        {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
+                          ? `入帳: ${record.postingDate}` 
+                          : `轉帳: ${record.date}`}
+                        {record.time && ` ${record.time}`}
                       </div>
-                      
-                      {/* 中間主要資訊 (直向分層排版) */}
-                      <div className="flex-1 min-w-0 flex flex-col gap-[4px]" style={getFontFamily()}>
-                        {/* 第一層（頂部標題） */}
-                        <span className="font-black text-base text-[#5D4037] whitespace-pre-wrap break-all leading-snug block">
-                          {getTransactionTitle(record)}
-                        </span>
-                        
-                        {/* 第二層至第四層資訊 */}
-                        {record.type === 'transfer' ? (
-                          (() => {
-                            const isPos = record.amount > 0;
-                            const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
-                            const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
-                            const firstAccName = isPos ? counterpartAccName : currentAccName;
-                            const secondAccName = isPos ? currentAccName : counterpartAccName;
-                            return (
-                              <>
-                                {/* 第二層（日期時間） */}
-                                <div className="text-xs font-bold text-stone-400 whitespace-nowrap block">
-                                  {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
-                                    ? `入帳: ${record.postingDate}` 
-                                    : `轉帳: ${record.date}`}
-                                  {record.time && ` ${record.time}`}
-                                </div>
-                                {/* 第三層（轉帳路徑與標籤） */}
-                                <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-[#5D4037]">
-                                  <span className="opacity-80 whitespace-nowrap flex-shrink-0">{firstAccName}</span>
-                                  <span className="text-amber-600 font-bold flex-shrink-0">➔</span>
-                                  <span className="opacity-80 font-black text-amber-800 whitespace-nowrap flex-shrink-0">{secondAccName}</span>
-                                  {record.transferredDate && (
-                                    <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold leading-none ml-1">
-                                      已轉帳
-                                    </span>
-                                  )}
-                                </div>
-                              </>
-                            );
-                          })()
-                        ) : (
-                          <>
-                            {/* 第二層（日期時間） */}
-                            <div className="text-xs font-bold text-stone-500 whitespace-nowrap block">
-                              {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
-                                ? `入帳: ${record.postingDate}` 
-                                : `消費: ${record.date}`}
-                              {record.time && ` ${record.time}`}
-                            </div>
-
-                            {/* 第三層（狀態標籤：待請款/順延、已轉帳、代墊） */}
-                            {account.type === 'credit' && (!record.postingDate || record.isPending) && (
-                              <div>
-                                <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-[#FFF4D3] text-[#B87A14] rounded-full font-bold leading-none">
-                                  待請款/順延
-                                </span>
-                              </div>
-                            )}
-                            {record.transferredDate && (
-                              <div>
-                                <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold leading-none">
-                                  已轉帳
-                                </span>
-                              </div>
-                            )}
-                            {record.isPrepay && (
-                              <div>
-                                <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-sky-100 text-sky-700 rounded-full font-bold leading-none">
-                                  代墊
-                                </span>
-                              </div>
-                            )}
-
-                            {/* 第四層（卡別 / 帳戶標籤） */}
-                            {(account.parentId === undefined || account.isBrandGroup) && record.accountId !== account.id && (
-                              <div>
-                                <span className="inline-block whitespace-nowrap w-fit text-[11px] px-3 py-1 bg-[#F3F4F6] text-[#4B5563] rounded-full font-bold leading-none">
-                                  {accounts.find(a => a.id === record.accountId)?.name}
-                                </span>
-                              </div>
-                            )}
-                          </>
+                      {/* 第三層（轉帳路徑與標籤） */}
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-[#5D4037]">
+                        <span className="opacity-80 whitespace-nowrap flex-shrink-0">{firstAccName}</span>
+                        <span className="text-amber-600 font-bold flex-shrink-0">➔</span>
+                        <span className="opacity-80 font-black text-amber-800 whitespace-nowrap flex-shrink-0">{secondAccName}</span>
+                        {record.transferredDate && (
+                          <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold leading-none ml-1">
+                            已轉帳
+                          </span>
                         )}
                       </div>
-                      
-                      {/* 右邊金額與箭頭 */}
-                      <div className="flex items-center gap-3">
-                        <div className="flex flex-col items-end gap-1">
-                          {/* 金額顯示 */}
-                          {(() => {
-                            let isFrom = targetIds.includes(record.accountId);
-                            let isTo = record.toAccountId && targetIds.includes(record.toAccountId);
-                            
-                            if (record.type === 'transfer' || record._isMergedTransfer) {
-                              const { src, dst } = getTransferSourceAndDest(record);
-                              isFrom = targetIds.includes(src);
-                              isTo = dst && targetIds.includes(dst);
-                            }
-                            
-                            let colorClass = 'text-stone-400';
-                            let sign = '';
-                            const twdText = getTwdEquivalentText(records, accounts, record);
-                            
-                            if (record.type === 'transfer' || record._isMergedTransfer) {
-                              if (isFrom && !isTo) {
-                                colorClass = 'text-[#E91E63]';
-                                sign = '-';
-                                const displayAmt = Math.abs(record.amount) + (record.fee || 0);
-                                return (
-                                  <div className="flex flex-col items-end">
-                                    <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
-                                       {sign} $ {Math.abs(displayAmt).toLocaleString()}
-                                    </span>
-                                    {record.fee ? <span className="text-[10px] text-stone-300" style={getFontFamily()}>含手續費 $ {record.fee}</span> : null}
-                                  </div>
-                                );
-                              } else if (isTo && !isFrom) {
-                                colorClass = 'text-[#03A9F4]';
-                                sign = '+';
-                                const displayAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * (record.exchangeRate || 1));
-                                 return (
-                                   <div className="flex flex-col items-end">
-                                     <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
-                                        {sign} $ {Math.abs(displayAmt).toLocaleString()}
-                                     </span>
-                                     {twdText && <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>}
-                                   </div>
-                                 );
-                              } else {
-                                const isOut = record.amount < 0;
-                                colorClass = isOut ? 'text-[#E91E63]' : 'text-[#03A9F4]';
-                                sign = isOut ? '-' : '+';
-                              }
-                            } else if (record.type === 'income') {
-                              colorClass = 'text-[#03A9F4]';
-                              sign = '+';
-                            } else if (record.type === 'expense') {
-                              colorClass = 'text-[#E91E63]';
-                              sign = '-';
-                            }
-                            
-                             return (
-                               <div className="flex flex-col items-end">
-                                 <span className={`font-black text-xl ${colorClass}`} style={getFontFamily()}>
-                                    {sign} $ {Math.abs(record.amount).toLocaleString()}
-                                 </span>
-                                 {twdText && <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>}
-                               </div>
-                             );
-                          })()}
-                          
-                          {/* 轉入轉出標籤 */}
-                          {(record.type === 'transfer' || record._isMergedTransfer) && (
-                            (() => {
-                              let isFrom = targetIds.includes(record.accountId);
-                              if (record.type === 'transfer' || record._isMergedTransfer) {
-                                const { src } = getTransferSourceAndDest(record);
-                                isFrom = targetIds.includes(src);
-                              }
-                              return (
-                                <span className="text-[10px] font-black text-stone-300 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100" style={getFontFamily()}>
-                                  {isFrom ? '轉出' : '轉入'}
-                                </span>
-                              );
-                            })()
-                          )}
-                        </div>
-                        
-                        {/* 展開箭頭 */}
-                        <motion.div
-                          animate={{ rotate: isExpanded ? 180 : 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="text-stone-300"
-                        >
-                          <ChevronDown size={20} />
-                        </motion.div>
-                      </div>
-                    </div>
-                    
-                    {/* 展開詳細資訊區 */}
-                    <AnimatePresence initial={false}>
-                      {isExpanded && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2, ease: 'easeInOut' }}
-                          className="overflow-hidden bg-[#FFFDF8] rounded-[24px] border-2 border-stone-100/40 p-3.5 sm:p-5 mt-1 mb-2 mx-1 shadow-inner flex justify-between items-end gap-2.5 sm:gap-4"
-                          style={getFontFamily()}
-                        >
-                          <div className="flex-1 min-w-0 flex flex-col gap-2.5 text-[13px] font-bold text-[#5D4037]">
-                            {/* 項目 1：分類 */}
-                            <div className="flex items-center gap-2">
-                              <span className="text-stone-400 font-bold min-w-[65px]">交易分類:</span>
-                              <span className="bg-[#FFF9E3] px-3 py-1 rounded-full text-xs font-black text-[#8D6E63] border border-[#FFD54F]/20">
-                                {record.category || (record.type === 'transfer' ? '轉帳' : '未分類')}
-                              </span>
-                            </div>
-                            
-                            {/* 項目 2：日期 */}
-                            <div className="flex items-center gap-2">
-                              <span className="text-stone-400 font-bold min-w-[65px]">交易日期:</span>
-                              <span className="font-black text-stone-600">
-                                {record.date} {record.postingDate ? `(入帳: ${record.postingDate})` : ''}
-                              </span>
-                            </div>
-                            
-                            {/* 項目 3：備註明細 */}
-                            <div className="flex items-start gap-2">
-                              <span className="text-stone-400 font-bold min-w-[65px] pt-1.5">備註明細:</span>
-                              <textarea 
-                                defaultValue={record.note || record.remark || ''}
-                                key={`${record.id}_${record.note || ''}_${record.remark || ''}`}
-                                onClick={e => e.stopPropagation()}
-                                onBlur={(e) => {
-                                  const val = e.target.value.trim();
-                                  if (val !== (record.note || '').trim() || val !== (record.remark || '').trim()) {
-                                    onUpdateRecord(record, { 
-                                      ...record, 
-                                      note: val,
-                                      remark: val 
-                                    });
-                                  }
-                                }}
-                                className="font-bold text-stone-700 break-all bg-white px-3 py-1.5 rounded-xl border border-stone-200 flex-1 min-h-[38px] max-h-[120px] outline-none focus:border-[#FFD54F] shadow-sm text-xs resize-none"
-                                placeholder="無備註 (點擊輸入修改)..."
-                              />
-                            </div>
-
-                            {/* 轉帳附加資訊：手續費與匯率 */}
-                            {(record.type === 'transfer' || record._isMergedTransfer) && (() => {
-                              const { src, dst } = getTransferSourceAndDest(record);
-                              const srcAcc = accounts.find(a => a.id === src);
-                              const dstAcc = accounts.find(a => a.id === dst);
-                              const srcCur = srcAcc?.currency || 'TWD';
-                              const dstCur = dstAcc?.currency || 'TWD';
-                              
-                              const hasConversion = srcCur !== dstCur || !!record.exchangeRate;
-                              const rate = record.exchangeRate || 1;
-                              const toAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * rate);
-                              
-                              let rateStr = '';
-                              if (srcCur === 'TWD' && dstCur !== 'TWD') {
-                                rateStr = `1 ${dstCur} = ${rate} TWD`;
-                              } else if (srcCur !== 'TWD' && dstCur === 'TWD') {
-                                rateStr = `1 ${srcCur} = ${rate} TWD`;
-                              } else {
-                                rateStr = `1 ${srcCur} = ${rate} ${dstCur}`;
-                              }
-                              
-                              return (
-                                <>
-                                  {hasConversion && (
-                                    <>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-stone-400 font-bold min-w-[65px]">當時匯率:</span>
-                                        <span className="font-black text-[#5D4037]">
-                                          {rateStr}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-stone-400 font-bold min-w-[65px]">實收金額:</span>
-                                        <span className="font-black text-[#5D4037]">
-                                          {dstCur} {Math.abs(toAmt).toLocaleString()}
-                                        </span>
-                                      </div>
-                                    </>
-                                  )}
-                                  {record.fee ? (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-stone-400 font-bold min-w-[65px]">手續費:</span>
-                                      <span className="font-black text-rose-500">
-                                        $ {record.fee.toLocaleString()} ({srcCur})
-                                      </span>
-                                    </div>
-                                  ) : null}
-                                </>
-                              );
-                            })()}
-
-                            {/* 項目 3.5：已轉帳狀態與日期 (消費與轉帳皆適用) */}
-                            {(record.type === 'expense' || record.type === 'transfer') && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-stone-400 font-bold min-w-[65px]">轉帳狀態:</span>
-                                {record.transferredDate ? (
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg text-xs font-black border border-emerald-200">
-                                      ✓ 已轉帳 ({record.transferredDate})
-                                    </span>
-                                    <input 
-                                      type="date"
-                                      value={record.transferredDate}
-                                      onClick={e => e.stopPropagation()}
-                                      onChange={(e) => {
-                                        e.stopPropagation();
-                                        onUpdateRecord(record, { ...record, transferredDate: e.target.value || undefined });
-                                      }}
-                                      className="px-1.5 py-0.5 bg-white border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                                    />
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onUpdateRecord(record, { ...record, transferredDate: undefined });
-                                      }}
-                                      className="text-stone-400 hover:text-rose-500 text-xs font-bold px-1"
-                                      title="清除轉帳日期"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onUpdateRecord(record, { ...record, transferredDate: formatLocalDate(new Date()) });
-                                      }}
-                                      className="bg-stone-50 hover:bg-stone-100 text-stone-600 px-2 py-1 rounded-lg text-xs font-bold border border-stone-200 active:scale-95 transition-all"
-                                    >
-                                      標記為已轉帳
-                                    </button>
-                                    <span className="text-[#8C7B72]/70 text-xs">或選擇日期:</span>
-                                    <input 
-                                      type="date"
-                                      onClick={e => e.stopPropagation()}
-                                      onChange={(e) => {
-                                        e.stopPropagation();
-                                        onUpdateRecord(record, { ...record, transferredDate: e.target.value || undefined });
-                                      }}
-                                      className="px-1.5 py-0.5 bg-white border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            
-                            {/* 項目 4：當下餘額或刷卡累積 */}
-                            <div className="flex items-center gap-2 border-t border-dashed border-stone-100 pt-2.5 mt-1">
-                              <span className="text-stone-400 font-bold min-w-[65px]">
-                                {account.type === 'credit' ? '刷卡累積:' : '帳戶餘額:'}
-                              </span>
-                              <span className={`font-black text-sm ${account.type === 'credit' ? 'text-rose-500' : ((balanceMap[record.id] || 0) < 0 ? 'text-rose-400' : 'text-[#5D4037]')}`}>
-                                {account.type === 'credit' 
-                                  ? `$ ${Math.abs(balanceMap[record.id] || 0).toLocaleString()}` 
-                                  : `${(balanceMap[record.id] || 0) < 0 ? '- $ ' : '$ '}${Math.abs(balanceMap[record.id] || 0).toLocaleString()}`
-                                }
-                              </span>
-                            </div>
-                          </div>
-                          
-                          {/* 項目 5：再記一筆與鉛筆編輯按鈕 */}
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {typeof onDuplicateRecord === 'function' && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (typeof onDuplicateRecord === 'function') {
-                                    onDuplicateRecord(record);
-                                  }
-                                }}
-                                className="h-12 px-3.5 rounded-2xl bg-[#FFD54F] text-[#5D4037] flex items-center justify-center gap-1.5 shadow-md active:scale-90 hover:bg-[#ffe082] transition-all font-black text-xs"
-                                title="以此紀錄再記一筆"
-                              >
-                                <Copy size={16} />
-                                <span>再記一筆</span>
-                              </button>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingRecord(record);
-                              }}
-                              className="w-12 h-12 rounded-2xl bg-[#5D4037] text-white flex items-center justify-center shadow-md active:scale-90 hover:bg-[#4E342E] transition-all flex-shrink-0"
-                              title="編輯此紀錄"
-                            >
-                              <Pencil size={18} />
-                            </button>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    </>
+                  );
+                })()
+              ) : (
+                <>
+                  {/* 第二層（日期時間）：使用 truncate block 避免長字元衝出碰撞金額 */}
+                  <div className="text-xs font-bold text-stone-500 truncate block">
+                    {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
+                      ? `入帳: ${record.postingDate}` 
+                      : `消費: ${record.date}`}
+                    {record.time && ` ${record.time}`}
                   </div>
-                );
+
+                  {/* 第三層（狀態標籤：待請款/順延、已轉帳、代墊） */}
+                  {account.type === 'credit' && (!record.postingDate || record.isPending) && (
+                    <div>
+                      <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-[#FFF4D3] text-[#B87A14] rounded-full font-bold leading-none">
+                        待請款/順延
+                      </span>
+                    </div>
+                  )}
+                  {record.transferredDate && (
+                    <div>
+                      <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold leading-none">
+                        已轉帳
+                      </span>
+                    </div>
+                  )}
+                  {record.isPrepay && (
+                    <div>
+                      <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-sky-100 text-sky-700 rounded-full font-bold leading-none">
+                        代墊
+                      </span>
+                    </div>
+                  )}
+
+                  {/* 第四層（卡別 / 帳戶標籤） */}
+                  {(account.parentId === undefined || account.isBrandGroup) && record.accountId !== account.id && (
+                    <div>
+                      <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-[#F3F4F6] text-[#4B5563] rounded-full font-bold leading-none">
+                        {accounts.find(a => a.id === record.accountId)?.name}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+          
+          {/* 右側金額與箭頭區：display: flex, align-items: center, flex-shrink: 0 確保金額獨立且不被壓縮 */}
+          <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0 ml-2">
+            <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+              {/* 金額顯示 */}
+              {(() => {
+                let isFrom = targetIds.includes(record.accountId);
+                let isTo = record.toAccountId && targetIds.includes(record.toAccountId);
+                
+                if (record.type === 'transfer' || record._isMergedTransfer) {
+                  const { src, dst } = getTransferSourceAndDest(record);
+                  isFrom = targetIds.includes(src);
+                  isTo = dst && targetIds.includes(dst);
+                }
+                
+                let colorClass = 'text-stone-400';
+                let sign = '';
+                const twdText = getTwdEquivalentText(records, accounts, record);
+                
+                if (record.type === 'transfer' || record._isMergedTransfer) {
+                  if (isFrom && !isTo) {
+                    colorClass = 'text-[#E91E63]';
+                    sign = '-';
+                    const displayAmt = Math.abs(record.amount) + (record.fee || 0);
+                    return (
+                      <div className="flex flex-col items-end">
+                        <span className={`font-black text-lg sm:text-xl ${colorClass}`} style={getFontFamily()}>
+                           {sign} $ {Math.abs(displayAmt).toLocaleString()}
+                        </span>
+                        {record.fee ? <span className="text-[10px] text-stone-300 font-bold" style={getFontFamily()}>含手續費 $ {record.fee}</span> : null}
+                      </div>
+                    );
+                  } else if (isTo && !isFrom) {
+                    colorClass = 'text-[#03A9F4]';
+                    sign = '+';
+                    const displayAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * (record.exchangeRate || 1));
+                     return (
+                       <div className="flex flex-col items-end">
+                         <span className={`font-black text-lg sm:text-xl ${colorClass}`} style={getFontFamily()}>
+                            {sign} $ {Math.abs(displayAmt).toLocaleString()}
+                         </span>
+                         {twdText && <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>}
+                       </div>
+                     );
+                  } else {
+                    const isOut = record.amount < 0;
+                    colorClass = isOut ? 'text-[#E91E63]' : 'text-[#03A9F4]';
+                    sign = isOut ? '-' : '+';
+                  }
+                } else if (record.type === 'income') {
+                  colorClass = 'text-[#03A9F4]';
+                  sign = '+';
+                } else if (record.type === 'expense') {
+                  colorClass = 'text-[#E91E63]';
+                  sign = '-';
+                }
+                
+                 return (
+                   <div className="flex flex-col items-end">
+                     <span className={`font-black text-lg sm:text-xl ${colorClass}`} style={getFontFamily()}>
+                        {sign} $ {Math.abs(record.amount).toLocaleString()}
+                     </span>
+                     {twdText && <span className="text-[11px] text-stone-400 font-bold" style={getFontFamily()}>{twdText}</span>}
+                   </div>
+                 );
+              })()}
+              
+              {/* 轉入轉出標籤 */}
+              {(record.type === 'transfer' || record._isMergedTransfer) && (
+                (() => {
+                  let isFrom = targetIds.includes(record.accountId);
+                  if (record.type === 'transfer' || record._isMergedTransfer) {
+                    const { src } = getTransferSourceAndDest(record);
+                    isFrom = targetIds.includes(src);
+                  }
+                  return (
+                    <span className="text-[10px] font-black text-stone-300 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100" style={getFontFamily()}>
+                      {isFrom ? '轉出' : '轉入'}
+                    </span>
+                  );
+                })()
+              )}
+            </div>
+            
+            {/* 展開箭頭 */}
+            <motion.div
+              animate={{ rotate: isExpanded ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+              className="text-stone-300 flex-shrink-0"
+            >
+              <ChevronDown size={20} />
+            </motion.div>
+          </div>
+        </div>
+        
+        {/* 展開詳細資訊區：單一垂直直向堆疊 (flex-col)，取消左右分欄與絕對懸浮定位 */}
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="overflow-hidden bg-[#FFFDF8] rounded-[24px] border-2 border-stone-100/40 p-4 sm:p-5 mt-1 mb-2 mx-1 shadow-inner flex flex-col gap-3"
+              style={getFontFamily()}
+            >
+              {/* 上半部：所有資訊欄位 (垂直堆疊，各欄位滿寬呈現，標籤統一寬度對齊) */}
+              <div className="w-full flex flex-col gap-3 text-[13px] font-bold text-[#5D4037]">
+                {/* 項目 1：分類 (獨立一行，膠囊框保持完整橫向寬度，禁止折字) */}
+                <div className="flex items-center gap-2.5 w-full">
+                  <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">交易分類:</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="bg-[#FFF9E3] px-3.5 py-1 rounded-full text-xs font-black text-[#8D6E63] border border-[#FFD54F]/30 whitespace-nowrap inline-flex items-center shadow-xs">
+                      {record.category || (record.type === 'transfer' ? '轉帳' : '未分類')}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* 項目 2：日期 (獨立一行，完整顯示日期與入帳日，禁止垂直斷行) */}
+                <div className="flex items-center gap-2.5 w-full">
+                  <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">交易日期:</span>
+                  <div className="flex-1 min-w-0 font-black text-stone-600 text-xs sm:text-[13px] whitespace-nowrap overflow-x-auto">
+                    {record.date} {record.postingDate ? `(入帳: ${record.postingDate})` : ''}
+                  </div>
+                </div>
+                
+                {/* 項目 3：備註明細 (100% 寬度容器，橫向正常流動，單行即可完整呈現，禁止縱向單字斷行) */}
+                <div className="flex items-start gap-2.5 w-full">
+                  <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px] pt-2">備註明細:</span>
+                  <div className="flex-1 min-w-0 w-full">
+                    <textarea 
+                      defaultValue={record.note || record.remark || ''}
+                      key={`${record.id}_${record.note || ''}_${record.remark || ''}`}
+                      onClick={e => e.stopPropagation()}
+                      onBlur={(e) => {
+                        const val = e.target.value.trim();
+                        if (val !== (record.note || '').trim() || val !== (record.remark || '').trim()) {
+                          onUpdateRecord(record, { 
+                            ...record, 
+                            note: val,
+                            remark: val 
+                          });
+                        }
+                      }}
+                      className="w-full font-bold text-stone-700 bg-white px-3.5 py-2 rounded-xl border border-stone-200 min-h-[38px] max-h-[120px] outline-none focus:border-[#FFD54F] shadow-sm text-xs resize-y block leading-relaxed"
+                      placeholder="無備註 (點擊輸入修改)..."
+                      rows={1}
+                    />
+                  </div>
+                </div>
+
+                {/* 轉帳附加資訊：手續費與匯率 */}
+                {(record.type === 'transfer' || record._isMergedTransfer) && (() => {
+                  const { src, dst } = getTransferSourceAndDest(record);
+                  const srcAcc = accounts.find(a => a.id === src);
+                  const dstAcc = accounts.find(a => a.id === dst);
+                  const srcCur = srcAcc?.currency || 'TWD';
+                  const dstCur = dstAcc?.currency || 'TWD';
+                  
+                  const hasConversion = srcCur !== dstCur || !!record.exchangeRate;
+                  const rate = record.exchangeRate || 1;
+                  const toAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * rate);
+                  
+                  let rateStr = '';
+                  if (srcCur === 'TWD' && dstCur !== 'TWD') {
+                    rateStr = `1 ${dstCur} = ${rate} TWD`;
+                  } else if (srcCur !== 'TWD' && dstCur === 'TWD') {
+                    rateStr = `1 ${srcCur} = ${rate} TWD`;
+                  } else {
+                    rateStr = `1 ${srcCur} = ${rate} ${dstCur}`;
+                  }
+                  
+                  return (
+                    <div className="flex flex-col gap-2 w-full">
+                      {hasConversion && (
+                        <>
+                          <div className="flex items-center gap-2.5 w-full">
+                            <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">當時匯率:</span>
+                            <span className="font-black text-[#5D4037] text-xs sm:text-[13px]">
+                              {rateStr}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2.5 w-full">
+                            <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">實收金額:</span>
+                            <span className="font-black text-[#5D4037] text-xs sm:text-[13px]">
+                              {dstCur} {Math.abs(toAmt).toLocaleString()}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      {record.fee ? (
+                        <div className="flex items-center gap-2.5 w-full">
+                          <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">手續費:</span>
+                          <span className="font-black text-rose-500 text-xs sm:text-[13px]">
+                            $ {record.fee.toLocaleString()} ({srcCur})
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+
+                {/* 項目 3.5：已轉帳狀態與日期 (消費與轉帳皆適用) */}
+                {(record.type === 'expense' || record.type === 'transfer') && (
+                  <div className="flex items-center gap-2.5 w-full flex-wrap">
+                    <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">轉帳狀態:</span>
+                    {record.transferredDate ? (
+                      <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                        <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg text-xs font-black border border-emerald-200 whitespace-nowrap">
+                          ✓ 已轉帳 ({record.transferredDate})
+                        </span>
+                        <input 
+                          type="date"
+                          value={record.transferredDate}
+                          onClick={e => e.stopPropagation()}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            onUpdateRecord(record, { ...record, transferredDate: e.target.value || undefined });
+                          }}
+                          className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                        />
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpdateRecord(record, { ...record, transferredDate: undefined });
+                          }}
+                          className="text-stone-400 hover:text-rose-500 text-xs font-bold px-1.5 py-0.5 rounded hover:bg-stone-100"
+                          title="清除轉帳日期"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpdateRecord(record, { ...record, transferredDate: formatLocalDate(new Date()) });
+                          }}
+                          className="bg-stone-50 hover:bg-stone-100 text-stone-600 px-2.5 py-1 rounded-lg text-xs font-bold border border-stone-200 active:scale-95 transition-all whitespace-nowrap"
+                        >
+                          標記為已轉帳
+                        </button>
+                        <span className="text-[#8C7B72]/70 text-xs whitespace-nowrap">或選擇日期:</span>
+                        <input 
+                          type="date"
+                          onClick={e => e.stopPropagation()}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            onUpdateRecord(record, { ...record, transferredDate: e.target.value || undefined });
+                          }}
+                          className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* 項目 4：當下餘額或刷卡累積 */}
+                <div className="flex items-center gap-2.5 border-t border-dashed border-stone-200/80 pt-2.5 mt-1 w-full">
+                  <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">
+                    {account.type === 'credit' ? '刷卡累積:' : '帳戶餘額:'}
+                  </span>
+                  <span className={`font-black text-sm ${account.type === 'credit' ? 'text-rose-500' : ((balanceMap[record.id] || 0) < 0 ? 'text-rose-400' : 'text-[#5D4037]')}`}>
+                    {account.type === 'credit' 
+                      ? `$ ${Math.abs(balanceMap[record.id] || 0).toLocaleString()}` 
+                      : `${(balanceMap[record.id] || 0) < 0 ? '- $ ' : '$ '}${Math.abs(balanceMap[record.id] || 0).toLocaleString()}`}
+                  </span>
+                </div>
+              </div>
+              
+              {/* 項目 5：底部操作按鈕列 (Footer Actions Row - 獨立最下方一列，完全解除懸浮與覆蓋，絕不遮擋上方文字) */}
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-100 mt-1 w-full">
+                {typeof onDuplicateRecord === 'function' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (typeof onDuplicateRecord === 'function') {
+                        onDuplicateRecord(record);
+                      }
+                    }}
+                    className="h-10 px-4 rounded-xl bg-[#FFD54F] text-[#5D4037] flex items-center justify-center gap-1.5 shadow-xs active:scale-95 hover:bg-[#ffe082] transition-all font-black text-xs border border-[#FFD54F]"
+                    title="以此紀錄再記一筆"
+                  >
+                    <Copy size={15} />
+                    <span>再記一筆</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingRecord(record);
+                  }}
+                  className="h-10 px-4 rounded-xl bg-[#5D4037] text-white flex items-center justify-center gap-1.5 shadow-xs active:scale-95 hover:bg-[#4E342E] transition-all font-black text-xs"
+                  title="編輯此紀錄"
+                >
+                  <Pencil size={15} />
+                  <span>編輯</span>
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
   };
 
   return (
