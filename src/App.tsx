@@ -857,6 +857,7 @@ export default function App() {
   const [duplicatingRecord, setDuplicatingRecord] = useState<Transaction | null>(null);
 
   const handleDuplicateTransaction = (record: Transaction) => {
+    if (!record) return;
     setDuplicatingRecord(record);
     setIsRecordModalOpen(true);
   };
@@ -2738,6 +2739,7 @@ export default function App() {
                   setCurrentView('accountDetail');
                 }}
                 onAddAccount={handleAddAccount}
+                onDuplicateRecord={handleDuplicateTransaction}
                 balances={accountBalances}
                 currencyMode={currencyMode}
                 onCurrencyModeChange={setCurrencyMode}
@@ -4038,7 +4040,8 @@ function AccountsView({
   categories,
   projects,
   onUpdateRecord,
-  onDeleteRecord
+  onDeleteRecord,
+  onDuplicateRecord
 }: { 
   accounts: Account[], 
   netAssets: number,
@@ -4057,7 +4060,8 @@ function AccountsView({
   categories: Category[],
   projects: Project[],
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
-  onDeleteRecord: (record: Transaction) => void
+  onDeleteRecord: (record: Transaction) => void,
+  onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [showAmounts, setShowAmounts] = useState(true);
@@ -4263,6 +4267,7 @@ function AccountsView({
           projects={projects}
           onUpdateRecord={onUpdateRecord}
           onDeleteRecord={onDeleteRecord}
+          onDuplicateRecord={onDuplicateRecord}
         />
       ) : (
         <>
@@ -4660,7 +4665,8 @@ function InvestmentSection({
   categories,
   projects,
   onUpdateRecord,
-  onDeleteRecord
+  onDeleteRecord,
+  onDuplicateRecord
 }: {
   records: Transaction[],
   accounts: Account[],
@@ -4671,7 +4677,8 @@ function InvestmentSection({
   categories: Category[],
   projects: Project[],
   onUpdateRecord: (old: Transaction, updated: Transaction) => void,
-  onDeleteRecord: (record: Transaction) => void
+  onDeleteRecord: (record: Transaction) => void,
+  onDuplicateRecord?: (record: Transaction) => void
 }) {
   // states for stock add/edit
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
@@ -5973,6 +5980,12 @@ function InvestmentSection({
             onDeleteRecord(editingRecord);
             setEditingRecord(null);
           }}
+          onDuplicate={(rec) => {
+            setEditingRecord(null);
+            if (typeof onDuplicateRecord === 'function') {
+              onDuplicateRecord(rec);
+            }
+          }}
         />
       )}
 
@@ -6078,7 +6091,7 @@ function InvestmentSection({
   );
 }
 
-function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, projects, balance, categories, onUpdateAccountsList }: { 
+function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, projects, balance, categories, onUpdateAccountsList, onDuplicateRecord }: { 
   account: Account, 
   records: Transaction[],
   selectedDate: string,
@@ -7224,12 +7237,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                           
                           {/* 項目 5：再記一筆與鉛筆編輯按鈕 */}
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {onDuplicateRecord && (
+                            {typeof onDuplicateRecord === 'function' && (
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  onDuplicateRecord(record);
+                                  if (typeof onDuplicateRecord === 'function') {
+                                    onDuplicateRecord(record);
+                                  }
                                 }}
                                 className="h-12 px-3.5 rounded-2xl bg-[#FFD54F] text-[#5D4037] flex items-center justify-center gap-1.5 shadow-md active:scale-90 hover:bg-[#ffe082] transition-all font-black text-xs"
                                 title="以此紀錄再記一筆"
@@ -8095,12 +8110,14 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
             <h3 className="text-xl font-black text-[#5D4037]">編輯紀錄</h3>
           </div>
           <div className="flex items-center gap-2">
-            {onDuplicate && (
+            {typeof onDuplicate === 'function' && (
               <button 
                 type="button"
                 onClick={() => {
                   onClose();
-                  onDuplicate(record);
+                  if (typeof onDuplicate === 'function') {
+                    onDuplicate(record);
+                  }
                 }}
                 className="px-3.5 py-1.5 bg-[#FFD54F] hover:bg-[#ffe082] text-[#5D4037] rounded-2xl text-xs font-black transition-all flex items-center gap-1.5 shadow-sm active:scale-95 border border-[#FFD54F]"
                 title="以此紀錄再記一筆"
