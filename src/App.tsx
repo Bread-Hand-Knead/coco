@@ -7817,7 +7817,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete) => {
+            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
                 setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
                 if (user) {
@@ -7826,6 +7826,37 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       await deleteFromCloud('transactions', id);
                     } catch (e) {
                       console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
+              }
+              if (restoredIds && restoredIds.length > 0) {
+                setRecords(prev => prev.map(r => {
+                  if (restoredIds.includes(r.id)) {
+                    return {
+                      ...r,
+                      parentTransactionId: undefined,
+                      isChildTransaction: false
+                    };
+                  }
+                  return r;
+                }));
+                if (user) {
+                  for (const id of restoredIds) {
+                    try {
+                      const recToRestore = records.find(r => r.id === id);
+                      if (recToRestore) {
+                        const restored = {
+                          ...recToRestore,
+                          parentTransactionId: undefined,
+                          isChildTransaction: false
+                        };
+                        delete (restored as any).parentTransactionId;
+                        delete (restored as any).isChildTransaction;
+                        await syncToCloud('transactions', restored, id);
+                      }
+                    } catch (e) {
+                      console.error('還原解拆紀錄失敗:', e);
                     }
                   }
                 }
@@ -7952,7 +7983,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   projects: Project[],
   categories?: Category[],
   onClose: () => void,
-  onSave: (updated: Transaction, mergedRecordIdsToDelete?: string[]) => void,
+  onSave: (updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
   onDelete: () => void,
   onDuplicate?: (record: Transaction) => void
 }) {
@@ -7984,6 +8015,88 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   const [selectedMergeIds, setSelectedMergeIds] = useState<string[]>([]);
   const [mergeSearch, setMergeSearch] = useState('');
   const [mergedRecordIdsToDelete, setMergedRecordIdsToDelete] = useState<string[]>([]);
+  const [restoredRecordIds, setRestoredRecordIds] = useState<string[]>([]);
+
+  const [initialOriginalAmount] = useState<number>(() => {
+    if (record.subItems && record.subItems.length > 0) {
+      const nonMergedSubs = record.subItems.filter(s => !s.originalRecordId);
+      if (nonMergedSubs.length > 0) {
+        return nonMergedSubs.reduce((sum, s) => sum + Math.abs(s.amount), 0);
+      }
+    }
+    return Math.abs(record.amount);
+  });
+
+  const handleRemoveSubItem = (idx: number) => {
+    if (!edited.subItems) return;
+    const itemToRemove = edited.subItems[idx];
+    const updatedSubs = edited.subItems.filter((_, i) => i !== idx);
+
+    if (itemToRemove && itemToRemove.originalRecordId) {
+      const origId = itemToRemove.originalRecordId;
+      setMergedRecordIdsToDelete(prev => prev.filter(id => id !== origId));
+      setRestoredRecordIds(prev => Array.from(new Set([...prev, origId])));
+    }
+
+    if (updatedSubs.length === 0) {
+      const restoredAmt = initialOriginalAmount;
+      const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
+      setEdited({
+        ...edited,
+        note: baseTitle,
+        subItems: undefined,
+        amount: edited.type === 'expense' || edited.type === 'transfer' ? -restoredAmt : restoredAmt
+      });
+      setAmountStr(restoredAmt.toString());
+    } else {
+      const subTotal = updatedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
+      const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
+      const updatedNote = updatedSubs.length > 1 ? `${baseTitle} 等 ${updatedSubs.length} 類明細` : baseTitle;
+      
+      setEdited({
+        ...edited,
+        note: updatedNote,
+        subItems: updatedSubs,
+        amount: edited.type === 'expense' || edited.type === 'transfer' ? -subTotal : subTotal
+      });
+      setAmountStr(subTotal.toString());
+    }
+  };
+
+  const handleClearSubItems = () => {
+    if (edited.subItems) {
+      edited.subItems.forEach(item => {
+        if (item.originalRecordId) {
+          const origId = item.originalRecordId;
+          setMergedRecordIdsToDelete(prev => prev.filter(id => id !== origId));
+          setRestoredRecordIds(prev => Array.from(new Set([...prev, origId])));
+        }
+      });
+    }
+
+    const restoredAmt = initialOriginalAmount;
+    const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
+
+    setEdited({
+      ...edited,
+      note: baseTitle,
+      subItems: undefined,
+      amount: edited.type === 'expense' || edited.type === 'transfer' ? -restoredAmt : restoredAmt
+    });
+    setAmountStr(restoredAmt.toString());
+  };
+
+  const handleUpdateSubItemAmount = (idx: number, amtVal: number) => {
+    if (!edited.subItems) return;
+    const updatedSubs = edited.subItems.map((s, i) => i === idx ? { ...s, amount: amtVal } : s);
+    const newSum = updatedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
+    setEdited({
+      ...edited,
+      subItems: updatedSubs,
+      amount: edited.type === 'expense' || edited.type === 'transfer' ? -newSum : newSum
+    });
+    setAmountStr(newSum.toString());
+  };
 
   const mergeCandidates = useMemo(() => {
     if (!records || records.length === 0) return [];
@@ -8035,6 +8148,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
 
     const newSubs: SubItem[] = selectedRecords.map((r, idx) => ({
       id: `sub_${Date.now()}_merge_${idx}`,
+      originalRecordId: r.id,
       name: r.note || r.merchant || `合併明細 ${idx + 1}`,
       amount: Math.abs(r.amount),
       category: r.category || edited.category,
@@ -8533,15 +8647,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                         <div key={subItem.id || idx} className="bg-white p-3 rounded-xl border border-stone-200/80 space-y-2 relative shadow-xs">
                           <button
                             type="button"
-                            onClick={() => {
-                              const updatedSubs = edited.subItems?.filter((_, i) => i !== idx);
-                              const subTotal = updatedSubs?.reduce((s, i) => s + Math.abs(i.amount), 0) || 0;
-                              setEdited({
-                                ...edited,
-                                subItems: updatedSubs && updatedSubs.length > 0 ? updatedSubs : undefined,
-                                amount: subTotal > 0 ? -subTotal : edited.amount
-                              });
-                            }}
+                            onClick={() => handleRemoveSubItem(idx)}
                             className="absolute top-2 right-2 p-1 text-stone-300 hover:text-rose-500 transition-colors"
                             title="刪除子項目"
                           >
@@ -8569,14 +8675,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                                 value={subItem.amount}
                                 onChange={e => {
                                   const amtVal = parseFloat(e.target.value) || 0;
-                                  const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, amount: amtVal } : s);
-                                  const newSum = updatedSubs?.reduce((sum, item) => sum + Math.abs(item.amount), 0) || 0;
-                                  setEdited({
-                                    ...edited,
-                                    subItems: updatedSubs,
-                                    amount: -newSum
-                                  });
-                                  setAmountStr(newSum.toString());
+                                  handleUpdateSubItemAmount(idx, amtVal);
                                 }}
                                 className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
                               />
@@ -8937,7 +9036,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                   toAccountId: resolvedType === 'transfer' ? finalToAccountId : undefined,
                   isInstallment,
                   totalInstallments: isInstallment ? totalInstallments : undefined
-                }, mergedRecordIdsToDelete);
+                }, mergedRecordIdsToDelete, restoredRecordIds);
               }}
               className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
             >
@@ -9830,7 +9929,7 @@ function SearchView({
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete) => {
+            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
                 setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
                 if (user) {
@@ -9839,6 +9938,37 @@ function SearchView({
                       await deleteFromCloud('transactions', id);
                     } catch (e) {
                       console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
+              }
+              if (restoredIds && restoredIds.length > 0) {
+                setRecords(prev => prev.map(r => {
+                  if (restoredIds.includes(r.id)) {
+                    return {
+                      ...r,
+                      parentTransactionId: undefined,
+                      isChildTransaction: false
+                    };
+                  }
+                  return r;
+                }));
+                if (user) {
+                  for (const id of restoredIds) {
+                    try {
+                      const recToRestore = records.find(r => r.id === id);
+                      if (recToRestore) {
+                        const restored = {
+                          ...recToRestore,
+                          parentTransactionId: undefined,
+                          isChildTransaction: false
+                        };
+                        delete (restored as any).parentTransactionId;
+                        delete (restored as any).isChildTransaction;
+                        await syncToCloud('transactions', restored, id);
+                      }
+                    } catch (e) {
+                      console.error('還原解拆紀錄失敗:', e);
                     }
                   }
                 }
@@ -12919,7 +13049,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete) => {
+            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
                 setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
                 if (user) {
@@ -12928,6 +13058,37 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                       await deleteFromCloud('transactions', id);
                     } catch (e) {
                       console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
+              }
+              if (restoredIds && restoredIds.length > 0) {
+                setRecords(prev => prev.map(r => {
+                  if (restoredIds.includes(r.id)) {
+                    return {
+                      ...r,
+                      parentTransactionId: undefined,
+                      isChildTransaction: false
+                    };
+                  }
+                  return r;
+                }));
+                if (user) {
+                  for (const id of restoredIds) {
+                    try {
+                      const recToRestore = records.find(r => r.id === id);
+                      if (recToRestore) {
+                        const restored = {
+                          ...recToRestore,
+                          parentTransactionId: undefined,
+                          isChildTransaction: false
+                        };
+                        delete (restored as any).parentTransactionId;
+                        delete (restored as any).isChildTransaction;
+                        await syncToCloud('transactions', restored, id);
+                      }
+                    } catch (e) {
+                      console.error('還原解拆紀錄失敗:', e);
                     }
                   }
                 }
@@ -13893,7 +14054,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete) => {
+            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
                 setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
                 if (user) {
@@ -13902,6 +14063,37 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                       await deleteFromCloud('transactions', id);
                     } catch (e) {
                       console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
+              }
+              if (restoredIds && restoredIds.length > 0) {
+                setRecords(prev => prev.map(r => {
+                  if (restoredIds.includes(r.id)) {
+                    return {
+                      ...r,
+                      parentTransactionId: undefined,
+                      isChildTransaction: false
+                    };
+                  }
+                  return r;
+                }));
+                if (user) {
+                  for (const id of restoredIds) {
+                    try {
+                      const recToRestore = records.find(r => r.id === id);
+                      if (recToRestore) {
+                        const restored = {
+                          ...recToRestore,
+                          parentTransactionId: undefined,
+                          isChildTransaction: false
+                        };
+                        delete (restored as any).parentTransactionId;
+                        delete (restored as any).isChildTransaction;
+                        await syncToCloud('transactions', restored, id);
+                      }
+                    } catch (e) {
+                      console.error('還原解拆紀錄失敗:', e);
                     }
                   }
                 }
@@ -19107,7 +19299,7 @@ function PrepaymentsView({
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete) => {
+            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
                 setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
                 if (user) {
@@ -19116,6 +19308,37 @@ function PrepaymentsView({
                       await deleteFromCloud('transactions', id);
                     } catch (e) {
                       console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
+              }
+              if (restoredIds && restoredIds.length > 0) {
+                setRecords(prev => prev.map(r => {
+                  if (restoredIds.includes(r.id)) {
+                    return {
+                      ...r,
+                      parentTransactionId: undefined,
+                      isChildTransaction: false
+                    };
+                  }
+                  return r;
+                }));
+                if (user) {
+                  for (const id of restoredIds) {
+                    try {
+                      const recToRestore = records.find(r => r.id === id);
+                      if (recToRestore) {
+                        const restored = {
+                          ...recToRestore,
+                          parentTransactionId: undefined,
+                          isChildTransaction: false
+                        };
+                        delete (restored as any).parentTransactionId;
+                        delete (restored as any).isChildTransaction;
+                        await syncToCloud('transactions', restored, id);
+                      }
+                    } catch (e) {
+                      console.error('還原解拆紀錄失敗:', e);
                     }
                   }
                 }
