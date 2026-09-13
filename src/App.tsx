@@ -220,6 +220,7 @@ interface SubItem {
   name: string;
   amount: number;
   category?: string;
+  projectId?: string;
   isPrepay?: boolean; // false: 個人支出 (我的), true: 家裡代墊 (家裡的)
 }
 
@@ -380,6 +381,31 @@ export const ensureTransferCategories = (cats: Category[]): Category[] => {
   }
   return cats;
 };
+
+export function findMatchingProjectId(categoryName: string | undefined | null, projects: Project[]): string | null {
+  if (!categoryName || !projects || projects.length === 0) return null;
+  const clean = categoryName.trim();
+  if (!clean) return null;
+
+  const parts = clean.split(/\s*(?:＞|>)\s*/).map(p => p.trim()).filter(Boolean);
+  
+  const namesToTry: string[] = [];
+  if (parts.length > 1) {
+    namesToTry.push(parts[1]);
+    namesToTry.push(parts.join(' > '));
+    namesToTry.push(parts.join(' ＞ '));
+    namesToTry.push(parts[0]);
+  } else {
+    namesToTry.push(clean);
+  }
+
+  for (const candidate of namesToTry) {
+    if (!candidate) continue;
+    const match = projects.find(p => p.name.trim().toLowerCase() === candidate.toLowerCase());
+    if (match) return match.id;
+  }
+  return null;
+}
 
 // 規範為 24 小時制 HH:mm (例如: "19:15", "07:15")
 export function formatTime24(timeStr?: string): string {
@@ -3155,6 +3181,7 @@ export default function App() {
               onClose={() => setIsAiSplitModalOpen(false)}
               accounts={accounts}
               categories={categories}
+              projects={projects}
               user={user}
               onSaveBatch={handleSaveBatchRecords}
             />
@@ -8431,7 +8458,12 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                             if (cat.sub && cat.sub.length > 0) {
                               setSelectedMainCat(cat.name);
                             } else {
-                              setEdited(prev => ({ ...prev, category: cat.name }));
+                              const matchPid = findMatchingProjectId(cat.name, projects);
+                              setEdited(prev => ({
+                                ...prev,
+                                category: cat.name,
+                                ...(matchPid ? { projectId: matchPid } : {})
+                              }));
                               setIsCategoryPickerOpen(false);
                             }
                           }}
@@ -8459,7 +8491,12 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                     <div className="space-y-2">
                       <button
                         onClick={() => {
-                          setEdited(prev => ({ ...prev, category: selectedMainCat }));
+                          const matchPid = findMatchingProjectId(selectedMainCat, projects);
+                          setEdited(prev => ({
+                            ...prev,
+                            category: selectedMainCat,
+                            ...(matchPid ? { projectId: matchPid } : {})
+                          }));
                           setIsCategoryPickerOpen(false);
                         }}
                         className={`w-full p-4 rounded-3xl flex items-center justify-between transition-all ${
@@ -8481,7 +8518,12 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                             <button
                               key={`${selectedMainCat}-sub-${idx}`}
                               onClick={() => {
-                                setEdited(prev => ({ ...prev, category: fullCatName }));
+                                const matchPid = findMatchingProjectId(fullCatName, projects);
+                                setEdited(prev => ({
+                                  ...prev,
+                                  category: fullCatName,
+                                  ...(matchPid ? { projectId: matchPid } : {})
+                                }));
                                 setIsCategoryPickerOpen(false);
                               }}
                               className={`w-full p-4 rounded-3xl flex items-center justify-between transition-all ${
@@ -17099,6 +17141,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
   }, [initialRecord]);
 
+  // 自動同步同名分類與專案 (Auto sync matching category to project)
+  useEffect(() => {
+    if (!mainCategory) return;
+    const fullCatName = subCategory ? `${mainCategory} ＞ ${subCategory}` : mainCategory;
+    const matchPid = findMatchingProjectId(fullCatName, projects);
+    if (matchPid) {
+      setSelectedProjectId(matchPid);
+    }
+  }, [mainCategory, subCategory, projects]);
+
   // Ensure currency mode affects new records too
   const [currency, setCurrency] = useState(accounts.find(a => a.id === (tab === 'transfer' ? 'acc1' : 'acc1'))?.currency || 'TWD');
 
@@ -19253,11 +19305,12 @@ interface AiSplitModalProps {
   onClose: () => void;
   accounts: Account[];
   categories: Category[];
+  projects: Project[];
   user: User | null;
   onSaveBatch: (records: any[]) => Promise<void>;
 }
 
-function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categories, user, onSaveBatch }: AiSplitModalProps) {
+function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categories, projects, user, onSaveBatch }: AiSplitModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [rawText, setRawText] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
@@ -19275,7 +19328,7 @@ function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categ
   const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('gemini_api_key') || '');
   const [isParsing, setIsParsing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [parsedItems, setParsedItems] = useState<{ name: string; amount: number; category: string; isPrepay: boolean }[]>([]);
+  const [parsedItems, setParsedItems] = useState<{ name: string; amount: number; category: string; projectId?: string; isPrepay: boolean }[]>([]);
 
   const targetType = initialTab === 'income' ? 'income' : 'expense';
 
@@ -19448,13 +19501,18 @@ ${categoriesString}
         }
       }
 
-      // Filter and clean items
-      const items = rawItems.map((item: any) => ({
-        name: filterTaiwanTerms(item.name || '未命名項目'),
-        amount: Math.abs(parseInt(item.amount) || 0),
-        category: targetCategories.includes(item.category) ? item.category : (targetCategories[0] || '其他'),
-        isPrepay: !!item.isPrepay
-      }));
+      // Filter and clean items with auto category-to-project matching
+      const items = rawItems.map((item: any) => {
+        const cat = targetCategories.includes(item.category) ? item.category : (targetCategories[0] || '其他');
+        const matchPid = findMatchingProjectId(cat, projects);
+        return {
+          name: filterTaiwanTerms(item.name || '未命名項目'),
+          amount: Math.abs(parseInt(item.amount) || 0),
+          category: cat,
+          projectId: matchPid || undefined,
+          isPrepay: !!item.isPrepay
+        };
+      });
 
       setParsedItems(items);
       setStep(2);
@@ -19467,7 +19525,17 @@ ${categoriesString}
   };
 
   const handleUpdateItem = (index: number, key: string, value: any) => {
-    setParsedItems(prev => prev.map((item, i) => i === index ? { ...item, [key]: value } : item));
+    setParsedItems(prev => prev.map((item, i) => {
+      if (i !== index) return item;
+      const updated = { ...item, [key]: value };
+      if (key === 'category') {
+        const matchPid = findMatchingProjectId(value, projects);
+        if (matchPid) {
+          updated.projectId = matchPid;
+        }
+      }
+      return updated;
+    }));
   };
 
   const handleDeleteItem = (index: number) => {
@@ -19475,12 +19543,15 @@ ${categoriesString}
   };
 
   const handleAddItem = () => {
+    const defaultCat = targetCategories[0] || '其他';
+    const matchPid = findMatchingProjectId(defaultCat, projects);
     setParsedItems(prev => [
       ...prev,
       {
         name: '新項目',
         amount: 0,
-        category: targetCategories[0] || '其他',
+        category: defaultCat,
+        projectId: matchPid || undefined,
         isPrepay: false
       }
     ]);
@@ -19529,6 +19600,7 @@ ${categoriesString}
         name: filterTaiwanTerms(item.name),
         amount: Math.abs(item.amount),
         category: filterTaiwanTerms(item.category),
+        projectId: item.projectId,
         isPrepay: item.isPrepay
       }));
 
@@ -19548,6 +19620,7 @@ ${categoriesString}
         postingDate: transactionDate,
         type: targetType as 'income' | 'expense',
         accountId: selectedAccountId,
+        projectId: parsedItems[0]?.projectId || undefined,
         isPrepay: allPrepay,
         subItems: subItemsList
       };
@@ -19822,14 +19895,14 @@ ${categoriesString}
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 border-t border-stone-100 pt-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2.5">
                       {/* Category select */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] font-bold text-stone-400">分類：</span>
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-[9px] font-bold text-stone-400 shrink-0">分類：</span>
                         <select
                           value={item.category}
                           onChange={e => handleUpdateItem(index, 'category', e.target.value)}
-                          className="bg-white border border-stone-200 rounded-xl px-2.5 py-1 text-xs font-bold text-[#5D4037] outline-none"
+                          className="bg-white border border-stone-200 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none max-w-[120px] truncate cursor-pointer"
                           style={getFontFamily()}
                         >
                           {targetCategories.map(cat => (
@@ -19838,17 +19911,36 @@ ${categoriesString}
                         </select>
                       </div>
 
+                      {/* Project select */}
+                      <div className="flex items-center gap-1 min-w-0 z-10 relative">
+                        <span className="text-[9px] font-bold text-stone-400 shrink-0">專案：</span>
+                        <select
+                          value={item.projectId || 'p1'}
+                          onChange={e => {
+                            e.stopPropagation();
+                            handleUpdateItem(index, 'projectId', e.target.value);
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          className="bg-white border border-stone-200 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none cursor-pointer pointer-events-auto max-w-[110px] truncate shadow-sm hover:border-[#FFD54F] transition-all"
+                          style={{ ...getFontFamily(), pointerEvents: 'auto' }}
+                        >
+                          {projects.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
                       {/* Attributable Prepay Switch */}
                       <button
                         type="button"
                         onClick={() => handleUpdateItem(index, 'isPrepay', !item.isPrepay)}
-                        className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all border flex items-center gap-1 active:scale-95 ${
+                        className={`px-2.5 py-1 rounded-xl font-black text-xs transition-all border flex items-center gap-1 active:scale-95 shrink-0 ${
                           item.isPrepay
                             ? 'bg-amber-100/80 border-amber-300 text-amber-900 shadow-sm'
                             : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
                         }`}
                       >
-                        <span>{item.isPrepay ? '🏠 家裡代墊 (家裡的)' : '🛒 個人支出 (我的)'}</span>
+                        <span>{item.isPrepay ? '🏠 代墊' : '🛒 個人'}</span>
                       </button>
                     </div>
                   </div>
