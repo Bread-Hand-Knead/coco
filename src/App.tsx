@@ -6050,8 +6050,8 @@ function InvestmentSection({
                 </button>
               </div>
 
-              {/* Body: Mobile single-column, Desktop 2-column split (grid-cols-1 md:grid-cols-2) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
+              {/* Body: Mobile single-column, Desktop 2-column split (38% : 62% / 0.8fr : 1.2fr) */}
+              <div className="grid grid-cols-1 md:grid-cols-[0.8fr_1.2fr] gap-5 flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
                 {/* Left Column: Overview Stats */}
                 <div className="flex flex-col gap-4 shrink-0">
                   <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block">持股數據總覽</span>
@@ -6102,12 +6102,12 @@ function InvestmentSection({
                           >
                             <div className="flex flex-col gap-1 min-w-0 flex-1">
                               <span className="text-sm font-black text-[#5D4037] leading-snug truncate">{r.note}</span>
-                              <div className="flex items-center gap-2 text-xs text-stone-600 font-bold">
-                                <span>{r.date.replace(/-/g, '/')}</span>
+                              <div className="flex items-center gap-2 text-xs text-stone-600 font-bold flex-wrap sm:flex-nowrap">
+                                <span className="shrink-0">{r.date.replace(/-/g, '/')}</span>
                                 {acc && (
                                   <>
-                                    <span className="text-stone-300">•</span>
-                                    <span className="flex items-center gap-1 text-[#5D4037]/80 truncate">{acc.icon} {acc.name}</span>
+                                    <span className="text-stone-300 shrink-0">•</span>
+                                    <span className="flex items-center gap-1 text-[#5D4037]/80 whitespace-nowrap">{acc.icon} {acc.name}</span>
                                   </>
                                 )}
                               </div>
