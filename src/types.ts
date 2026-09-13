@@ -35,6 +35,11 @@ export interface Transaction {
   isPrepay?: boolean;
   isSettled?: boolean;
   subItems?: SubItem[];
+  parentId?: string | null;
+  subItemIds?: string[];
+  baseAmount?: number;
+  parentTransactionId?: string;
+  isChildTransaction?: boolean;
   parentTransactionId?: string;
   isChildTransaction?: boolean;
 }

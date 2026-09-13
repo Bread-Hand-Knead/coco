@@ -254,6 +254,11 @@ interface Transaction {
   currency?: string;   // 幣別 (如 "TWD", "USD", "JPY", "KRW")
   order?: number;
   subItems?: SubItem[];
+  parentId?: string | null;
+  subItemIds?: string[];
+  baseAmount?: number;
+  parentTransactionId?: string;
+  isChildTransaction?: boolean;
   parentTransactionId?: string;
   isChildTransaction?: boolean;
   _importSourceAccountName?: string;
@@ -641,7 +646,7 @@ const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: s
 };
 
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
-  const cleanedTxs = txs.filter(t => !t.parentTransactionId && !t.isChildTransaction);
+  const cleanedTxs = txs.filter(t => !t.parentId && !t.parentTransactionId && !t.isChildTransaction);
 
   const result: Transaction[] = [];
   const matchedIds = new Set<string>();
@@ -1871,7 +1876,7 @@ export default function App() {
 
     // Filter records based on currency mode
     const filteredByCurrency = records.filter(r => {
-      if (r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       const cur = r.currency || 'TWD';
       // If currencyMode is null or TWD, show TWD. If FOREIGN, show non-TWD
       if (currencyMode === 'FOREIGN') return cur !== 'TWD';
@@ -4179,7 +4184,7 @@ function AccountsView({
   onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
   categories: Category[],
   projects: Project[],
-  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
@@ -4796,7 +4801,7 @@ function InvestmentSection({
   onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
   categories: Category[],
   projects: Project[],
-  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
@@ -6224,7 +6229,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   selectedDate: string,
   onBack: () => void,
   onEdit: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   accounts: Account[],
   projects: Project[],
@@ -6495,7 +6500,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const targetYearMonth = dateRangeStrings.filter;
     
     const raw = records.filter(r => {
-      if (r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
       if (r.category === '初始資金') return false;
       
@@ -6769,7 +6774,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     // Filter ALL history transactions for this card
     const allHistoryCardRecords = records.filter(r => 
-      !r.parentTransactionId && !r.isChildTransaction &&
+      !r.parentId && !r.parentTransactionId && !r.isChildTransaction &&
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
       r.category !== '初始資金'
     );
@@ -7984,7 +7989,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   projects: Project[],
   categories?: Category[],
   onClose: () => void,
-  onSave: (updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
+  onSave: (updated: Transaction, childUpdates?: Transaction[]) => void,
   onDelete: () => void,
   onDuplicate?: (record: Transaction) => void
 }) {
@@ -8015,10 +8020,10 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [selectedMergeIds, setSelectedMergeIds] = useState<string[]>([]);
   const [mergeSearch, setMergeSearch] = useState('');
-  const [mergedRecordIdsToDelete, setMergedRecordIdsToDelete] = useState<string[]>([]);
-  const [restoredRecordIds, setRestoredRecordIds] = useState<string[]>([]);
+  const [childUpdatesMap, setChildUpdatesMap] = useState<Record<string, Transaction>>({});
 
-  const [initialOriginalAmount] = useState<number>(() => {
+  const baseOriginalAmount = useMemo<number>(() => {
+    if (record.baseAmount !== undefined) return Math.abs(record.baseAmount);
     if (record.subItems && record.subItems.length > 0) {
       const nonMergedSubs = record.subItems.filter(s => !s.originalRecordId);
       if (nonMergedSubs.length > 0) {
@@ -8026,7 +8031,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       }
     }
     return Math.abs(record.amount);
-  });
+  }, [record]);
 
   const handleRemoveSubItem = (idx: number) => {
     if (!edited.subItems) return;
@@ -8035,31 +8040,44 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
 
     if (itemToRemove && itemToRemove.originalRecordId) {
       const origId = itemToRemove.originalRecordId;
-      setMergedRecordIdsToDelete(prev => prev.filter(id => id !== origId));
-      setRestoredRecordIds(prev => Array.from(new Set([...prev, origId])));
+      const targetRecord = records.find(r => r.id === origId) || childUpdatesMap[origId];
+      if (targetRecord) {
+        setChildUpdatesMap(prev => ({
+          ...prev,
+          [origId]: {
+            ...targetRecord,
+            parentId: null,
+            parentTransactionId: undefined,
+            isChildTransaction: false
+          }
+        }));
+      }
     }
 
     if (updatedSubs.length === 0) {
-      const restoredAmt = initialOriginalAmount;
       const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
-      setEdited({
-        ...edited,
+      setEdited(prev => ({
+        ...prev,
         note: baseTitle,
         subItems: undefined,
-        amount: edited.type === 'expense' || edited.type === 'transfer' ? -restoredAmt : restoredAmt
-      });
-      setAmountStr(restoredAmt.toString());
+        subItemIds: [],
+        baseAmount: baseOriginalAmount,
+        amount: prev.type === 'expense' || prev.type === 'transfer' ? -baseOriginalAmount : baseOriginalAmount
+      }));
+      setAmountStr(baseOriginalAmount.toString());
     } else {
       const subTotal = updatedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
       const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
       const updatedNote = updatedSubs.length > 1 ? `${baseTitle} 等 ${updatedSubs.length} 類明細` : baseTitle;
       
-      setEdited({
-        ...edited,
+      setEdited(prev => ({
+        ...prev,
         note: updatedNote,
         subItems: updatedSubs,
-        amount: edited.type === 'expense' || edited.type === 'transfer' ? -subTotal : subTotal
-      });
+        subItemIds: updatedSubs.map(s => s.originalRecordId).filter(Boolean) as string[],
+        baseAmount: baseOriginalAmount,
+        amount: prev.type === 'expense' || prev.type === 'transfer' ? -subTotal : subTotal
+      }));
       setAmountStr(subTotal.toString());
     }
   };
@@ -8069,33 +8087,44 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       edited.subItems.forEach(item => {
         if (item.originalRecordId) {
           const origId = item.originalRecordId;
-          setMergedRecordIdsToDelete(prev => prev.filter(id => id !== origId));
-          setRestoredRecordIds(prev => Array.from(new Set([...prev, origId])));
+          const targetRecord = records.find(r => r.id === origId) || childUpdatesMap[origId];
+          if (targetRecord) {
+            setChildUpdatesMap(prev => ({
+              ...prev,
+              [origId]: {
+                ...targetRecord,
+                parentId: null,
+                parentTransactionId: undefined,
+                isChildTransaction: false
+              }
+            }));
+          }
         }
       });
     }
 
-    const restoredAmt = initialOriginalAmount;
     const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
 
-    setEdited({
-      ...edited,
+    setEdited(prev => ({
+      ...prev,
       note: baseTitle,
       subItems: undefined,
-      amount: edited.type === 'expense' || edited.type === 'transfer' ? -restoredAmt : restoredAmt
-    });
-    setAmountStr(restoredAmt.toString());
+      subItemIds: [],
+      baseAmount: baseOriginalAmount,
+      amount: prev.type === 'expense' || prev.type === 'transfer' ? -baseOriginalAmount : baseOriginalAmount
+    }));
+    setAmountStr(baseOriginalAmount.toString());
   };
 
   const handleUpdateSubItemAmount = (idx: number, amtVal: number) => {
     if (!edited.subItems) return;
     const updatedSubs = edited.subItems.map((s, i) => i === idx ? { ...s, amount: amtVal } : s);
     const newSum = updatedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
-    setEdited({
-      ...edited,
+    setEdited(prev => ({
+      ...prev,
       subItems: updatedSubs,
-      amount: edited.type === 'expense' || edited.type === 'transfer' ? -newSum : newSum
-    });
+      amount: prev.type === 'expense' || prev.type === 'transfer' ? -newSum : newSum
+    }));
     setAmountStr(newSum.toString());
   };
 
@@ -8106,7 +8135,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
 
     return records.filter(r => {
       if (r.id === edited.id) return false;
-      if (r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       if (r.accountId !== edited.accountId) return false;
       const rDateMs = new Date(r.date).getTime();
       if (isNaN(rDateMs) || Math.abs(rDateMs - currentDateMs) > threeDaysMs) return false;
@@ -8135,13 +8164,24 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       return;
     }
 
+    const newChildUpdates: Record<string, Transaction> = { ...childUpdatesMap };
+    selectedRecords.forEach(r => {
+      newChildUpdates[r.id] = {
+        ...r,
+        parentId: edited.id,
+        parentTransactionId: edited.id,
+        isChildTransaction: true
+      };
+    });
+    setChildUpdatesMap(newChildUpdates);
+
     const existingSubs: SubItem[] = (edited.subItems && edited.subItems.length > 0)
       ? [...edited.subItems]
       : [
           {
             id: `sub_${Date.now()}_main`,
-            name: edited.note || edited.merchant || '主消費項目',
-            amount: Math.abs(edited.amount),
+            name: (edited.note || edited.merchant || '主消費項目').replace(/ 等 \d+ 類明細$/, ''),
+            amount: baseOriginalAmount,
             category: edited.category,
             isPrepay: !!edited.isPrepay
           }
@@ -8162,14 +8202,17 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     const baseTitle = (edited.note || edited.merchant || '主消費項目').replace(/ 等 \d+ 類明細$/, '');
     const updatedNote = `${baseTitle} 等 ${combinedSubs.length} 類明細`;
 
+    const subItemIds = combinedSubs.map(s => s.originalRecordId).filter(Boolean) as string[];
+
     setEdited(prev => ({
       ...prev,
       note: updatedNote,
       subItems: combinedSubs,
-      amount: -totalSum
+      subItemIds: subItemIds,
+      baseAmount: baseOriginalAmount,
+      amount: prev.type === 'expense' || prev.type === 'transfer' ? -totalSum : totalSum
     }));
     setAmountStr(totalSum.toString());
-    setMergedRecordIdsToDelete(prev => Array.from(new Set([...prev, ...selectedMergeIds])));
     setIsMergeModalOpen(false);
   };
 
@@ -9036,8 +9079,9 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                   amount: finalAmt,
                   toAccountId: resolvedType === 'transfer' ? finalToAccountId : undefined,
                   isInstallment,
-                  totalInstallments: isInstallment ? totalInstallments : undefined
-                }, mergedRecordIdsToDelete, restoredRecordIds);
+                  totalInstallments: isInstallment ? totalInstallments : undefined,
+                  baseAmount: baseOriginalAmount
+                }, Object.values(childUpdatesMap));
               }}
               className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
             >
@@ -9796,7 +9840,7 @@ function SearchView({
   categories: Category[], 
   projects: Project[],
   onBack: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onReorder: (records: Transaction[]) => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -9808,7 +9852,7 @@ function SearchView({
     if (!searchQuery.trim()) return [];
     const query = searchQuery.toLowerCase();
     const raw = records.filter(r => 
-      !r.parentTransactionId && !r.isChildTransaction &&
+      !r.parentId && !r.parentTransactionId && !r.isChildTransaction &&
       ((r.note || '').toLowerCase().includes(query) || 
       r.category.toLowerCase().includes(query) ||
       r.amount.toString().includes(query))
@@ -12626,7 +12670,7 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
     const allIds = [projectId, ...childProjectIds];
 
     const targetRecords = records.filter(r => {
-      if (r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       const rPid = r.projectId || 'p1';
       if (projectId === 'p1') {
         return !r.projectId || allIds.includes(r.projectId);
@@ -12808,7 +12852,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   categories: Category[],
   projects: Project[],
   onBack: () => void,
-  onUpdateRecord: (oldRec: Transaction, newRec: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
+  onUpdateRecord: (oldRec: Transaction, newRec: Transaction, childUpdates?: Transaction[]) => void,
   onDeleteRecord: (rec: Transaction) => void,
   onAddRecord: () => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -13673,7 +13717,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   filter: { type: 'day' | 'week' | 'month' | 'year', date: string },
   currencyMode: CurrencyMode,
   onBack: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onReorder: (records: Transaction[]) => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -13706,7 +13750,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
     const endStr = formatLocalDate(end);
 
     const raw = records.filter(r => {
-      if (r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       const pDate = r.postingDate || r.date;
       const passDate = r.category !== '初始資金' && pDate >= startStr && pDate <= endStr;
       if (!passDate) return false;
@@ -19060,7 +19104,7 @@ function PrepaymentsView({
   projects: Project[],
   categories: Category[], 
   onBack: () => void, 
-  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
+  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction, childUpdates?: Transaction[]) => void,
   onDeleteRecord?: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
