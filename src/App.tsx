@@ -215,6 +215,14 @@ interface Category {
   subBudgets?: Record<string, number>;
 }
 
+interface SubItem {
+  id: string;
+  name: string;
+  amount: number;
+  category?: string;
+  isPrepay?: boolean; // false: 個人支出 (我的), true: 家裡代墊 (家裡的)
+}
+
 interface Transaction {
   id: string;
   amount: number;      // 原始金額 (來源帳戶幣別)
@@ -237,6 +245,7 @@ interface Transaction {
   projectId?: string;
   fee?: number;
   transferredDate?: string;
+  isPrepay?: boolean;
   isCompleted?: boolean;
   status?: 'active' | 'settled';
   paidCount?: number;
@@ -244,6 +253,7 @@ interface Transaction {
   totalTerms?: number;
   currency?: string;   // 幣別 (如 "TWD", "USD", "JPY", "KRW")
   order?: number;
+  subItems?: SubItem[];
   _importSourceAccountName?: string;
   _importDestAccountName?: string;
   _importProjectName?: string;
@@ -803,6 +813,25 @@ export const parseSmartTransactionTitle = (title: string, isExpense: boolean = t
   }
 
   return `${paidItems[0]}、${paidItems[1]} 等 ${paidItems.length} 件商品`;
+};
+
+export const getRecordPersonalAmount = (r: Transaction): number => {
+  if (r.type !== 'expense') return 0;
+  if (r.subItems && r.subItems.length > 0) {
+    const personalSum = r.subItems.filter(i => !i.isPrepay).reduce((sum, item) => sum + Math.abs(item.amount), 0);
+    return personalSum + (r.fee || 0);
+  }
+  if (r.isPrepay) return 0;
+  return Math.abs(r.amount) + (r.fee || 0);
+};
+
+export const getRecordPrepayAmount = (r: Transaction): number => {
+  if (r.type !== 'expense') return 0;
+  if (r.subItems && r.subItems.length > 0) {
+    return r.subItems.filter(i => !!i.isPrepay).reduce((sum, item) => sum + Math.abs(item.amount), 0);
+  }
+  if (r.isPrepay) return Math.abs(r.amount);
+  return 0;
 };
 
 const getTransactionTitle = (record: Transaction): string => {
@@ -6996,10 +7025,10 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       </span>
                     </div>
                   )}
-                  {record.isPrepay && (
+                  {(record.isPrepay || (record.subItems && record.subItems.some(i => i.isPrepay))) && (
                     <div>
-                      <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-sky-100 text-sky-700 rounded-full font-bold leading-none">
-                        代墊
+                      <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-amber-100/90 text-amber-900 rounded-full font-bold leading-none border border-amber-200/60 shadow-xs">
+                        🏠 代墊 {record.subItems && record.subItems.some(i => i.isPrepay) ? `$ ${record.subItems.filter(i => i.isPrepay).reduce((s, i) => s + Math.abs(i.amount), 0).toLocaleString()}` : ''}
                       </span>
                     </div>
                   )}
@@ -7142,6 +7171,74 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   </div>
                 </div>
                 
+                {/* 拆分子項目明細 (母子交易) */}
+                {record.subItems && record.subItems.length > 0 && (
+                  <div className="flex flex-col gap-2.5 bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200/70 w-full mb-1">
+                    <div className="flex items-center justify-between font-black text-xs text-[#5D4037]">
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-amber-600">🛍️</span>
+                        <span>商品拆分歸屬明細 ({record.subItems.length} 項)</span>
+                      </span>
+                      <span className="text-amber-900/80 font-bold text-[11px]">
+                        刷卡對帳總額: ${Math.abs(record.amount).toLocaleString()}
+                      </span>
+                    </div>
+
+                    {/* 🛒 個人消費清單及小計 */}
+                    {(() => {
+                      const personalItems = record.subItems.filter(i => !i.isPrepay);
+                      const personalSum = personalItems.reduce((s, i) => s + Math.abs(i.amount), 0);
+                      if (personalItems.length === 0) return null;
+                      return (
+                        <div className="bg-white p-3 rounded-xl border border-stone-200/80 space-y-1.5 shadow-xs">
+                          <div className="flex items-center justify-between text-xs font-black text-[#5D4037] pb-1 border-b border-stone-100">
+                            <span className="flex items-center gap-1">
+                              <span>🛒</span>
+                              <span>個人實質支出 ({personalItems.length} 項)</span>
+                            </span>
+                            <span className="text-[#5D4037] font-black">小計: ${personalSum.toLocaleString()}</span>
+                          </div>
+                          <div className="space-y-1.5 pt-0.5">
+                            {personalItems.map((item, idx) => (
+                              <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-stone-700">
+                                <span className="truncate max-w-[200px] text-stone-800">{item.name} {item.category ? `(${item.category})` : ''}</span>
+                                <span className="font-black text-[#5D4037]">${Math.abs(item.amount).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* 🏠 家裡代墊清單及小計 */}
+                    {(() => {
+                      const prepayItems = record.subItems.filter(i => !!i.isPrepay);
+                      const prepaySum = prepayItems.reduce((s, i) => s + Math.abs(i.amount), 0);
+                      if (prepayItems.length === 0) return null;
+                      return (
+                        <div className="bg-[#FFF4D3] p-3 rounded-xl border border-amber-200/80 space-y-1.5 shadow-xs">
+                          <div className="flex items-center justify-between text-xs font-black text-amber-900 pb-1 border-b border-amber-200/60">
+                            <span className="flex items-center gap-1">
+                              <span>🏠</span>
+                              <span>家裡代墊 ({prepayItems.length} 項)</span>
+                              <span className="text-[10px] px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full font-bold">代墊</span>
+                            </span>
+                            <span className="text-amber-950 font-black">小計: ${prepaySum.toLocaleString()}</span>
+                          </div>
+                          <div className="space-y-1.5 pt-0.5">
+                            {prepayItems.map((item, idx) => (
+                              <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-amber-900/90">
+                                <span className="truncate max-w-[200px]">{item.name} {item.category ? `(${item.category})` : ''}</span>
+                                <span className="font-black text-amber-950">${Math.abs(item.amount).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {/* 項目 3：備註明細 (100% 寬度容器，橫向正常流動，單行即可完整呈現，禁止縱向單字斷行) */}
                 <div className="flex items-start gap-2.5 w-full">
                   <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px] pt-2">備註明細:</span>
@@ -8276,6 +8373,143 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
                 <ChevronRight size={18} className="text-stone-300" />
               </div>
             </div>
+
+            {/* Sub-items Ownership & Split (拆分子項目與歸屬) Section */}
+            {edited.type === 'expense' && (
+              <div className="space-y-3 bg-amber-50/40 p-4 rounded-2xl border border-amber-200/60 shadow-sm" style={getFontFamily()}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[15px] font-bold text-[#5D4037] flex items-center gap-1.5">
+                    <span>🛍️</span>
+                    <span>拆分子項目與歸屬 (個人 vs 家裡代墊)</span>
+                  </span>
+                  {!edited.subItems || edited.subItems.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const initSub: SubItem[] = [
+                          { id: `sub_${Date.now()}_1`, name: edited.note || '項目 1', amount: Math.abs(edited.amount) || 0, category: edited.category, isPrepay: false }
+                        ];
+                        setEdited({ ...edited, subItems: initSub });
+                      }}
+                      className="px-3 py-1 bg-white hover:bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] shadow-xs active:scale-95 transition-all"
+                    >
+                      ＋ 開始拆分
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setEdited({ ...edited, subItems: undefined })}
+                      className="text-xs font-bold text-rose-500 hover:underline"
+                    >
+                      清除拆分
+                    </button>
+                  )}
+                </div>
+
+                {edited.subItems && edited.subItems.length > 0 && (
+                  <div className="space-y-3 pt-1">
+                    <div className="space-y-2">
+                      {edited.subItems.map((subItem, idx) => (
+                        <div key={subItem.id || idx} className="bg-white p-3 rounded-xl border border-stone-200/80 space-y-2 relative shadow-xs">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updatedSubs = edited.subItems?.filter((_, i) => i !== idx);
+                              const subTotal = updatedSubs?.reduce((s, i) => s + Math.abs(i.amount), 0) || 0;
+                              setEdited({
+                                ...edited,
+                                subItems: updatedSubs && updatedSubs.length > 0 ? updatedSubs : undefined,
+                                amount: subTotal > 0 ? -subTotal : edited.amount
+                              });
+                            }}
+                            className="absolute top-2 right-2 p-1 text-stone-300 hover:text-rose-500 transition-colors"
+                            title="刪除子項目"
+                          >
+                            <X size={14} />
+                          </button>
+
+                          <div className="grid grid-cols-5 gap-2 pr-5">
+                            <div className="col-span-3 flex flex-col gap-1">
+                              <label className="text-[9px] font-bold text-stone-400">品項名稱</label>
+                              <input
+                                type="text"
+                                value={subItem.name}
+                                onChange={e => {
+                                  const nameVal = e.target.value;
+                                  const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, name: nameVal } : s);
+                                  setEdited({ ...edited, subItems: updatedSubs });
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                              />
+                            </div>
+                            <div className="col-span-2 flex flex-col gap-1">
+                              <label className="text-[9px] font-bold text-stone-400">金額 ($)</label>
+                              <input
+                                type="number"
+                                value={subItem.amount}
+                                onChange={e => {
+                                  const amtVal = parseFloat(e.target.value) || 0;
+                                  const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, amount: amtVal } : s);
+                                  const newSum = updatedSubs?.reduce((sum, item) => sum + Math.abs(item.amount), 0) || 0;
+                                  setEdited({
+                                    ...edited,
+                                    subItems: updatedSubs,
+                                    amount: -newSum
+                                  });
+                                  setAmountStr(newSum.toString());
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100">
+                            <span className="text-[10px] font-bold text-stone-400">歸屬標籤：</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, isPrepay: !s.isPrepay } : s);
+                                setEdited({ ...edited, subItems: updatedSubs });
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border flex items-center gap-1 active:scale-95 ${
+                                subItem.isPrepay
+                                  ? 'bg-amber-100/90 border-amber-300 text-amber-900 shadow-xs'
+                                  : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
+                              }`}
+                            >
+                              <span>{subItem.isPrepay ? '🏠 家裡代墊 (家裡的)' : '🛒 個人支出 (我的)'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newSub: SubItem = {
+                            id: `sub_${Date.now()}_${(edited.subItems?.length || 0) + 1}`,
+                            name: `項目 ${(edited.subItems?.length || 0) + 1}`,
+                            amount: 0,
+                            category: edited.category,
+                            isPrepay: false
+                          };
+                          setEdited({ ...edited, subItems: [...(edited.subItems || []), newSub] });
+                        }}
+                        className="px-3 py-1.5 bg-white border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] hover:bg-stone-50 active:scale-95 transition-all shadow-xs"
+                      >
+                        ＋ 新增子項目
+                      </button>
+                      <div className="text-right text-[11px] font-bold text-[#5D4037]">
+                        <span>子項目小計: </span>
+                        <span className="font-black text-amber-900">$ {edited.subItems.reduce((s, i) => s + Math.abs(i.amount), 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Prepayment / Receivable (代墊 / 代收款) Section */}
             {(edited.type === 'expense' || edited.type === 'income') && (
@@ -18891,24 +19125,41 @@ ${categoriesString}
     }
 
     const isIncome = targetType === 'income';
-    const confirm = window.confirm(`確認要將這 ${parsedItems.length} 筆項目儲存為【${isIncome ? '收入' : '支出'}】並入帳嗎？\n總金額為 NT$ ${totalDeduction.toLocaleString()}`);
+    const personalSum = totalDeduction - prepayTotal;
+    const confirm = window.confirm(`確認要將這 ${parsedItems.length} 筆項目劃分歸屬，並合併為 1 筆母交易入帳嗎？\n刷卡總額：NT$ ${totalDeduction.toLocaleString()}\n(個人支出: NT$ ${personalSum.toLocaleString()} | 家裡代墊: NT$ ${prepayTotal.toLocaleString()})`);
     if (!confirm) return;
 
     setIsSaving(true);
     try {
-      const recordsToSave = parsedItems.map(item => ({
-        amount: isIncome ? Math.abs(item.amount) : -Math.abs(item.amount),
+      const subItemsList: SubItem[] = parsedItems.map((item, idx) => ({
+        id: `sub_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`,
+        name: filterTaiwanTerms(item.name),
+        amount: Math.abs(item.amount),
         category: filterTaiwanTerms(item.category),
-        note: filterTaiwanTerms(item.name),
+        isPrepay: item.isPrepay
+      }));
+
+      const allPrepay = parsedItems.every(i => i.isPrepay);
+      const firstItemName = filterTaiwanTerms(parsedItems[0]?.name || '採買');
+      const mainTitle = parsedItems.length === 1 
+        ? firstItemName 
+        : `${firstItemName} 等 ${parsedItems.length} 類明細`;
+
+      const recordToSave = {
+        amount: isIncome ? Math.abs(totalDeduction) : -Math.abs(totalDeduction),
+        category: filterTaiwanTerms(parsedItems[0]?.category || '其他'),
+        note: mainTitle,
+        remark: mainTitle,
         date: transactionDate,
         time: transactionTime,
         postingDate: transactionDate,
         type: targetType as 'income' | 'expense',
         accountId: selectedAccountId,
-        isPrepay: item.isPrepay
-      }));
+        isPrepay: allPrepay,
+        subItems: subItemsList
+      };
 
-      await onSaveBatch(recordsToSave);
+      await onSaveBatch([recordToSave]);
       onClose();
     } catch (err: any) {
       console.error('Batch save failed:', err);
@@ -19198,13 +19449,13 @@ ${categoriesString}
                       <button
                         type="button"
                         onClick={() => handleUpdateItem(index, 'isPrepay', !item.isPrepay)}
-                        className={`px-3 py-1.5 rounded-xl font-bold text-[10px] transition-all border ${
+                        className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all border flex items-center gap-1 active:scale-95 ${
                           item.isPrepay
-                            ? 'bg-sky-50 border-sky-200 text-sky-700 shadow-sm font-black'
-                            : 'bg-stone-50 border-stone-100 text-stone-400'
+                            ? 'bg-amber-100/80 border-amber-300 text-amber-900 shadow-sm'
+                            : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
                         }`}
                       >
-                        {item.isPrepay ? '家裡代墊' : '自己的支出'}
+                        <span>{item.isPrepay ? '🏠 家裡代墊 (家裡的)' : '🛒 個人支出 (我的)'}</span>
                       </button>
                     </div>
                   </div>
@@ -19212,20 +19463,18 @@ ${categoriesString}
               </div>
 
               {/* Bottom Live Summary Card */}
-              <div className="bg-[#5D4037]/5 p-4 rounded-3xl space-y-2 border border-[#5D4037]/10 text-xs text-[#5D4037]">
-                <div className="flex justify-between items-start gap-3">
-                  <span className="font-bold shrink-0 opacity-60">個人支出分佈:</span>
-                  <span className="font-black text-right truncate max-w-[280px]" title={personalExpenses}>
-                    {personalExpenses || '無'}
-                  </span>
+              <div className="bg-[#5D4037]/5 p-4 rounded-3xl space-y-2 border border-[#5D4037]/10 text-xs text-[#5D4037]" style={getFontFamily()}>
+                <div className="flex justify-between items-center">
+                  <span className="font-bold opacity-70">🛒 個人實質支出:</span>
+                  <span className="font-black text-[#5D4037] text-sm">NT$ ${(totalDeduction - prepayTotal).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="font-bold opacity-60">家裡代墊待收總額:</span>
-                  <span className="font-black text-sky-700">NT$ {prepayTotal.toLocaleString()}</span>
+                  <span className="font-bold opacity-70">🏠 家裡代墊金額:</span>
+                  <span className="font-black text-amber-800 text-sm">NT$ ${prepayTotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between items-center border-t border-[#5D4037]/10 pt-2 font-bold">
-                  <span className="opacity-80">全單總扣款金額:</span>
-                  <span className="text-base font-black text-amber-800">NT$ {totalDeduction.toLocaleString()}</span>
+                  <span className="opacity-80">💳 信用卡刷卡總額:</span>
+                  <span className="text-base font-black text-rose-700">NT$ ${totalDeduction.toLocaleString()}</span>
                 </div>
               </div>
 

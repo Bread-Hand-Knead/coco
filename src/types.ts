@@ -8,6 +8,14 @@ export interface Category {
   sub: string[];
 }
 
+export interface SubItem {
+  id: string;
+  name: string;
+  amount: number;
+  category?: string;
+  isPrepay?: boolean; // false: 個人支出 (我的), true: 家裡代墊 (家裡的)
+}
+
 export interface Transaction {
   id: string;
   amount: number;
@@ -26,6 +34,7 @@ export interface Transaction {
   transferredDate?: string;
   isPrepay?: boolean;
   isSettled?: boolean;
+  subItems?: SubItem[];
 }
 
 export interface Account {
