@@ -6034,7 +6034,7 @@ function InvestmentSection({
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-[#FFF9E3] w-full max-w-md md:max-w-[800px] rounded-[40px] p-6 sm:p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-5 max-h-[85vh] overflow-hidden"
+              className="bg-[#FFF9E3] w-[90%] max-w-md md:max-w-[880px] rounded-[40px] p-6 sm:p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-5 max-h-[85vh] overflow-hidden"
               style={getFontFamily()}
             >
               {/* Header */}
@@ -6050,10 +6050,10 @@ function InvestmentSection({
                 </button>
               </div>
 
-              {/* Body: Mobile single-column, Desktop 2-column split (38% : 62% / 0.8fr : 1.2fr) */}
-              <div className="grid grid-cols-1 md:grid-cols-[0.8fr_1.2fr] gap-5 flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
-                {/* Left Column: Overview Stats */}
-                <div className="flex flex-col gap-4 shrink-0">
+              {/* Body: Mobile single-column, Desktop 2-column split (Left 250px fixed, Right 1fr) */}
+              <div className="grid grid-cols-1 md:grid-cols-[250px_1fr] gap-5 flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar">
+                {/* Left Column: Overview Stats (Locked 250px width on desktop) */}
+                <div className="flex flex-col gap-4 w-full md:w-[250px] md:min-w-[250px] shrink-0">
                   <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block">持股數據總覽</span>
                   
                   <div className="grid grid-cols-3 md:grid-cols-1 gap-3 bg-[#FFFDF5]/80 p-4 rounded-3xl border border-stone-100/50 text-center md:text-left">
@@ -6073,9 +6073,9 @@ function InvestmentSection({
                 </div>
 
                 {/* Right Column: Transaction History */}
-                <div className="flex flex-col gap-2 flex-1 min-h-0">
+                <div className="flex flex-col gap-2 flex-1 min-w-0 overflow-x-hidden">
                   <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block shrink-0">交易歷史紀錄</span>
-                  <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[200px] max-h-[380px] custom-scrollbar">
+                  <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1 min-h-[200px] max-h-[380px] custom-scrollbar">
                     {(() => {
                       const keyword = selectedStockForDetail.code.split(' (')[0].trim();
                       const sortedList = records
@@ -6098,16 +6098,16 @@ function InvestmentSection({
                           <div 
                             key={r.id}
                             onClick={() => setEditingRecord(r)}
-                            className="bg-white p-3.5 md:p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-xs cursor-pointer hover:border-[#FFD54F]/50 hover:shadow-md transition-all active:scale-[0.99] gap-3"
+                            className="bg-white p-3.5 md:p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-xs cursor-pointer hover:border-[#FFD54F]/50 hover:shadow-md transition-all active:scale-[0.99] gap-3 min-w-0"
                           >
                             <div className="flex flex-col gap-1 min-w-0 flex-1">
-                              <span className="text-sm font-black text-[#5D4037] leading-snug truncate">{r.note}</span>
-                              <div className="flex items-center gap-2 text-xs text-stone-600 font-bold flex-wrap sm:flex-nowrap">
+                              <span className="text-sm font-black text-[#5D4037] leading-snug break-words whitespace-normal">{r.note}</span>
+                              <div className="flex items-center gap-2 text-xs text-stone-600 font-bold flex-wrap sm:flex-nowrap min-w-0">
                                 <span className="shrink-0">{r.date.replace(/-/g, '/')}</span>
                                 {acc && (
                                   <>
                                     <span className="text-stone-300 shrink-0">•</span>
-                                    <span className="flex items-center gap-1 text-[#5D4037]/80 whitespace-nowrap">{acc.icon} {acc.name}</span>
+                                    <span className="flex items-center gap-1 text-[#5D4037]/80 whitespace-nowrap shrink-0">{acc.icon} {acc.name}</span>
                                   </>
                                 )}
                               </div>
