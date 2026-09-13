@@ -254,6 +254,14 @@ interface Transaction {
   currency?: string;   // 幣別 (如 "TWD", "USD", "JPY", "KRW")
   order?: number;
   subItems?: SubItem[];
+  isParent?: boolean;
+  baseAmount?: number;
+  subTransactions?: Transaction[];
+  isMergedChild?: boolean;
+  parentId?: string | null;
+  subItemIds?: string[];
+  parentTransactionId?: string;
+  isChildTransaction?: boolean;
   parentId?: string | null;
   subItemIds?: string[];
   baseAmount?: number;
@@ -646,7 +654,7 @@ const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: s
 };
 
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
-  const cleanedTxs = txs.filter(t => !t.parentId && !t.parentTransactionId && !t.isChildTransaction);
+  const cleanedTxs = txs.filter(t => !t.isMergedChild && !t.parentId && !t.parentTransactionId && !t.isChildTransaction);
 
   const result: Transaction[] = [];
   const matchedIds = new Set<string>();
@@ -1876,7 +1884,7 @@ export default function App() {
 
     // Filter records based on currency mode
     const filteredByCurrency = records.filter(r => {
-      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       const cur = r.currency || 'TWD';
       // If currencyMode is null or TWD, show TWD. If FOREIGN, show non-TWD
       if (currencyMode === 'FOREIGN') return cur !== 'TWD';
@@ -6500,7 +6508,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const targetYearMonth = dateRangeStrings.filter;
     
     const raw = records.filter(r => {
-      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
       if (r.category === '初始資金') return false;
       
@@ -6774,7 +6782,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     // Filter ALL history transactions for this card
     const allHistoryCardRecords = records.filter(r => 
-      !r.parentId && !r.parentTransactionId && !r.isChildTransaction &&
+      !r.isMergedChild && !r.parentId && !r.parentTransactionId && !r.isChildTransaction &&
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
       r.category !== '初始資金'
     );
@@ -8135,7 +8143,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
 
     return records.filter(r => {
       if (r.id === edited.id) return false;
-      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       if (r.accountId !== edited.accountId) return false;
       const rDateMs = new Date(r.date).getTime();
       if (isNaN(rDateMs) || Math.abs(rDateMs - currentDateMs) > threeDaysMs) return false;
@@ -8168,12 +8176,16 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     selectedRecords.forEach(r => {
       newChildUpdates[r.id] = {
         ...r,
+        isMergedChild: true,
         parentId: edited.id,
         parentTransactionId: edited.id,
         isChildTransaction: true
       };
     });
     setChildUpdatesMap(newChildUpdates);
+
+    const existingSubTxs: Transaction[] = edited.subTransactions || [];
+    const combinedSubTxs = [...existingSubTxs, ...selectedRecords.map(r => ({ ...r, isMergedChild: true, parentId: edited.id }))];
 
     const existingSubs: SubItem[] = (edited.subItems && edited.subItems.length > 0)
       ? [...edited.subItems]
@@ -8206,8 +8218,10 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
 
     setEdited(prev => ({
       ...prev,
+      isParent: true,
       note: updatedNote,
       subItems: combinedSubs,
+      subTransactions: combinedSubTxs,
       subItemIds: subItemIds,
       baseAmount: baseOriginalAmount,
       amount: prev.type === 'expense' || prev.type === 'transfer' ? -totalSum : totalSum
@@ -9852,7 +9866,7 @@ function SearchView({
     if (!searchQuery.trim()) return [];
     const query = searchQuery.toLowerCase();
     const raw = records.filter(r => 
-      !r.parentId && !r.parentTransactionId && !r.isChildTransaction &&
+      !r.isMergedChild && !r.parentId && !r.parentTransactionId && !r.isChildTransaction &&
       ((r.note || '').toLowerCase().includes(query) || 
       r.category.toLowerCase().includes(query) ||
       r.amount.toString().includes(query))
@@ -12670,7 +12684,7 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
     const allIds = [projectId, ...childProjectIds];
 
     const targetRecords = records.filter(r => {
-      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       const rPid = r.projectId || 'p1';
       if (projectId === 'p1') {
         return !r.projectId || allIds.includes(r.projectId);
@@ -13750,7 +13764,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
     const endStr = formatLocalDate(end);
 
     const raw = records.filter(r => {
-      if (r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
       const pDate = r.postingDate || r.date;
       const passDate = r.category !== '初始資金' && pDate >= startStr && pDate <= endStr;
       if (!passDate) return false;
