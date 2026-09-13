@@ -6041,12 +6041,19 @@ function InvestmentSection({
       {editingRecord && (
         <EditRecordModal
           record={editingRecord}
+          records={records}
           accounts={accounts}
           projects={projects}
           categories={categories}
           onClose={() => setEditingRecord(null)}
-          onSave={(updated) => {
+          onSave={(updated, mergedIdsToDelete) => {
             onUpdateRecord(editingRecord, updated);
+            if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
+              mergedIdsToDelete.forEach(id => {
+                const rec = records.find(r => r.id === id);
+                if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
+              });
+            }
             setEditingRecord(null);
           }}
           onDelete={() => {
@@ -7800,12 +7807,19 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         {editingRecord && (
           <EditRecordModal 
             record={editingRecord}
+            records={records}
             accounts={accounts}
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated) => {
+            onSave={(updated, mergedIdsToDelete) => {
               onUpdateRecord(editingRecord, updated);
+              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
+                mergedIdsToDelete.forEach(id => {
+                  const rec = records.find(r => r.id === id);
+                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
+                });
+              }
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -7920,13 +7934,14 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   );
 }
 
-function EditRecordModal({ record, accounts, projects, categories = [], onClose, onSave, onDelete, onDuplicate }: {
+function EditRecordModal({ record, records = [], accounts, projects, categories = [], onClose, onSave, onDelete, onDuplicate }: {
   record: Transaction,
+  records?: Transaction[],
   accounts: Account[],
   projects: Project[],
   categories?: Category[],
   onClose: () => void,
-  onSave: (updated: Transaction) => void,
+  onSave: (updated: Transaction, mergedRecordIdsToDelete?: string[]) => void,
   onDelete: () => void,
   onDuplicate?: (record: Transaction) => void
 }) {
@@ -7953,6 +7968,83 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
   const [projectSearch, setProjectSearch] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
   const [selectedMainCat, setSelectedMainCat] = useState<string | null>(null);
+
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [selectedMergeIds, setSelectedMergeIds] = useState<string[]>([]);
+  const [mergeSearch, setMergeSearch] = useState('');
+  const [mergedRecordIdsToDelete, setMergedRecordIdsToDelete] = useState<string[]>([]);
+
+  const mergeCandidates = useMemo(() => {
+    if (!records || records.length === 0) return [];
+    const currentDateMs = new Date(edited.date).getTime();
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+
+    return records.filter(r => {
+      if (r.id === edited.id) return false;
+      if (r.accountId !== edited.accountId) return false;
+      const rDateMs = new Date(r.date).getTime();
+      if (isNaN(rDateMs) || Math.abs(rDateMs - currentDateMs) > threeDaysMs) return false;
+      if (mergeSearch.trim()) {
+        const query = mergeSearch.trim().toLowerCase();
+        const noteMatch = (r.note || '').toLowerCase().includes(query);
+        const merchantMatch = (r.merchant || '').toLowerCase().includes(query);
+        const catMatch = (r.category || '').toLowerCase().includes(query);
+        if (!noteMatch && !merchantMatch && !catMatch) return false;
+      }
+      return true;
+    });
+  }, [records, edited.id, edited.accountId, edited.date, mergeSearch]);
+
+  const selectedMergeTotal = useMemo(() => {
+    if (!records || records.length === 0 || selectedMergeIds.length === 0) return 0;
+    return records
+      .filter(r => selectedMergeIds.includes(r.id))
+      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+  }, [records, selectedMergeIds]);
+
+  const handleConfirmMerge = () => {
+    const selectedRecords = records.filter(r => selectedMergeIds.includes(r.id));
+    if (selectedRecords.length === 0) {
+      setIsMergeModalOpen(false);
+      return;
+    }
+
+    const existingSubs: SubItem[] = (edited.subItems && edited.subItems.length > 0)
+      ? [...edited.subItems]
+      : [
+          {
+            id: `sub_${Date.now()}_main`,
+            name: edited.note || edited.merchant || '主消費項目',
+            amount: Math.abs(edited.amount),
+            category: edited.category,
+            isPrepay: !!edited.isPrepay
+          }
+        ];
+
+    const newSubs: SubItem[] = selectedRecords.map((r, idx) => ({
+      id: `sub_${Date.now()}_merge_${idx}`,
+      name: r.note || r.merchant || `合併明細 ${idx + 1}`,
+      amount: Math.abs(r.amount),
+      category: r.category || edited.category,
+      isPrepay: !!r.isPrepay
+    }));
+
+    const combinedSubs = [...existingSubs, ...newSubs];
+    const totalSum = combinedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
+
+    const baseTitle = (edited.note || edited.merchant || '主消費項目').replace(/ 等 \d+ 類明細$/, '');
+    const updatedNote = `${baseTitle} 等 ${combinedSubs.length} 類明細`;
+
+    setEdited(prev => ({
+      ...prev,
+      note: updatedNote,
+      subItems: combinedSubs,
+      amount: -totalSum
+    }));
+    setAmountStr(totalSum.toString());
+    setMergedRecordIdsToDelete(prev => Array.from(new Set([...prev, ...selectedMergeIds])));
+    setIsMergeModalOpen(false);
+  };
 
   const availableCategories = useMemo(() => {
     const rawCats = categories && categories.length > 0 ? categories : INITIAL_CATEGORIES;
@@ -8382,28 +8474,44 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
                     <span>🛍️</span>
                     <span>拆分子項目與歸屬 (個人 vs 家裡代墊)</span>
                   </span>
-                  {!edited.subItems || edited.subItems.length === 0 ? (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => {
-                        const initSub: SubItem[] = [
-                          { id: `sub_${Date.now()}_1`, name: edited.note || '項目 1', amount: Math.abs(edited.amount) || 0, category: edited.category, isPrepay: false }
-                        ];
-                        setEdited({ ...edited, subItems: initSub });
+                        setSelectedMergeIds([]);
+                        setMergeSearch('');
+                        setIsMergeModalOpen(true);
                       }}
-                      className="px-3 py-1 bg-white hover:bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] shadow-xs active:scale-95 transition-all"
+                      className="px-3 py-1 bg-[#5D4037] hover:bg-[#4A332C] text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all flex items-center gap-1"
+                      style={getFontFamily()}
                     >
-                      ＋ 開始拆分
+                      <span>＋</span> 合併其他消費
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setEdited({ ...edited, subItems: undefined })}
-                      className="text-xs font-bold text-rose-500 hover:underline"
-                    >
-                      清除拆分
-                    </button>
-                  )}
+                    {!edited.subItems || edited.subItems.length === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const initSub: SubItem[] = [
+                            { id: `sub_${Date.now()}_1`, name: edited.note || '項目 1', amount: Math.abs(edited.amount) || 0, category: edited.category, isPrepay: false }
+                          ];
+                          setEdited({ ...edited, subItems: initSub });
+                        }}
+                        className="px-3 py-1 bg-white hover:bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] shadow-xs active:scale-95 transition-all"
+                        style={getFontFamily()}
+                      >
+                        ＋ 開始拆分
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEdited({ ...edited, subItems: undefined })}
+                        className="text-xs font-bold text-rose-500 hover:underline"
+                        style={getFontFamily()}
+                      >
+                        清除拆分
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {edited.subItems && edited.subItems.length > 0 && (
@@ -8817,7 +8925,7 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
                   toAccountId: resolvedType === 'transfer' ? finalToAccountId : undefined,
                   isInstallment,
                   totalInstallments: isInstallment ? totalInstallments : undefined
-                });
+                }, mergedRecordIdsToDelete);
               }}
               className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
             >
@@ -8828,6 +8936,112 @@ function EditRecordModal({ record, accounts, projects, categories = [], onClose,
           {/* Bottom Spacing */}
           <div className="h-[40px]" />
         </div>
+
+        {/* Merge Transactions Selector Modal */}
+        <AnimatePresence>
+          {isMergeModalOpen && (
+            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, y: 100 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 100 }}
+                className="w-full max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+                style={getFontFamily()}
+              >
+                <div className="p-4 border-b border-stone-100 flex items-center justify-between bg-stone-50/50">
+                  <div>
+                    <h3 className="font-black text-[#5D4037] text-base">選擇要合併的消費紀錄</h3>
+                    <p className="text-[11px] font-bold text-stone-400">同帳戶且日期前後 3 天內的交易</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsMergeModalOpen(false)}
+                    className="p-2 text-stone-400 hover:text-stone-600 rounded-full"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="p-3 border-b border-stone-100 bg-white">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
+                    <input
+                      type="text"
+                      value={mergeSearch}
+                      onChange={e => setMergeSearch(e.target.value)}
+                      placeholder="搜尋備註、店家或分類..."
+                      className="w-full pl-9 pr-4 py-2 bg-stone-100 rounded-xl text-xs font-bold text-[#5D4037] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  {mergeCandidates.length === 0 ? (
+                    <div className="py-12 text-center text-stone-400 text-xs font-bold">
+                      無符合「同帳戶且相近 3 天內」的其他消費紀錄
+                    </div>
+                  ) : (
+                    mergeCandidates.map(c => {
+                      const isSelected = selectedMergeIds.includes(c.id);
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => {
+                            setSelectedMergeIds(prev =>
+                              isSelected ? prev.filter(id => id !== c.id) : [...prev, c.id]
+                            );
+                          }}
+                          className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                            isSelected
+                              ? 'bg-amber-50/80 border-amber-300 shadow-xs'
+                              : 'bg-stone-50 border-stone-200/60 hover:bg-stone-100/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="w-4 h-4 accent-[#5D4037] rounded"
+                            />
+                            <div>
+                              <div className="text-xs font-black text-[#5D4037]">
+                                {c.note || c.merchant || c.category || '消費紀錄'}
+                              </div>
+                              <div className="text-[10px] font-bold text-stone-400">
+                                {c.date} ｜ {c.category}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-xs font-black text-rose-500">
+                            $ {Math.abs(c.amount).toLocaleString()}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="p-4 bg-stone-50 border-t border-stone-100 flex items-center justify-between gap-3">
+                  <div className="text-xs font-bold text-[#5D4037]">
+                    <span>已選取 <span className="font-black text-amber-800">{selectedMergeIds.length}</span> 筆</span>
+                    <span className="block text-[11px] text-stone-500 font-bold">
+                      合併後對帳總金額: <span className="font-black text-amber-900">${(Math.abs(edited.amount) + selectedMergeTotal).toLocaleString()}</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleConfirmMerge}
+                    disabled={selectedMergeIds.length === 0}
+                    className="px-5 py-2.5 bg-[#5D4037] text-white rounded-xl text-xs font-black shadow-md active:scale-95 disabled:opacity-40 disabled:active:scale-100 transition-all"
+                  >
+                    確認合併 ({selectedMergeIds.length})
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );
@@ -9598,12 +9812,19 @@ function SearchView({
         {editingRecord && (
           <EditRecordModal 
             record={editingRecord}
+            records={records}
             accounts={accounts}
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated) => {
+            onSave={(updated, mergedIdsToDelete) => {
               onUpdateRecord(editingRecord, updated);
+              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
+                mergedIdsToDelete.forEach(id => {
+                  const rec = records.find(r => r.id === id);
+                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
+                });
+              }
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -12673,12 +12894,19 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
         {editingRecord && (
           <EditRecordModal 
             record={editingRecord}
+            records={records}
             accounts={accounts}
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated) => {
+            onSave={(updated, mergedIdsToDelete) => {
               onUpdateRecord(editingRecord, updated);
+              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
+                mergedIdsToDelete.forEach(id => {
+                  const rec = records.find(r => r.id === id);
+                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
+                });
+              }
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -13633,12 +13861,19 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
         {editingRecord && (
           <EditRecordModal 
             record={editingRecord}
+            records={records}
             accounts={accounts}
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated) => {
+            onSave={(updated, mergedIdsToDelete) => {
               onUpdateRecord(editingRecord, updated);
+              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
+                mergedIdsToDelete.forEach(id => {
+                  const rec = records.find(r => r.id === id);
+                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
+                });
+              }
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -18720,6 +18955,7 @@ function PrepaymentsView({
   categories, 
   onBack, 
   onUpdateRecord,
+  onDeleteRecord,
   onDuplicateRecord
 }: { 
   records: Transaction[], 
@@ -18728,6 +18964,7 @@ function PrepaymentsView({
   categories: Category[], 
   onBack: () => void, 
   onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction) => void,
+  onDeleteRecord?: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
@@ -18832,12 +19069,19 @@ function PrepaymentsView({
         {editingRecord && (
           <EditRecordModal 
             record={editingRecord}
+            records={records}
             accounts={accounts}
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated) => {
+            onSave={(updated, mergedIdsToDelete) => {
               onUpdateRecord(editingRecord, updated);
+              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
+                mergedIdsToDelete.forEach(id => {
+                  const rec = records.find(r => r.id === id);
+                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
+                });
+              }
               setEditingRecord(null);
             }}
             onDelete={() => {
