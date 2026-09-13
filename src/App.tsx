@@ -6051,7 +6051,7 @@ function InvestmentSection({
               </div>
 
               {/* Body: Mobile single-column, Desktop 2-column split (grid-cols-1 md:grid-cols-2) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 flex-1 min-h-0 overflow-y-auto md:overflow-visible pr-1 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
                 {/* Left Column: Overview Stats */}
                 <div className="flex flex-col gap-4 shrink-0">
                   <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block">持股數據總覽</span>
@@ -6075,7 +6075,7 @@ function InvestmentSection({
                 {/* Right Column: Transaction History */}
                 <div className="flex flex-col gap-2 flex-1 min-h-0">
                   <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block shrink-0">交易歷史紀錄</span>
-                  <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[220px] md:max-h-[380px] custom-scrollbar">
+                  <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[200px] max-h-[380px] custom-scrollbar">
                     {(() => {
                       const keyword = selectedStockForDetail.code.split(' (')[0].trim();
                       const sortedList = records
@@ -6124,7 +6124,7 @@ function InvestmentSection({
               </div>
 
               {/* Close Button */}
-              <div className="pt-2 border-t border-[#5D4037]/10 shrink-0">
+              <div className="pt-3 border-t border-[#5D4037]/10 shrink-0">
                 <button 
                   onClick={() => setSelectedStockForDetail(null)}
                   className="w-full py-3.5 bg-[#5D4037] text-white rounded-2xl font-black shadow-md hover:bg-[#4E342E] transition-all text-sm"
