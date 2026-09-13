@@ -6026,7 +6026,7 @@ function InvestmentSection({
       {/* 4. Modal: Stock Transaction Details */}
       <AnimatePresence>
         {selectedStockForDetail && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -6034,11 +6034,11 @@ function InvestmentSection({
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-[#FFF9E3] w-full max-w-md rounded-[40px] p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-6 max-h-[85vh]"
+              className="bg-[#FFF9E3] w-full max-w-md md:max-w-[800px] rounded-[40px] p-6 sm:p-8 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-5 max-h-[85vh] overflow-hidden"
               style={getFontFamily()}
             >
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3">
+              <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3 shrink-0">
                 <h3 className="text-xl font-black text-[#5D4037]">
                   {selectedStockForDetail.code} 明細
                 </h3>
@@ -6050,75 +6050,88 @@ function InvestmentSection({
                 </button>
               </div>
 
-              {/* Overview Stats */}
-              <div className="grid grid-cols-3 gap-4 bg-[#FFFDF5]/70 p-4 rounded-3xl border border-stone-100/50 text-center">
-                <div>
-                  <span className="text-[10px] font-bold text-stone-400 block mb-0.5">持股數量</span>
-                  <span className="text-base font-black text-[#5D4037]">{selectedStockForDetail.shares.toLocaleString()} 股</span>
+              {/* Body: Mobile single-column, Desktop 2-column split (grid-cols-1 md:grid-cols-2) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 flex-1 min-h-0 overflow-y-auto md:overflow-visible pr-1 custom-scrollbar">
+                {/* Left Column: Overview Stats */}
+                <div className="flex flex-col gap-4 shrink-0">
+                  <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block">持股數據總覽</span>
+                  
+                  <div className="grid grid-cols-3 md:grid-cols-1 gap-3 bg-[#FFFDF5]/80 p-4 rounded-3xl border border-stone-100/50 text-center md:text-left">
+                    <div className="md:p-2 md:border-b md:border-stone-100/60">
+                      <span className="text-[10px] font-bold text-stone-400 block mb-0.5">持股數量</span>
+                      <span className="text-base font-black text-[#5D4037]">{selectedStockForDetail.shares.toLocaleString()} 股</span>
+                    </div>
+                    <div className="md:p-2 md:border-b md:border-stone-100/60">
+                      <span className="text-[10px] font-bold text-stone-400 block mb-0.5">平均買價</span>
+                      <span className="text-base font-black text-[#5D4037]">${selectedStockForDetail.avgPrice.toLocaleString()}</span>
+                    </div>
+                    <div className="md:p-2">
+                      <span className="text-[10px] font-bold text-stone-400 block mb-0.5">投入成本</span>
+                      <span className="text-base font-black text-[#E91E63]">${Math.round(selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}</span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-[10px] font-bold text-stone-400 block mb-0.5">平均買價</span>
-                  <span className="text-base font-black text-[#5D4037]">${selectedStockForDetail.avgPrice.toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-stone-400 block mb-0.5">投入成本</span>
-                  <span className="text-base font-black text-[#E91E63]">${Math.round(selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}</span>
-                </div>
-              </div>
 
-              {/* Transaction List */}
-              <div className="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar">
-                <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block mb-1">交易歷史紀錄</span>
-                {(() => {
-                  const keyword = selectedStockForDetail.code.split(' (')[0].trim();
-                  const sortedList = records
-                    .filter(r => r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword)))
-                    .sort((a, b) => b.date.localeCompare(a.date));
+                {/* Right Column: Transaction History */}
+                <div className="flex flex-col gap-2 flex-1 min-h-0">
+                  <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block shrink-0">交易歷史紀錄</span>
+                  <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[220px] md:max-h-[380px] custom-scrollbar">
+                    {(() => {
+                      const keyword = selectedStockForDetail.code.split(' (')[0].trim();
+                      const sortedList = records
+                        .filter(r => r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword)))
+                        .sort((a, b) => b.date.localeCompare(a.date));
 
-                  if (sortedList.length === 0) {
-                    return (
-                      <p className="text-stone-400 text-center py-8 text-xs font-bold">目前暫無此股票之交易明細</p>
-                    );
-                  }
-
-                  return sortedList.map(r => {
-                    const acc = accounts.find(a => a.id === r.accountId);
-                    const isIncome = r.type === 'income';
-                    
-                    return (
-                      <div 
-                        key={r.id}
-                        onClick={() => setEditingRecord(r)}
-                        className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-sm cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md transition-all active:scale-[0.99] gap-4"
-                      >
-                        <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                          <span className="text-sm font-black text-[#5D4037] leading-snug truncate">{r.note}</span>
-                          <div className="flex items-center gap-2 text-xs sm:text-sm text-stone-600 font-bold">
-                            <span>{r.date.replace(/-/g, '/')}</span>
-                            {acc && (
-                              <>
-                                <span className="text-stone-300">•</span>
-                                <span className="flex items-center gap-1 text-[#5D4037]/80">{acc.icon} {acc.name}</span>
-                              </>
-                            )}
+                      if (sortedList.length === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center py-10 bg-white/50 rounded-2xl border border-dashed border-stone-200">
+                            <p className="text-stone-400 text-xs font-bold">目前暫無此股票之交易明細</p>
                           </div>
-                        </div>
-                        <span className={`text-base sm:text-lg font-black flex-shrink-0 ${isIncome ? 'text-emerald-500' : 'text-[#E91E63]'}`}>
-                          {isIncome ? '+' : '-'}${Math.abs(r.amount).toLocaleString()}
-                        </span>
-                      </div>
-                    );
-                  });
-                })()}
+                        );
+                      }
+
+                      return sortedList.map(r => {
+                        const acc = accounts.find(a => a.id === r.accountId);
+                        const isIncome = r.type === 'income';
+                        
+                        return (
+                          <div 
+                            key={r.id}
+                            onClick={() => setEditingRecord(r)}
+                            className="bg-white p-3.5 md:p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-xs cursor-pointer hover:border-[#FFD54F]/50 hover:shadow-md transition-all active:scale-[0.99] gap-3"
+                          >
+                            <div className="flex flex-col gap-1 min-w-0 flex-1">
+                              <span className="text-sm font-black text-[#5D4037] leading-snug truncate">{r.note}</span>
+                              <div className="flex items-center gap-2 text-xs text-stone-600 font-bold">
+                                <span>{r.date.replace(/-/g, '/')}</span>
+                                {acc && (
+                                  <>
+                                    <span className="text-stone-300">•</span>
+                                    <span className="flex items-center gap-1 text-[#5D4037]/80 truncate">{acc.icon} {acc.name}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <span className={`text-base font-black flex-shrink-0 ${isIncome ? 'text-emerald-500' : 'text-[#E91E63]'}`}>
+                              {isIncome ? '+' : '-'}${Math.abs(r.amount).toLocaleString()}
+                            </span>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
               </div>
 
               {/* Close Button */}
-              <button 
-                onClick={() => setSelectedStockForDetail(null)}
-                className="w-full py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm mt-2"
-              >
-                關閉明細
-              </button>
+              <div className="pt-2 border-t border-[#5D4037]/10 shrink-0">
+                <button 
+                  onClick={() => setSelectedStockForDetail(null)}
+                  className="w-full py-3.5 bg-[#5D4037] text-white rounded-2xl font-black shadow-md hover:bg-[#4E342E] transition-all text-sm"
+                >
+                  關閉明細
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
