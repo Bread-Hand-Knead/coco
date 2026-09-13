@@ -14088,10 +14088,9 @@ const CustomTooltip = ({ active, payload }: any) => {
     const categoryColor = payload[0].color || '#FFD54F';
     return (
       <div 
-        className="bg-white/95 backdrop-blur-md border-2 p-2.5 rounded-2xl shadow-xl flex items-center gap-2 pointer-events-none"
+        className="bg-[#5D4037] text-[#FFFDF5] p-2.5 rounded-2xl shadow-xl flex items-center gap-2 pointer-events-none border border-white/20 z-[50]"
         style={{
-          borderColor: categoryColor,
-          boxShadow: '0 10px 25px -5px rgba(93, 64, 55, 0.25)',
+          boxShadow: '0 10px 25px -5px rgba(93, 64, 55, 0.4)',
           ...getFontFamily()
         }}
       >
@@ -14100,12 +14099,11 @@ const CustomTooltip = ({ active, payload }: any) => {
           style={{ backgroundColor: categoryColor }}
         />
         <div 
-          className="flex items-center gap-1.5 text-xs font-black text-[#5D4037]" 
-          style={{ textShadow: '1px 1px 2px rgba(93,64,55,0.15)' }}
+          className="flex items-center gap-1.5 text-xs font-black text-white"
         >
           <span>{data.name}</span>
           <span className="text-stone-300 font-normal">:</span>
-          <span className="text-sm font-black text-[#5D4037]">${data.value.toLocaleString()}</span>
+          <span className="text-sm font-black text-[#FFD54F]">${data.value.toLocaleString()}</span>
         </div>
       </div>
     );
@@ -14119,15 +14117,23 @@ function ReportsView({ records, projects, categories }: {
   categories: Category[] 
 }) {
   const [dateRange, setDateRange] = useState<'thisMonth' | 'last3Months' | 'last6Months' | 'lastYear'>('thisMonth');
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeSector, setActiveSector] = useState<any>(null);
   
   const COLORS = ['#FFD54F', '#FFAB91', '#81C784', '#90CAF9', '#CE93D8', '#BCAAA4', '#B0BEC5', '#FFCCBC', '#C5E1A5', '#FFF59D'];
 
-  const filteredByProject = useMemo(() => {
-    if (selectedProjectId === 'all') return records;
-    return records.filter(r => r.projectId === selectedProjectId);
-  }, [records, selectedProjectId]);
+  // List of main categories for the category filter row
+  const mainExpenseCategories = useMemo(() => {
+    const list: { id: string; name: string; icon?: string }[] = [];
+    categories
+      .filter(c => c.type === 'expense' || !c.type)
+      .forEach(cat => {
+        if (!list.some(item => item.name === cat.name)) {
+          list.push({ id: cat.id, name: cat.name, icon: cat.icon });
+        }
+      });
+    return list;
+  }, [categories]);
 
   const dateInterval = useMemo(() => {
     const now = new Date();
@@ -14141,41 +14147,121 @@ function ReportsView({ records, projects, categories }: {
     return { start, end };
   }, [dateRange]);
 
+  // Check if a transaction category belongs to a target main category or its subcategories
+  const isCategoryMatch = useCallback((recCategory: string | undefined | null, targetMainCat: string): boolean => {
+    if (!recCategory) return false;
+    const cleanCat = recCategory.trim();
+    const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+    const main = parts[0];
+    const sub = parts[1];
+
+    if (main === targetMainCat) return true;
+
+    // Check against categories list definition
+    const parentCatObj = categories.find(c => c.name === targetMainCat);
+    if (parentCatObj && parentCatObj.sub) {
+      if (parentCatObj.sub.includes(cleanCat)) return true;
+      if (sub && parentCatObj.sub.includes(sub)) return true;
+    }
+    return false;
+  }, [categories]);
+
   const stats = useMemo(() => {
-    const periodRecords = filteredByProject.filter(r => {
+    // 1. Safety check & filter by date interval
+    // Exclude transfers (type === 'transfer'), prepay (isPrepay === true), merged child transactions (parentId exists)
+    const validRecords = records.filter(r => {
+      if (r.type === 'transfer') return false;
+      if (r.isPrepay) return false;
+      if (r.parentId || (r as any).isMergedChild) return false;
+
       const d = parseISO(r.postingDate || r.date);
       return d >= dateInterval.start && d <= dateInterval.end;
     });
 
-    const income = periodRecords.filter(r => r.type === 'income' && !r.isPrepay).reduce((s, r) => s + Math.abs(r.amount), 0);
-    const expense = periodRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
-    
-    // Category Pie Data
+    // Income & Expense total calculations for the entire period
+    const income = validRecords
+      .filter(r => r.type === 'income')
+      .reduce((s, r) => s + Math.abs(r.amount), 0);
+
+    const totalPeriodExpense = validRecords
+      .filter(r => r.type === 'expense')
+      .reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
+
+    // 2. Filter records according to selectedCategory
+    let expenseRecords = validRecords.filter(r => r.type === 'expense');
+    if (selectedCategory !== 'all') {
+      expenseRecords = expenseRecords.filter(r => isCategoryMatch(r.category, selectedCategory));
+    }
+
+    const currentExpenseTotal = expenseRecords.reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
+
+    // 3. Category / Subcategory Pie Data Calculation
     const catMap: Record<string, number> = {};
-    periodRecords.filter(r => r.type === 'expense' && !r.isPrepay).forEach(r => {
-      const cat = r.category.split(' > ')[0];
-      catMap[cat] = (catMap[cat] || 0) + (Math.abs(r.amount) + (r.fee || 0));
+
+    expenseRecords.forEach(r => {
+      const amt = Math.abs(r.amount) + (r.fee || 0);
+      const cleanCat = (r.category || '其他').trim();
+      const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+
+      if (selectedCategory === 'all') {
+        // Group by Main Category
+        const mainCat = parts[0] || '其他';
+        catMap[mainCat] = (catMap[mainCat] || 0) + amt;
+      } else {
+        // Group by Subcategory under selectedCategory
+        let subName = '';
+        if (parts.length > 1 && parts[1]) {
+          subName = parts[1];
+        } else if (parts[0] !== selectedCategory) {
+          subName = parts[0];
+        } else {
+          subName = '主要 / 未細分';
+        }
+        catMap[subName] = (catMap[subName] || 0) + amt;
+      }
     });
-    
+
     const pieData = Object.entries(catMap)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
 
-    // Trend Data
-    const months = eachMonthOfInterval({ start: dateInterval.start, end: dateInterval.end });
-    const trendData = months.map(m => {
-      const mStr = format(m, 'yyyy-MM');
-      const mRecords = periodRecords.filter(r => (r.postingDate || r.date).startsWith(mStr));
-      return {
-        name: format(m, 'MMM'),
-        fullName: format(m, 'yyyy/MM'),
-        income: mRecords.filter(r => r.type === 'income' && !r.isPrepay).reduce((s, r) => s + Math.abs(r.amount), 0),
-        expense: mRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0),
-      };
-    });
+    return {
+      income,
+      expense: selectedCategory === 'all' ? totalPeriodExpense : currentExpenseTotal,
+      pieData
+    };
+  }, [records, dateInterval, selectedCategory, isCategoryMatch]);
 
-    return { income, expense, balance: income - expense, pieData, trendData };
-  }, [filteredByProject, dateInterval]);
+  // Safe Tooltip positioning algorithm with boundary protection & smart flip
+  const getTooltipPosition = (sector: any) => {
+    if (!sector || typeof sector.cx === 'undefined') return undefined;
+    const { cx, cy, midAngle } = sector;
+    const radian = -midAngle * (Math.PI / 180);
+
+    const targetRadius = 115;
+    const tx = cx + Math.cos(radian) * targetRadius;
+    const ty = cy + Math.sin(radian) * targetRadius;
+
+    const tooltipWidth = 140;
+    const tooltipHeight = 44;
+
+    const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 375;
+
+    let x = tx - tooltipWidth / 2;
+    let y = ty - tooltipHeight / 2;
+
+    // Smart flip & screen edge clamp (min 12px margin)
+    if (tx < 110) {
+      x = Math.max(12, tx + 10);
+    } else if (tx > windowWidth - 110) {
+      x = Math.min(windowWidth - tooltipWidth - 12, tx - tooltipWidth - 10);
+    } else {
+      x = Math.max(12, Math.min(x, windowWidth - tooltipWidth - 12));
+    }
+
+    y = Math.max(10, y);
+    return { x, y };
+  };
 
   return (
     <motion.div 
@@ -14185,6 +14271,7 @@ function ReportsView({ records, projects, categories }: {
     >
       {/* Filters */}
       <div className="flex flex-col gap-4">
+        {/* Date Range Selector */}
         <div className="flex bg-white/60 p-1 rounded-2xl border border-stone-100 shadow-sm overflow-x-auto">
           {(['thisMonth', 'last3Months', 'last6Months', 'lastYear'] as const).map(range => (
             <button
@@ -14197,21 +14284,33 @@ function ReportsView({ records, projects, categories }: {
           ))}
         </div>
         
-        <div className="flex items-center gap-3 overflow-x-auto py-1">
+        {/* Category Filter Selector (Defaults to 全部分類) */}
+        <div className="flex items-center gap-2 overflow-x-auto py-1 custom-scrollbar">
           <button
-            onClick={() => setSelectedProjectId('all')}
-            className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border ${selectedProjectId === 'all' ? 'bg-[#5D4037] text-[#FFFDF5] border-[#5D4037]' : 'bg-white text-stone-500 border-stone-100'}`}
+            type="button"
+            onClick={() => setSelectedCategory('all')}
+            className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-1.5 shrink-0 ${
+              selectedCategory === 'all' 
+                ? 'bg-[#5D4037] text-[#FFFDF5] border-[#5D4037] shadow-sm' 
+                : 'bg-white text-stone-500 border-stone-100 hover:bg-stone-50'
+            }`}
           >
-            全部分類
+            <span>全部分類</span>
           </button>
-          {projects.map(p => (
+
+          {mainExpenseCategories.map(cat => (
             <button
-              key={p.id}
-              onClick={() => setSelectedProjectId(p.id)}
-              className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-2 ${selectedProjectId === p.id ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F]' : 'bg-white text-stone-500 border-stone-100'}`}
+              key={cat.id || cat.name}
+              type="button"
+              onClick={() => setSelectedCategory(cat.name)}
+              className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-1.5 shrink-0 ${
+                selectedCategory === cat.name 
+                  ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F] shadow-sm scale-[1.02]' 
+                  : 'bg-white text-stone-500 border-stone-100 hover:bg-stone-50'
+              }`}
             >
-              <AccountIcon icon={p.icon} sizeClassName="w-4 h-4" />
-              <span>{p.name}</span>
+              <AccountIcon icon={cat.icon} sizeClassName="w-4 h-4" />
+              <span>{cat.name}</span>
             </button>
           ))}
         </div>
@@ -14240,74 +14339,74 @@ function ReportsView({ records, projects, categories }: {
       </div>
 
       {/* Chart */}
-      <div className="bg-white rounded-[40px] p-8 shadow-sm border border-stone-50">
-        <div className="flex items-center justify-between mb-8">
+      <div className="bg-white rounded-[40px] p-6 sm:p-8 shadow-sm border border-stone-50 overflow-visible relative">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-base font-black text-[#5D4037]">支出分析</h3>
-            <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Expense Breakdown</p>
+            <h3 className="text-base font-black text-[#5D4037]">
+              {selectedCategory === 'all' ? '支出分析 (全部分類)' : `支出分析 (${selectedCategory} 細項拆分)`}
+            </h3>
+            <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">
+              {selectedCategory === 'all' ? 'Expense Breakdown' : `${selectedCategory} Subcategory Breakdown`}
+            </p>
           </div>
         </div>
         
-        <div className="h-[300px] w-full relative">
-          <ResponsiveContainer width="100%" height="100%">
-            <RePieChart>
-              <Pie
-                data={stats.pieData}
-                innerRadius={80}
-                outerRadius={110}
-                paddingAngle={8}
-                dataKey="value"
-                stroke="none"
-                onMouseEnter={(data) => setActiveSector(data)}
-                onMouseLeave={() => setActiveSector(null)}
-                onClick={(data) => setActiveSector(data)}
-              >
-                {stats.pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip 
-                content={<CustomTooltip />}
-                position={(() => {
-                  if (!activeSector || typeof activeSector.cx === 'undefined') return undefined;
-                  const { cx, cy, midAngle, outerRadius } = activeSector;
-                  const radian = -midAngle * (Math.PI / 180);
-                  
-                  // 圓環外半徑是 110px，所以把貼齊邊緣半徑設為 120px
-                  const targetRadius = 120;
-                  const tx = cx + Math.cos(radian) * targetRadius;
-                  const ty = cy + Math.sin(radian) * targetRadius;
-                  
-                  // 定義 Tooltip 估算寬高 (此尺寸適用於分類與金額字數長度)
-                  const tooltipWidth = 130;
-                  const tooltipHeight = 40;
-                  
-                  // 使用平滑邊界貼齊插值公式，確保在任何角度下，Tooltip 的外邊界都剛好外切於 targetRadius
-                  const x = tx - (tooltipWidth * (1 - Math.cos(radian))) / 2;
-                  const y = ty - (tooltipHeight * (1 - Math.sin(radian))) / 2;
-                  
-                  return { x, y };
-                })()}
-              />
-            </RePieChart>
-          </ResponsiveContainer>
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">總支出</span>
-            <span className="text-2xl font-black text-[#5D4037]">${stats.expense.toLocaleString()}</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 mt-8">
-          {stats.pieData.map((entry, index) => (
-            <div key={entry.name} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-                <span className="text-xs font-bold text-[#5D4037] truncate">{entry.name}</span>
-              </div>
-              <span className="text-[10px] font-black text-stone-400">{((entry.value / stats.expense) * 100).toFixed(1)}%</span>
+        {stats.pieData.length === 0 ? (
+          <div className="h-[260px] w-full flex flex-col items-center justify-center gap-3 bg-stone-50/60 rounded-3xl border border-dashed border-stone-200 my-2">
+            <div className="w-12 h-12 rounded-full bg-amber-100/60 flex items-center justify-center text-amber-800 text-xl shadow-xs">
+              📊
             </div>
-          ))}
-        </div>
+            <p className="text-sm font-bold text-[#5D4037]/70">此期間無相關支出紀錄</p>
+          </div>
+        ) : (
+          <>
+            <div className="h-[300px] w-full relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <RePieChart>
+                  <Pie
+                    data={stats.pieData}
+                    innerRadius={80}
+                    outerRadius={110}
+                    paddingAngle={6}
+                    dataKey="value"
+                    stroke="none"
+                    onMouseEnter={(data) => setActiveSector(data)}
+                    onMouseLeave={() => setActiveSector(null)}
+                    onClick={(data) => setActiveSector(data)}
+                  >
+                    {stats.pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    position={getTooltipPosition(activeSector)}
+                  />
+                </RePieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">
+                  {selectedCategory === 'all' ? '總支出' : '類別花費'}
+                </span>
+                <span className="text-2xl font-black text-[#5D4037]">${stats.expense.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mt-8">
+              {stats.pieData.map((entry, index) => (
+                <div key={entry.name} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                    <span className="text-xs font-bold text-[#5D4037] truncate">{entry.name}</span>
+                  </div>
+                  <span className="text-[10px] font-black text-stone-400">
+                    {stats.expense > 0 ? ((entry.value / stats.expense) * 100).toFixed(1) : 0}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="h-[60px]" />
