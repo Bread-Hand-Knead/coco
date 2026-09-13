@@ -2035,7 +2035,51 @@ export default function App() {
     }
   };
 
-  const handleUpdateRecord = async (oldRecord: Transaction, newRecord: Transaction) => {
+  const handleUpdateRecord = async (
+    oldRecord: Transaction, 
+    newRecord: Transaction, 
+    mergedRecordIdsToDelete?: string[], 
+    restoredRecordIds?: string[]
+  ) => {
+    if (mergedRecordIdsToDelete && mergedRecordIdsToDelete.length > 0) {
+      setRecords(prev => prev.filter(r => !mergedRecordIdsToDelete.includes(r.id)));
+      if (user) {
+        for (const id of mergedRecordIdsToDelete) {
+          try {
+            await deleteFromCloud('transactions', id);
+          } catch (e) {
+            console.error('刪除被合併紀錄失敗:', e);
+          }
+        }
+      }
+    }
+
+    if (restoredRecordIds && restoredRecordIds.length > 0) {
+      setRecords(prev => prev.map(r => {
+        if (restoredRecordIds.includes(r.id)) {
+          const copy = { ...r };
+          delete (copy as any).parentTransactionId;
+          delete (copy as any).isChildTransaction;
+          return copy;
+        }
+        return r;
+      }));
+      if (user) {
+        for (const id of restoredRecordIds) {
+          try {
+            const recToRestore = records.find(r => r.id === id);
+            if (recToRestore) {
+              const restored = { ...recToRestore };
+              delete (restored as any).parentTransactionId;
+              delete (restored as any).isChildTransaction;
+              await syncToCloud('transactions', restored, id);
+            }
+          } catch (e) {
+            console.error('還原解拆紀錄失敗:', e);
+          }
+        }
+      }
+    }
     if (oldRecord._isMergedTransfer && oldRecord._mergedRecordIds && oldRecord._mergedRecordIds.length >= 2) {
       const primaryId = oldRecord._mergedRecordIds[0];
       const secondaryId = oldRecord._mergedRecordIds[1];
@@ -4135,7 +4179,7 @@ function AccountsView({
   onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
   categories: Category[],
   projects: Project[],
-  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
@@ -4752,7 +4796,7 @@ function InvestmentSection({
   onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
   categories: Category[],
   projects: Project[],
-  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
@@ -6180,7 +6224,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   selectedDate: string,
   onBack: () => void,
   onEdit: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   accounts: Account[],
   projects: Project[],
@@ -7817,51 +7861,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
-              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
-                if (user) {
-                  for (const id of mergedIdsToDelete) {
-                    try {
-                      await deleteFromCloud('transactions', id);
-                    } catch (e) {
-                      console.error('刪除被合併紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              if (restoredIds && restoredIds.length > 0) {
-                setRecords(prev => prev.map(r => {
-                  if (restoredIds.includes(r.id)) {
-                    return {
-                      ...r,
-                      parentTransactionId: undefined,
-                      isChildTransaction: false
-                    };
-                  }
-                  return r;
-                }));
-                if (user) {
-                  for (const id of restoredIds) {
-                    try {
-                      const recToRestore = records.find(r => r.id === id);
-                      if (recToRestore) {
-                        const restored = {
-                          ...recToRestore,
-                          parentTransactionId: undefined,
-                          isChildTransaction: false
-                        };
-                        delete (restored as any).parentTransactionId;
-                        delete (restored as any).isChildTransaction;
-                        await syncToCloud('transactions', restored, id);
-                      }
-                    } catch (e) {
-                      console.error('還原解拆紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              onUpdateRecord(editingRecord, updated);
+            onSave={(updated, mergedIdsToDelete, restoredIds) => {
+              onUpdateRecord(editingRecord, updated, mergedIdsToDelete, restoredIds);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -9795,7 +9796,7 @@ function SearchView({
   categories: Category[], 
   projects: Project[],
   onBack: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onReorder: (records: Transaction[]) => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -9929,51 +9930,8 @@ function SearchView({
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
-              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
-                if (user) {
-                  for (const id of mergedIdsToDelete) {
-                    try {
-                      await deleteFromCloud('transactions', id);
-                    } catch (e) {
-                      console.error('刪除被合併紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              if (restoredIds && restoredIds.length > 0) {
-                setRecords(prev => prev.map(r => {
-                  if (restoredIds.includes(r.id)) {
-                    return {
-                      ...r,
-                      parentTransactionId: undefined,
-                      isChildTransaction: false
-                    };
-                  }
-                  return r;
-                }));
-                if (user) {
-                  for (const id of restoredIds) {
-                    try {
-                      const recToRestore = records.find(r => r.id === id);
-                      if (recToRestore) {
-                        const restored = {
-                          ...recToRestore,
-                          parentTransactionId: undefined,
-                          isChildTransaction: false
-                        };
-                        delete (restored as any).parentTransactionId;
-                        delete (restored as any).isChildTransaction;
-                        await syncToCloud('transactions', restored, id);
-                      }
-                    } catch (e) {
-                      console.error('還原解拆紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              onUpdateRecord(editingRecord, updated);
+            onSave={(updated, mergedIdsToDelete, restoredIds) => {
+              onUpdateRecord(editingRecord, updated, mergedIdsToDelete, restoredIds);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -12850,7 +12808,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   categories: Category[],
   projects: Project[],
   onBack: () => void,
-  onUpdateRecord: (oldRec: Transaction, newRec: Transaction) => void,
+  onUpdateRecord: (oldRec: Transaction, newRec: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
   onDeleteRecord: (rec: Transaction) => void,
   onAddRecord: () => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -13049,51 +13007,8 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
-              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
-                if (user) {
-                  for (const id of mergedIdsToDelete) {
-                    try {
-                      await deleteFromCloud('transactions', id);
-                    } catch (e) {
-                      console.error('刪除被合併紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              if (restoredIds && restoredIds.length > 0) {
-                setRecords(prev => prev.map(r => {
-                  if (restoredIds.includes(r.id)) {
-                    return {
-                      ...r,
-                      parentTransactionId: undefined,
-                      isChildTransaction: false
-                    };
-                  }
-                  return r;
-                }));
-                if (user) {
-                  for (const id of restoredIds) {
-                    try {
-                      const recToRestore = records.find(r => r.id === id);
-                      if (recToRestore) {
-                        const restored = {
-                          ...recToRestore,
-                          parentTransactionId: undefined,
-                          isChildTransaction: false
-                        };
-                        delete (restored as any).parentTransactionId;
-                        delete (restored as any).isChildTransaction;
-                        await syncToCloud('transactions', restored, id);
-                      }
-                    } catch (e) {
-                      console.error('還原解拆紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              onUpdateRecord(editingRecord, updated);
+            onSave={(updated, mergedIdsToDelete, restoredIds) => {
+              onUpdateRecord(editingRecord, updated, mergedIdsToDelete, restoredIds);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -13758,7 +13673,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   filter: { type: 'day' | 'week' | 'month' | 'year', date: string },
   currencyMode: CurrencyMode,
   onBack: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onReorder: (records: Transaction[]) => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -14054,51 +13969,8 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
-              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
-                if (user) {
-                  for (const id of mergedIdsToDelete) {
-                    try {
-                      await deleteFromCloud('transactions', id);
-                    } catch (e) {
-                      console.error('刪除被合併紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              if (restoredIds && restoredIds.length > 0) {
-                setRecords(prev => prev.map(r => {
-                  if (restoredIds.includes(r.id)) {
-                    return {
-                      ...r,
-                      parentTransactionId: undefined,
-                      isChildTransaction: false
-                    };
-                  }
-                  return r;
-                }));
-                if (user) {
-                  for (const id of restoredIds) {
-                    try {
-                      const recToRestore = records.find(r => r.id === id);
-                      if (recToRestore) {
-                        const restored = {
-                          ...recToRestore,
-                          parentTransactionId: undefined,
-                          isChildTransaction: false
-                        };
-                        delete (restored as any).parentTransactionId;
-                        delete (restored as any).isChildTransaction;
-                        await syncToCloud('transactions', restored, id);
-                      }
-                    } catch (e) {
-                      console.error('還原解拆紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              onUpdateRecord(editingRecord, updated);
+            onSave={(updated, mergedIdsToDelete, restoredIds) => {
+              onUpdateRecord(editingRecord, updated, mergedIdsToDelete, restoredIds);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -19188,7 +19060,7 @@ function PrepaymentsView({
   projects: Project[],
   categories: Category[], 
   onBack: () => void, 
-  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction) => void,
+  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction, mergedRecordIdsToDelete?: string[], restoredRecordIds?: string[]) => void,
   onDeleteRecord?: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
@@ -19299,51 +19171,8 @@ function PrepaymentsView({
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={async (updated, mergedIdsToDelete, restoredIds) => {
-              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
-                if (user) {
-                  for (const id of mergedIdsToDelete) {
-                    try {
-                      await deleteFromCloud('transactions', id);
-                    } catch (e) {
-                      console.error('刪除被合併紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              if (restoredIds && restoredIds.length > 0) {
-                setRecords(prev => prev.map(r => {
-                  if (restoredIds.includes(r.id)) {
-                    return {
-                      ...r,
-                      parentTransactionId: undefined,
-                      isChildTransaction: false
-                    };
-                  }
-                  return r;
-                }));
-                if (user) {
-                  for (const id of restoredIds) {
-                    try {
-                      const recToRestore = records.find(r => r.id === id);
-                      if (recToRestore) {
-                        const restored = {
-                          ...recToRestore,
-                          parentTransactionId: undefined,
-                          isChildTransaction: false
-                        };
-                        delete (restored as any).parentTransactionId;
-                        delete (restored as any).isChildTransaction;
-                        await syncToCloud('transactions', restored, id);
-                      }
-                    } catch (e) {
-                      console.error('還原解拆紀錄失敗:', e);
-                    }
-                  }
-                }
-              }
-              onUpdateRecord(editingRecord, updated);
+            onSave={(updated, mergedIdsToDelete, restoredIds) => {
+              onUpdateRecord(editingRecord, updated, mergedIdsToDelete, restoredIds);
               setEditingRecord(null);
             }}
             onDelete={() => {
