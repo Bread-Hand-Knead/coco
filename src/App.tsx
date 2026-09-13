@@ -254,6 +254,8 @@ interface Transaction {
   currency?: string;   // 幣別 (如 "TWD", "USD", "JPY", "KRW")
   order?: number;
   subItems?: SubItem[];
+  parentTransactionId?: string;
+  isChildTransaction?: boolean;
   _importSourceAccountName?: string;
   _importDestAccountName?: string;
   _importProjectName?: string;
@@ -639,7 +641,7 @@ const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: s
 };
 
 const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
-  const cleanedTxs = txs;
+  const cleanedTxs = txs.filter(t => !t.parentTransactionId && !t.isChildTransaction);
 
   const result: Transaction[] = [];
   const matchedIds = new Set<string>();
@@ -1869,6 +1871,7 @@ export default function App() {
 
     // Filter records based on currency mode
     const filteredByCurrency = records.filter(r => {
+      if (r.parentTransactionId || r.isChildTransaction) return false;
       const cur = r.currency || 'TWD';
       // If currencyMode is null or TWD, show TWD. If FOREIGN, show non-TWD
       if (currencyMode === 'FOREIGN') return cur !== 'TWD';
@@ -6448,6 +6451,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     const targetYearMonth = dateRangeStrings.filter;
     
     const raw = records.filter(r => {
+      if (r.parentTransactionId || r.isChildTransaction) return false;
       if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
       if (r.category === '初始資金') return false;
       
@@ -6721,6 +6725,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     // Filter ALL history transactions for this card
     const allHistoryCardRecords = records.filter(r => 
+      !r.parentTransactionId && !r.isChildTransaction &&
       (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
       r.category !== '初始資金'
     );
@@ -7812,14 +7817,20 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated, mergedIdsToDelete) => {
-              onUpdateRecord(editingRecord, updated);
+            onSave={async (updated, mergedIdsToDelete) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                mergedIdsToDelete.forEach(id => {
-                  const rec = records.find(r => r.id === id);
-                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
-                });
+                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
+                if (user) {
+                  for (const id of mergedIdsToDelete) {
+                    try {
+                      await deleteFromCloud('transactions', id);
+                    } catch (e) {
+                      console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
               }
+              onUpdateRecord(editingRecord, updated);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -7981,6 +7992,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
 
     return records.filter(r => {
       if (r.id === edited.id) return false;
+      if (r.parentTransactionId || r.isChildTransaction) return false;
       if (r.accountId !== edited.accountId) return false;
       const rDateMs = new Date(r.date).getTime();
       if (isNaN(rDateMs) || Math.abs(rDateMs - currentDateMs) > threeDaysMs) return false;
@@ -8002,7 +8014,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       .reduce((sum, r) => sum + Math.abs(r.amount), 0);
   }, [records, selectedMergeIds]);
 
-  const handleConfirmMerge = () => {
+  const handleMergeTransactions = () => {
     const selectedRecords = records.filter(r => selectedMergeIds.includes(r.id));
     if (selectedRecords.length === 0) {
       setIsMergeModalOpen(false);
@@ -9031,7 +9043,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                   </div>
                   <button
                     type="button"
-                    onClick={handleConfirmMerge}
+                    onClick={handleMergeTransactions}
                     disabled={selectedMergeIds.length === 0}
                     className="px-5 py-2.5 bg-[#5D4037] text-white rounded-xl text-xs font-black shadow-md active:scale-95 disabled:opacity-40 disabled:active:scale-100 transition-all"
                   >
@@ -9696,9 +9708,10 @@ function SearchView({
     if (!searchQuery.trim()) return [];
     const query = searchQuery.toLowerCase();
     const raw = records.filter(r => 
-      (r.note || '').toLowerCase().includes(query) || 
+      !r.parentTransactionId && !r.isChildTransaction &&
+      ((r.note || '').toLowerCase().includes(query) || 
       r.category.toLowerCase().includes(query) ||
-      r.amount.toString().includes(query)
+      r.amount.toString().includes(query))
     );
     const merged = getMergedRecords(raw, accounts);
     return merged.sort((a, b) => {
@@ -9817,14 +9830,20 @@ function SearchView({
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated, mergedIdsToDelete) => {
-              onUpdateRecord(editingRecord, updated);
+            onSave={async (updated, mergedIdsToDelete) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                mergedIdsToDelete.forEach(id => {
-                  const rec = records.find(r => r.id === id);
-                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
-                });
+                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
+                if (user) {
+                  for (const id of mergedIdsToDelete) {
+                    try {
+                      await deleteFromCloud('transactions', id);
+                    } catch (e) {
+                      console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
               }
+              onUpdateRecord(editingRecord, updated);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -12519,6 +12538,7 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
     const allIds = [projectId, ...childProjectIds];
 
     const targetRecords = records.filter(r => {
+      if (r.parentTransactionId || r.isChildTransaction) return false;
       const rPid = r.projectId || 'p1';
       if (projectId === 'p1') {
         return !r.projectId || allIds.includes(r.projectId);
@@ -12899,14 +12919,20 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated, mergedIdsToDelete) => {
-              onUpdateRecord(editingRecord, updated);
+            onSave={async (updated, mergedIdsToDelete) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                mergedIdsToDelete.forEach(id => {
-                  const rec = records.find(r => r.id === id);
-                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
-                });
+                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
+                if (user) {
+                  for (const id of mergedIdsToDelete) {
+                    try {
+                      await deleteFromCloud('transactions', id);
+                    } catch (e) {
+                      console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
               }
+              onUpdateRecord(editingRecord, updated);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -13604,6 +13630,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
     const endStr = formatLocalDate(end);
 
     const raw = records.filter(r => {
+      if (r.parentTransactionId || r.isChildTransaction) return false;
       const pDate = r.postingDate || r.date;
       const passDate = r.category !== '初始資金' && pDate >= startStr && pDate <= endStr;
       if (!passDate) return false;
@@ -13866,14 +13893,20 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated, mergedIdsToDelete) => {
-              onUpdateRecord(editingRecord, updated);
+            onSave={async (updated, mergedIdsToDelete) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                mergedIdsToDelete.forEach(id => {
-                  const rec = records.find(r => r.id === id);
-                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
-                });
+                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
+                if (user) {
+                  for (const id of mergedIdsToDelete) {
+                    try {
+                      await deleteFromCloud('transactions', id);
+                    } catch (e) {
+                      console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
               }
+              onUpdateRecord(editingRecord, updated);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -19074,14 +19107,20 @@ function PrepaymentsView({
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated, mergedIdsToDelete) => {
-              onUpdateRecord(editingRecord, updated);
+            onSave={async (updated, mergedIdsToDelete) => {
               if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                mergedIdsToDelete.forEach(id => {
-                  const rec = records.find(r => r.id === id);
-                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
-                });
+                setRecords(prev => prev.filter(r => !mergedIdsToDelete.includes(r.id)));
+                if (user) {
+                  for (const id of mergedIdsToDelete) {
+                    try {
+                      await deleteFromCloud('transactions', id);
+                    } catch (e) {
+                      console.error('刪除被合併紀錄失敗:', e);
+                    }
+                  }
+                }
               }
+              onUpdateRecord(editingRecord, updated);
               setEditingRecord(null);
             }}
             onDelete={() => {
