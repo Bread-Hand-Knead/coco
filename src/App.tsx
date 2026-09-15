@@ -5070,6 +5070,10 @@ function InvestmentSection({
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
+  const [dividendTime, setDividendTime] = useState(() => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  });
   const [dividendAccount, setDividendAccount] = useState('');
   const [dividendNotes, setDividendNotes] = useState('');
 
@@ -5357,6 +5361,8 @@ function InvestmentSection({
     setDividendingStock(stock);
     setDividendAmount('');
     setDividendDate(new Date().toISOString().split('T')[0]);
+    const now = new Date();
+    setDividendTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
     setDividendAccount(stock.linkedAccount);
     setDividendNotes('');
   };
@@ -5373,12 +5379,15 @@ function InvestmentSection({
       return;
     }
 
+    const cleanTime = formatTime24(dividendTime) || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
+
     // Add transaction (income)
     onAddRecord({
       amount: divAmt,
       category: '投資收入',
       note: `[股利] ${dividendingStock.code} 股利入帳${dividendNotes.trim() ? ' (' + dividendNotes.trim() + ')' : ''}`,
       date: dividendDate,
+      time: cleanTime,
       postingDate: dividendDate,
       type: 'income',
       accountId: dividendAccount
@@ -6078,14 +6087,27 @@ function InvestmentSection({
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">入帳日期</label>
-                <input 
-                  type="date"
-                  value={dividendDate}
-                  onChange={e => setDividendDate(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                />
+              <div className="grid grid-cols-[3fr_2fr] gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">入帳日期</label>
+                  <input 
+                    type="date"
+                    value={dividendDate}
+                    onChange={e => setDividendDate(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    style={getFontFamily()}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">入帳時間</label>
+                  <input 
+                    type="time"
+                    value={dividendTime}
+                    onChange={e => setDividendTime(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    style={getFontFamily()}
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -6175,7 +6197,11 @@ function InvestmentSection({
                       const keyword = selectedStockForDetail.code.split(' (')[0].trim();
                       const sortedList = records
                         .filter(r => r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword)))
-                        .sort((a, b) => b.date.localeCompare(a.date));
+                        .sort((a, b) => {
+                          const dateDiff = b.date.localeCompare(a.date);
+                          if (dateDiff !== 0) return dateDiff;
+                          return (b.time || '').localeCompare(a.time || '');
+                        });
 
                       if (sortedList.length === 0) {
                         return (
@@ -6199,6 +6225,9 @@ function InvestmentSection({
                               <span className="text-sm font-black text-[#5D4037] leading-snug break-words whitespace-normal">{r.note}</span>
                               <div className="flex items-center gap-2 text-xs text-stone-600 font-bold flex-wrap sm:flex-nowrap min-w-0">
                                 <span className="shrink-0">{r.date.replace(/-/g, '/')}</span>
+                                {r.time && (
+                                  <span className="shrink-0 text-stone-400 font-bold">{formatTime24(r.time)}</span>
+                                )}
                                 {acc && (
                                   <>
                                     <span className="text-stone-300 shrink-0">•</span>
@@ -6286,7 +6315,11 @@ function InvestmentSection({
                 return r.note.includes(targetLabel) || r.note.includes(keyword);
               }
             })
-            .sort((a, b) => b.date.localeCompare(a.date));
+            .sort((a, b) => {
+              const dateDiff = b.date.localeCompare(a.date);
+              if (dateDiff !== 0) return dateDiff;
+              return (b.time || '').localeCompare(a.time || '');
+            });
 
           const total = matchedRecords.reduce((s, r) => s + Math.abs(r.amount), 0);
           const yearLabel = selectedDividendYear === 'all' ? '歷年累計' : `${selectedDividendYear} 年`;
@@ -6335,6 +6368,9 @@ function InvestmentSection({
                             <p className="text-sm font-black text-[#5D4037] leading-snug">{r.note}</p>
                             <div className="flex items-center gap-2 text-xs sm:text-sm text-stone-600 font-bold">
                               <span>{r.date.replace(/-/g, '/')}</span>
+                              {r.time && (
+                                <span className="text-stone-400 font-bold">{formatTime24(r.time)}</span>
+                              )}
                               {acc && (
                                 <>
                                   <span className="text-stone-300">•</span>
