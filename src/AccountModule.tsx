@@ -458,7 +458,7 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[80] flex items-center justify-center p-6"
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[300] flex items-center justify-center p-6"
       onClick={onClose}
     >
       <motion.div 
@@ -472,7 +472,7 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
               initial={{ opacity: 0, y: 100 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 100 }}
-              className="absolute inset-0 bg-rose-500 z-[90] flex flex-col items-center justify-center p-8 text-white text-center gap-6"
+              className="absolute inset-0 bg-rose-500 z-[320] flex flex-col items-center justify-center p-8 text-white text-center gap-6"
             >
               <Trash2 size={64} className="mb-2" />
               <h4 className="text-2xl font-black">確定要刪除嗎？</h4>

@@ -5726,7 +5726,7 @@ function InvestmentSection({
       {/* 1. Modal: Add/Edit Stock */}
       <AnimatePresence>
         {isStockModalOpen && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -5920,7 +5920,7 @@ function InvestmentSection({
       {/* 2. Modal: Buy Stock */}
       <AnimatePresence>
         {buyingStock && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -6036,7 +6036,7 @@ function InvestmentSection({
       {/* 3. Modal: Add Dividend */}
       <AnimatePresence>
         {dividendingStock && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -6121,7 +6121,7 @@ function InvestmentSection({
       {/* 4. Modal: Stock Transaction Details */}
       <AnimatePresence>
         {selectedStockForDetail && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
+          <div className={`fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 ${editingRecord ? 'pointer-events-none' : ''}`}>
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -6221,7 +6221,7 @@ function InvestmentSection({
               {/* Close Button */}
               <div className="pt-3 border-t border-[#5D4037]/10 shrink-0">
                 <button 
-                  onClick={() => setSelectedStockForDetail(null)}
+                  onClick={() => setSelectedStockForDetail(null)} 
                   className="w-full py-3.5 bg-[#5D4037] text-white rounded-2xl font-black shadow-md hover:bg-[#4E342E] transition-all text-sm"
                 >
                   關閉明細
@@ -6233,36 +6233,38 @@ function InvestmentSection({
       </AnimatePresence>
 
       {/* 5. Modal: Edit Record details */}
-      {editingRecord && (
-        <EditRecordModal
-          record={editingRecord}
-          records={records}
-          accounts={accounts}
-          projects={projects}
-          categories={categories}
-          onClose={() => setEditingRecord(null)}
-          onSave={(updated, mergedIdsToDelete) => {
-            onUpdateRecord(editingRecord, updated);
-            if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-              mergedIdsToDelete.forEach(id => {
-                const rec = records.find(r => r.id === id);
-                if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
-              });
-            }
-            setEditingRecord(null);
-          }}
-          onDelete={() => {
-            onDeleteRecord(editingRecord);
-            setEditingRecord(null);
-          }}
-          onDuplicate={(rec) => {
-            setEditingRecord(null);
-            if (typeof onDuplicateRecord === 'function') {
-              onDuplicateRecord(rec);
-            }
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {editingRecord && (
+          <EditRecordModal
+            record={editingRecord}
+            records={records}
+            accounts={accounts}
+            projects={projects}
+            categories={categories}
+            onClose={() => setEditingRecord(null)}
+            onSave={(updated, mergedIdsToDelete) => {
+              onUpdateRecord(editingRecord, updated);
+              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
+                mergedIdsToDelete.forEach(id => {
+                  const rec = records.find(r => r.id === id);
+                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
+                });
+              }
+              setEditingRecord(null);
+            }}
+            onDelete={() => {
+              onDeleteRecord(editingRecord);
+              setEditingRecord(null);
+            }}
+            onDuplicate={(rec) => {
+              setEditingRecord(null);
+              if (typeof onDuplicateRecord === 'function') {
+                onDuplicateRecord(rec);
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* 6. Modal: 股利明細彈窗（按股票或銀行篩選） */}
       <AnimatePresence>
@@ -8430,7 +8432,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[80] flex items-center justify-center p-6"
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[300] flex items-center justify-center p-6"
       onClick={onClose}
     >
       <motion.div 
@@ -8441,7 +8443,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       >
         <AnimatePresence>
           {isProjectPickerOpen && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <div className="fixed inset-0 z-[350] flex items-center justify-center p-6">
               <motion.div 
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md"
@@ -8516,7 +8518,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
           )}
 
           {isCategoryPickerOpen && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 z-[350] flex items-center justify-center p-6" onClick={e => e.stopPropagation()}>
               <motion.div 
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md"
@@ -8654,7 +8656,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
               initial={{ opacity: 0, y: 100 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 100 }}
-              className="absolute inset-0 bg-rose-500 z-[90] flex flex-col items-center justify-center p-8 text-white text-center gap-6"
+              className="absolute inset-0 bg-rose-500 z-[320] flex flex-col items-center justify-center p-8 text-white text-center gap-6"
             >
               <Trash2 size={64} className="mb-2" />
               <h4 className="text-2xl font-black">確定要刪除嗎？</h4>
@@ -9254,7 +9256,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
         {/* Merge Transactions Selector Modal */}
         <AnimatePresence>
           {isMergeModalOpen && (
-            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div className="fixed inset-0 z-[350] bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
               <motion.div
                 initial={{ opacity: 0, y: 100 }}
                 animate={{ opacity: 1, y: 0 }}
