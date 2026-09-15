@@ -107,3 +107,16 @@ export interface Stock {
   purchaseDate?: string;  // 購買日期
   notes?: string;         // 備註說明
 }
+
+export interface Project {
+  id: string;
+  name: string;
+  budget?: number;
+  icon?: string;
+  color?: string;
+  description?: string;
+  parentId?: string | null;
+  parentProjectId?: string | null;
+  order?: number;
+  isStandalone?: boolean;
+}

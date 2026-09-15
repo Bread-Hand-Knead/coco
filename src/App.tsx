@@ -354,15 +354,17 @@ interface Installment {
   period: 'monthly';
 }
 
-interface Project {
+export interface Project {
   id: string;
   name: string;
   budget?: number;
   icon?: string;
   color?: string;
   description?: string;
-  parentId?: string;
+  parentId?: string | null;
+  parentProjectId?: string | null;
   order?: number;
+  isStandalone?: boolean;
 }
 
 // --- Initial Data ---
@@ -477,8 +479,78 @@ const INITIAL_TEMPLATES: Template[] = [
   { id: 't3', name: '薪資收入', amount: 29500, category: '薪資', type: 'income', fromAccountId: 'bank_ts_1', icon: '💼', color: 'bg-amber-50' },
 ];
 
+export const TRAFFIC_KEYWORDS = [
+  '捷運', '公車', '火車', '高鐵', '計程車', '停車費', '停車', 'Uber', '客運', '加油', '機票', '過路費', 'ETC', '悠遊卡', 'icash', '一卡通', 'UBike', 'YouBike', '單車', '船票', '客輪', '機車', '汽車'
+];
+
+export const ensureProjectHierarchy = (projects: Project[]): Project[] => {
+  if (!projects || projects.length === 0) return projects;
+
+  // 1. 同步 parentId 與 parentProjectId
+  let updated = projects.map(p => {
+    const parent = p.parentProjectId || p.parentId || null;
+    return {
+      ...p,
+      parentId: parent || undefined,
+      parentProjectId: parent,
+    };
+  });
+
+  // 2. 檢查是否有交通相關子項目孤立在頂層（無母專案，且非顯式設為獨立專案）
+  const trafficCandidates = updated.filter(p => {
+    if (p.isStandalone) return false;
+    const hasParent = !!(p.parentProjectId || p.parentId);
+    if (hasParent) return false;
+    const isTrafficParent = ['交通', '大眾運輸', '交通運輸'].includes(p.name.trim());
+    if (isTrafficParent) return false;
+    return TRAFFIC_KEYWORDS.some(kw => p.name.includes(kw));
+  });
+
+  if (trafficCandidates.length > 0) {
+    let trafficParent = updated.find(p => 
+      !(p.parentProjectId || p.parentId) && 
+      ['交通', '大眾運輸', '交通運輸'].includes(p.name.trim())
+    );
+
+    if (!trafficParent) {
+      trafficParent = {
+        id: 'proj_traffic',
+        name: '交通',
+        icon: '✈️',
+        color: 'bg-blue-400',
+        description: '交通出行與通勤',
+        order: 1,
+        parentId: undefined,
+        parentProjectId: null,
+      };
+      updated = [trafficParent, ...updated];
+    }
+
+    const trafficParentId = trafficParent.id;
+    updated = updated.map(p => {
+      if (trafficCandidates.some(c => c.id === p.id)) {
+        return {
+          ...p,
+          parentId: trafficParentId,
+          parentProjectId: trafficParentId,
+        };
+      }
+      return p;
+    });
+  }
+
+  return updated;
+};
+
 const INITIAL_PROJECTS: Project[] = [
   { id: 'p1', name: '預設專案', icon: '📂', color: 'bg-stone-100', description: '系統預設專案', order: 1 },
+  { id: 'proj_traffic', name: '交通', icon: '✈️', color: 'bg-blue-400', description: '交通出行與通勤', order: 2 },
+  { id: 'proj_mrt', name: '捷運', icon: '🚇', parentId: 'proj_traffic', parentProjectId: 'proj_traffic', order: 3 },
+  { id: 'proj_bus', name: '公車', icon: '🚌', parentId: 'proj_traffic', parentProjectId: 'proj_traffic', order: 4 },
+  { id: 'proj_train', name: '火車', icon: '🚂', parentId: 'proj_traffic', parentProjectId: 'proj_traffic', order: 5 },
+  { id: 'proj_hsr', name: '高鐵', icon: '🚅', parentId: 'proj_traffic', parentProjectId: 'proj_traffic', order: 6 },
+  { id: 'proj_taxi', name: '計程車', icon: '🚕', parentId: 'proj_traffic', parentProjectId: 'proj_traffic', order: 7 },
+  { id: 'proj_parking', name: '停車費', icon: '🅿️', parentId: 'proj_traffic', parentProjectId: 'proj_traffic', order: 8 },
 ];
 
 // --- Main App ---
@@ -985,9 +1057,9 @@ export default function App() {
   const [rawProjects, setProjects] = useState<Project[]>(() => {
     try {
       const cached = localStorage.getItem('coco_projects_cache');
-      return cached ? JSON.parse(cached) : INITIAL_PROJECTS;
+      return cached ? ensureProjectHierarchy(JSON.parse(cached)) : ensureProjectHierarchy(INITIAL_PROJECTS);
     } catch (e) {
-      return INITIAL_PROJECTS;
+      return ensureProjectHierarchy(INITIAL_PROJECTS);
     }
   });
   const projects = useMemo(() => {
@@ -1203,8 +1275,9 @@ export default function App() {
     const unsubProjects = onSnapshot(collection(db, 'users', user.uid, 'projects'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Project);
       const res = snapshot.docs.length > 0 ? data : INITIAL_PROJECTS;
-      setProjects(res);
-      try { localStorage.setItem('coco_projects_cache', JSON.stringify(res)); } catch (e) {}
+      const hierarchized = ensureProjectHierarchy(res);
+      setProjects(hierarchized);
+      try { localStorage.setItem('coco_projects_cache', JSON.stringify(hierarchized)); } catch (e) {}
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/projects`));
 
     const unsubFixed = onSnapshot(collection(db, 'users', user.uid, 'fixedRecords'), (snapshot) => {
@@ -2495,7 +2568,13 @@ export default function App() {
   };
 
   const handleSaveProject = async (p: Project) => {
-    let finalProject = { ...p };
+    const parentVal = p.parentProjectId ?? p.parentId ?? null;
+    let finalProject: Project = {
+      ...p,
+      parentId: parentVal || undefined,
+      parentProjectId: parentVal,
+      isStandalone: parentVal === null ? true : false,
+    };
     if (!projects.find(x => x.id === p.id)) {
       const maxOrder = projects.reduce((max, x) => Math.max(max, x.order || 0), 0);
       finalProject.order = maxOrder + 1;
@@ -2505,11 +2584,10 @@ export default function App() {
       await syncToCloud('projects', finalProject, finalProject.id);
     } else {
       setProjects(prev => {
-        if (prev.find(x => x.id === finalProject.id)) {
-          return prev.map(x => x.id === finalProject.id ? finalProject : x);
-        } else {
-          return [...prev, finalProject];
-        }
+        const next = prev.find(x => x.id === finalProject.id)
+          ? prev.map(x => x.id === finalProject.id ? finalProject : x)
+          : [...prev, finalProject];
+        return ensureProjectHierarchy(next);
       });
     }
     setIsProjectEditModalOpen(false);
@@ -2569,7 +2647,19 @@ export default function App() {
               <div className="flex items-center gap-1">
                 {selectedProjectId ? (
                   <>
-                    <button className="p-2 hover:bg-white/50 rounded-full transition-colors"><Settings2 size={24} className="text-[#5D4037]" /></button>
+                    <button 
+                      onClick={() => {
+                        const cur = projects.find(p => p.id === selectedProjectId);
+                        if (cur) {
+                          setEditingProject(cur);
+                          setIsProjectEditModalOpen(true);
+                        }
+                      }}
+                      className="p-2 hover:bg-white/50 rounded-full transition-colors"
+                      title="編輯專案"
+                    >
+                      <Settings2 size={24} className="text-[#5D4037]" />
+                    </button>
                   </>
                 ) : (
                   <>
@@ -8381,8 +8471,8 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                 </div>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
-                  {projects.filter(p => !p.parentId && (p.name.includes(projectSearch) || projects.some(c => c.parentId === p.id && c.name.includes(projectSearch)))).map(p => {
-                    const children = projects.filter(c => c.parentId === p.id && (c.name.includes(projectSearch) || p.name.includes(projectSearch)));
+                  {projects.filter(p => !(p.parentProjectId || p.parentId) && (p.name.includes(projectSearch) || projects.some(c => (c.parentProjectId || c.parentId) === p.id && c.name.includes(projectSearch)))).map(p => {
+                    const children = projects.filter(c => (c.parentProjectId || c.parentId) === p.id && (c.name.includes(projectSearch) || p.name.includes(projectSearch)));
                     return (
                       <div key={p.id} className="space-y-1">
                         <button 
@@ -11011,17 +11101,18 @@ function ProjectSortModal({ projects, onClose, onSave }: {
   onSave: (newOrder: Project[]) => void
 }) {
   const [rootProjects, setRootProjects] = useState(() => 
-    projects.filter(p => !p.parentId)
+    projects.filter(p => !(p.parentProjectId || p.parentId))
   );
 
   const [childProjectsMap, setChildProjectsMap] = useState<Record<string, Project[]>>(() => {
     const map: Record<string, Project[]> = {};
     projects.forEach(p => {
-      if (p.parentId) {
-        if (!map[p.parentId]) {
-          map[p.parentId] = [];
+      const pid = p.parentProjectId || p.parentId;
+      if (pid) {
+        if (!map[pid]) {
+          map[pid] = [];
         }
-        map[p.parentId].push(p);
+        map[pid].push(p);
       }
     });
     return map;
@@ -11249,7 +11340,7 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
 
   // Eligible parents are projects that are not the current project and don't have a parent themselves (to simplify to 2 levels)
   // or just not the current project. The prompt suggests a 2-level structure ("主專案" and "子專案").
-  const eligibleParents = projects.filter(p => p.id !== project.id && !p.parentId && p.id !== 'p1');
+  const eligibleParents = projects.filter(p => p.id !== project.id && !p.parentId && !p.parentProjectId && p.id !== 'p1');
 
   const handleUploadIconImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -11343,13 +11434,21 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">所屬主專案</label>
+            <label className="text-[10px] font-black text-[#5D4037]/40 uppercase tracking-widest px-1">所屬母專案</label>
             <select 
-              value={edited.parentId || ''}
-              onChange={e => setEdited({ ...edited, parentId: e.target.value || undefined })}
+              value={edited.parentProjectId || edited.parentId || ''}
+              onChange={e => {
+                const val = e.target.value || null;
+                setEdited({
+                  ...edited,
+                  parentId: val || undefined,
+                  parentProjectId: val,
+                  isStandalone: val === null ? true : false,
+                });
+              }}
               className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all appearance-none cursor-pointer"
             >
-              <option value="">(無主專案)</option>
+              <option value="">(無母專案 / 獨立專案)</option>
               {eligibleParents.map(p => {
                 const displayIcon = p.icon && !(p.icon.startsWith('http') || p.icon.startsWith('data:image/') || p.icon.startsWith('/')) ? p.icon : '📂';
                 return (
@@ -11423,7 +11522,16 @@ function ProjectEditModal({ project, projects, onClose, onSave, onDelete }: {
           </div>
 
           <button 
-            onClick={() => onSave({ ...edited, icon: edited.icon.trim() || '📝' })}
+            onClick={() => {
+              const parentVal = edited.parentProjectId ?? edited.parentId ?? null;
+              onSave({ 
+                ...edited, 
+                parentId: parentVal || undefined,
+                parentProjectId: parentVal,
+                isStandalone: parentVal === null ? true : false,
+                icon: edited.icon ? edited.icon.trim() : '📝' 
+              });
+            }}
             className="w-full py-5 bg-[#5D4037] text-white rounded-[24px] font-black text-[20px] flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all mt-4 sticky bottom-0"
           >
             <Check size={28} /> 儲存設定
@@ -12726,10 +12834,14 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
   onBack: () => void 
 }) {
   const [searchQuery, setSearchQuery] = useState('');
+  // 預設收合狀態：所有母專案預設收合
+  const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set());
 
   const getProjectStats = (projectId: string): { expense: number, income: number } => {
-    // Support hierarchical summation
-    const childProjectIds = projects.filter(p => p.parentId === projectId).map(p => p.id);
+    // 支援母子階層即時加總
+    const childProjectIds = projects
+      .filter(p => (p.parentProjectId || p.parentId) === projectId)
+      .map(p => p.id);
     const allIds = [projectId, ...childProjectIds];
 
     const targetRecords = records.filter(r => {
@@ -12738,23 +12850,31 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
       if (projectId === 'p1') {
         return !r.projectId || allIds.includes(r.projectId);
       }
-      return allIds.includes(r.projectId || '');
+      return allIds.includes(rPid);
     });
 
-    const expense = targetRecords.filter(r => r.type === 'expense' && !r.isPrepay).reduce((sum, r) => sum + (r.amount + (r.fee || 0)), 0);
-    const income = targetRecords.filter(r => r.type === 'income' && !r.isPrepay).reduce((sum, r) => sum + r.amount, 0);
+    const expense = targetRecords
+      .filter(r => r.type === 'expense' && !r.isPrepay)
+      .reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
+    const income = targetRecords
+      .filter(r => r.type === 'income' && !r.isPrepay)
+      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
     return { expense, income };
   };
 
   const query = searchQuery.trim().toLowerCase();
 
-  // Group projects into a tree
+  // 頂層母專案與無母專案之專案
   const rootProjects = useMemo(() => {
     const parentIds = new Set(projects.map(p => p.id));
-    return projects.filter(p => !p.parentId || !parentIds.has(p.parentId));
+    return projects.filter(p => {
+      const pid = p.parentProjectId || p.parentId;
+      return !pid || !parentIds.has(pid);
+    });
   }, [projects]);
 
-  const getChildren = (parentId: string) => projects.filter(p => p.parentId === parentId);
+  const getChildren = (parentId: string) => 
+    projects.filter(p => (p.parentProjectId || p.parentId) === parentId);
 
   const filteredTree = useMemo(() => {
     if (!query) {
@@ -12772,13 +12892,11 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
       const matchingChildren = allChildren.filter(c => c.name.toLowerCase().includes(query));
 
       if (isParentMatch) {
-        // 比對到母專案時列出該專案，並保留其子專案
         result.push({
           project,
           children: allChildren,
         });
       } else if (matchingChildren.length > 0) {
-        // 比對到子專案時同步保留所屬層級結構
         result.push({
           project,
           children: matchingChildren,
@@ -12788,6 +12906,47 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
 
     return result;
   }, [rootProjects, projects, query]);
+
+  // 搜尋時若比對到子專案，自動展開該母專案
+  useEffect(() => {
+    if (query) {
+      const matchedParents = new Set<string>();
+      filteredTree.forEach(({ project, children }) => {
+        if (children.length > 0) {
+          matchedParents.add(project.id);
+        }
+      });
+      setExpandedParentIds(matchedParents);
+    }
+  }, [query, filteredTree]);
+
+  // 所有含有子專案的母專案 ID
+  const parentIdsWithChildren = useMemo(() => {
+    return filteredTree.filter(item => item.children.length > 0).map(item => item.project.id);
+  }, [filteredTree]);
+
+  const isAllExpanded = parentIdsWithChildren.length > 0 && parentIdsWithChildren.every(id => expandedParentIds.has(id));
+
+  const toggleExpandAll = () => {
+    if (isAllExpanded) {
+      setExpandedParentIds(new Set());
+    } else {
+      setExpandedParentIds(new Set(parentIdsWithChildren));
+    }
+  };
+
+  const toggleExpand = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedParentIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   return (
     <motion.div 
@@ -12820,6 +12979,24 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
         </div>
       </div>
 
+      {/* 專案列表上方控制列：顯示數量與一鍵展開/收合按鈕 */}
+      <div className="px-4 py-2.5 bg-[#FFFDF5] border-b border-stone-100 flex items-center justify-between text-xs font-bold text-stone-400 flex-shrink-0">
+        <div className="flex items-center gap-1.5">
+          <Layers size={14} className="text-stone-400" />
+          <span>共 {filteredTree.length} 個專案群組</span>
+        </div>
+        {parentIdsWithChildren.length > 0 && (
+          <button
+            onClick={toggleExpandAll}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-stone-200/80 text-[#5D4037] hover:bg-stone-50 shadow-xs active:scale-95 transition-all text-xs font-black"
+            style={getFontFamily()}
+          >
+            {isAllExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            <span>{isAllExpanded ? '全部收合' : '全部展開'}</span>
+          </button>
+        )}
+      </div>
+
       <div className="flex-1 overflow-y-auto">
         {filteredTree.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-stone-300 gap-2 opacity-60">
@@ -12830,81 +13007,206 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
           </div>
         ) : (
           <div className="divide-y divide-stone-100">
-            {filteredTree.map(({ project, children }) => (
-              <React.Fragment key={project.id}>
-                <ProjectItem 
-                  project={project} 
-                  stats={getProjectStats(project.id)} 
-                  onProjectClick={onProjectClick} 
-                  onEditProject={onEditProject}
-                />
-                {children.map(child => (
-                  <ProjectItem 
-                    key={child.id}
-                    project={child} 
-                    stats={getProjectStats(child.id)} 
-                    onProjectClick={onProjectClick} 
-                    onEditProject={onEditProject}
-                    isChild
-                  />
-                ))}
-              </React.Fragment>
-            ))}
+            {filteredTree.map(({ project, children }) => {
+              const hasChildren = children.length > 0;
+              const isExpanded = expandedParentIds.has(project.id);
+              const parentStats = getProjectStats(project.id);
+              const isDefault = project.id === 'p1';
+
+              return (
+                <div key={project.id} className="transition-colors">
+                  {/* 母專案卡片 */}
+                  <div 
+                    onClick={() => {
+                      if (hasChildren) {
+                        toggleExpand(project.id);
+                      } else {
+                        onProjectClick(project.id);
+                      }
+                    }}
+                    className={`flex items-center gap-3.5 py-4 px-4 active:bg-stone-50/80 transition-colors cursor-pointer group ${
+                      isExpanded ? 'bg-stone-50/40' : ''
+                    }`}
+                  >
+                    {/* 專案圖示 */}
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onProjectClick(project.id);
+                      }}
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-sm flex-shrink-0 transition-transform group-active:scale-95 ${
+                        project.color || 'bg-blue-400'
+                      } text-white`}
+                      title="點擊查看專案明細"
+                    >
+                      <AccountIcon icon={project.icon} sizeClassName="w-7 h-7" />
+                    </div>
+
+                    {/* 專案名稱與子項目數量標籤 */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onProjectClick(project.id);
+                          }}
+                          className="font-black text-[#5D4037] text-[16px] hover:underline truncate"
+                        >
+                          {project.name}
+                        </span>
+                        {hasChildren && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-black bg-[#FFF4C7] text-[#8D6E63] border border-[#FFE082]/70 shadow-2xs">
+                            含 {children.length} 個子項目
+                          </span>
+                        )}
+                      </div>
+                      {project.description && (
+                        <span className="text-xs text-stone-400 font-bold truncate mt-0.5">
+                          {project.description}
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* 金額彙總與操作按鈕 */}
+                    <div className="flex items-center gap-2.5 flex-shrink-0">
+                      <div className="text-right">
+                        <div className="text-[15px] font-black text-rose-500">
+                          ${parentStats.expense.toLocaleString()}
+                        </div>
+                        {parentStats.income > 0 && (
+                          <div className="text-[13px] font-black text-blue-500">
+                            +${parentStats.income.toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 編輯按鈕 */}
+                      {!isDefault && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditProject(project);
+                          }}
+                          className="p-2 text-stone-300 hover:text-[#5D4037] hover:bg-stone-100 rounded-xl transition-all"
+                          title="編輯專案"
+                        >
+                          <Settings2 size={18} />
+                        </button>
+                      )}
+
+                      {/* 展開/收合旋轉切換箭頭 */}
+                      {hasChildren ? (
+                        <button
+                          onClick={(e) => toggleExpand(project.id, e)}
+                          className="p-1.5 text-stone-400 hover:text-[#5D4037] hover:bg-stone-100 rounded-xl transition-all"
+                          aria-label={isExpanded ? '收合子專案' : '展開子專案'}
+                        >
+                          <motion.div
+                            animate={{ rotate: isExpanded ? 180 : 0 }}
+                            transition={{ duration: 0.2 }}
+                          >
+                            <ChevronDown size={20} />
+                          </motion.div>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onProjectClick(project.id);
+                          }}
+                          className="p-1.5 text-stone-300 hover:text-[#5D4037] hover:bg-stone-100 rounded-xl transition-all"
+                          title="查看明細"
+                        >
+                          <ChevronRight size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 展開之子專案 Accordion 抽屜 */}
+                  <AnimatePresence initial={false}>
+                    {hasChildren && isExpanded && (
+                      <motion.div
+                        key={`sub-${project.id}`}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.25, ease: 'easeInOut' }}
+                        className="overflow-hidden bg-[#FAF8F5]/90 border-t border-stone-100/90"
+                      >
+                        {/* 專案快速入口列 */}
+                        <div className="px-5 pt-3 pb-2 flex items-center justify-between">
+                          <button
+                            onClick={() => onProjectClick(project.id)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-amber-50 text-[#5D4037] rounded-xl text-xs font-black shadow-xs border border-stone-200/80 active:scale-95 transition-all"
+                          >
+                            <span>📊 查看【{project.name}】全體收支明細</span>
+                            <ChevronRight size={13} />
+                          </button>
+                          <span className="text-[11px] font-bold text-stone-400">
+                            已彙總 {children.length} 個子專案
+                          </span>
+                        </div>
+
+                        {/* 巢狀子專案卡片列表 */}
+                        <div className="px-4 pb-3 space-y-2">
+                          {children.map(child => {
+                            const childStats = getProjectStats(child.id);
+                            return (
+                              <div
+                                key={child.id}
+                                onClick={() => onProjectClick(child.id)}
+                                className="flex items-center gap-3 py-2.5 px-3.5 bg-white hover:bg-[#FFFDF9] rounded-2xl border border-stone-100 shadow-2xs cursor-pointer active:scale-[0.99] transition-all ml-4 relative before:content-[''] before:absolute before:-left-3 before:top-1/2 before:w-3 before:h-[2px] before:bg-stone-200"
+                              >
+                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg shadow-2xs flex-shrink-0 ${
+                                  child.color || 'bg-stone-100 text-[#5D4037]'
+                                }`}>
+                                  <AccountIcon icon={child.icon} sizeClassName="w-5 h-5" />
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-bold text-[#5D4037] text-[14px] truncate">
+                                    {child.name}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <div className="text-right">
+                                    <div className="text-[13px] font-bold text-rose-500">
+                                      ${childStats.expense.toLocaleString()}
+                                    </div>
+                                    {childStats.income > 0 && (
+                                      <div className="text-[11px] font-bold text-blue-500">
+                                        +${childStats.income.toLocaleString()}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onEditProject(child);
+                                    }}
+                                    className="p-1.5 text-stone-300 hover:text-[#5D4037] hover:bg-stone-100 rounded-lg transition-all"
+                                    title="編輯子專案"
+                                  >
+                                    <Settings2 size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
     </motion.div>
-  );
-}
-
-function ProjectItem({ project, stats, onProjectClick, onEditProject, isChild }: {
-  project: Project,
-  stats: { expense: number, income: number },
-  onProjectClick: (id: string) => void,
-  onEditProject: (p: Project) => void,
-  isChild?: boolean,
-  key?: React.Key
-}) {
-  const isDefault = project.id === 'p1';
-  return (
-    <div 
-      onClick={() => onProjectClick(project.id)}
-      className={`flex items-center gap-4 py-4 active:bg-stone-50 transition-colors cursor-pointer group ${isChild ? 'pl-12 pr-4' : 'px-4'}`}
-    >
-      <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl shadow-sm ${
-        isChild ? 'scale-90 opacity-80' : ''
-      } ${
-        project.name === '追星' ? 'bg-blue-400' : 
-        project.name === '買手機的錢' ? 'bg-red-400' :
-        project.name === '頭髮' ? 'bg-pink-400' :
-        project.name === '弟弟' ? 'bg-orange-400' :
-        project.name === '利息' ? 'bg-green-400' : 'bg-blue-400'
-      } text-white transition-transform group-active:scale-95`}>
-        <AccountIcon icon={project.icon} sizeClassName="w-7 h-7" />
-      </div>
-      <div className="flex-1 flex flex-col">
-        <span className={`font-bold text-[#5D4037] ${isChild ? 'text-[15px]' : 'text-[17px]'}`}>{project.name}</span>
-      </div>
-      
-      <div className="flex items-center gap-4">
-        <div className="text-right">
-          <div className="text-[15px] font-bold text-rose-400">${stats.expense.toLocaleString()}</div>
-          <div className="text-[15px] font-bold text-blue-400">${stats.income.toLocaleString()}</div>
-        </div>
-        
-        {!isDefault && (
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              onEditProject(project);
-            }}
-            className="p-2 text-stone-300 hover:text-[#5D4037] transition-colors"
-          >
-            <Settings2 size={18} />
-          </button>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -12926,6 +13228,19 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   });
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [selectedSubFilter, setSelectedSubFilter] = useState<string>('all');
+
+  const childProjects = useMemo(() => {
+    return projects.filter(p => (p.parentProjectId || p.parentId) === project.id);
+  }, [projects, project.id]);
+
+  const hasChildren = childProjects.length > 0;
+
+  const targetProjectIds = useMemo(() => {
+    if (!hasChildren) return [project.id];
+    if (selectedSubFilter === 'all') return [project.id, ...childProjects.map(c => c.id)];
+    return [selectedSubFilter];
+  }, [hasChildren, selectedSubFilter, project.id, childProjects]);
 
   const monthRangeLabel = useMemo(() => {
     const [y, m] = currentMonth.split('/').map(Number);
@@ -12938,7 +13253,10 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   const filteredRecords = useMemo(() => {
     const [y, m] = currentMonth.split('/').map(Number);
     const raw = records.filter(r => {
-      const isProject = project.id === 'p1' ? (!r.projectId || r.projectId === 'p1') : r.projectId === project.id;
+      const rPid = r.projectId || 'p1';
+      const isProject = project.id === 'p1' 
+        ? (!r.projectId || targetProjectIds.includes(r.projectId)) 
+        : targetProjectIds.includes(rPid);
       if (!isProject) return false;
       const pDate = r.postingDate || r.date;
       const d = new Date(pDate);
@@ -12951,7 +13269,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
       if (tsB !== tsA) return tsB - tsA;
       return b.id.localeCompare(a.id);
     });
-  }, [records, project, currentMonth, accounts]);
+  }, [records, project, currentMonth, accounts, targetProjectIds]);
 
   const balance = useMemo(() => {
     const expense = filteredRecords.filter(r => r.type === 'expense' && r.postingDate && !r.isPrepay).reduce((sum, r) => sum + Math.abs(r.amount), 0);
@@ -13006,6 +13324,47 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
         <button onClick={handleNextMonth} className="p-2 text-[#5D4037]"><ChevronRight size={24} /></button>
       </div>
 
+      {/* 子專案篩選標籤列 (若為母專案且有子專案) */}
+      {hasChildren && (
+        <div className="px-4 py-2.5 bg-[#FFFDF5] border-b border-stone-100 flex items-center gap-2 overflow-x-auto no-scrollbar flex-shrink-0">
+          <span className="text-xs font-bold text-stone-400 whitespace-nowrap">子專案：</span>
+          <button
+            onClick={() => setSelectedSubFilter('all')}
+            className={`px-3 py-1 rounded-full text-xs font-black whitespace-nowrap transition-all ${
+              selectedSubFilter === 'all'
+                ? 'bg-[#5D4037] text-white shadow-xs'
+                : 'bg-white text-[#5D4037] hover:bg-stone-100 border border-stone-200/80'
+            }`}
+          >
+            全部彙總 ({childProjects.length + 1})
+          </button>
+          <button
+            onClick={() => setSelectedSubFilter(project.id)}
+            className={`px-3 py-1 rounded-full text-xs font-black whitespace-nowrap transition-all ${
+              selectedSubFilter === project.id
+                ? 'bg-[#5D4037] text-white shadow-xs'
+                : 'bg-white text-[#5D4037] hover:bg-stone-100 border border-stone-200/80'
+            }`}
+          >
+            僅母專案 ({project.name})
+          </button>
+          {childProjects.map(cp => (
+            <button
+              key={cp.id}
+              onClick={() => setSelectedSubFilter(cp.id)}
+              className={`px-3 py-1 rounded-full text-xs font-black whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                selectedSubFilter === cp.id
+                  ? 'bg-[#5D4037] text-white shadow-xs'
+                  : 'bg-white text-[#5D4037] hover:bg-stone-100 border border-stone-200/80'
+              }`}
+            >
+              <span>{cp.icon || '📁'}</span>
+              <span>{cp.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Stats Summary */}
       <div className="flex justify-between px-6 py-2 border-b border-stone-50 text-sm font-bold text-stone-500">
         <span>項目：{filteredRecords.length} 筆</span>
@@ -13021,6 +13380,10 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
             <div className="divide-y divide-stone-50">
               {group.records.map(record => {
                 const recordAccount = accounts.find(a => a.id === record.accountId);
+                const recSubProject = hasChildren && record.projectId && record.projectId !== project.id
+                  ? projects.find(p => p.id === record.projectId)
+                  : null;
+
                 return (
                 <div 
                   key={record.id} 
@@ -13032,10 +13395,15 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                     {getCategoryIcon(record.category, record.type, categories)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                        <div className="text-[17px] font-bold text-[#5D4037] truncate" style={getFontFamily()}>
                          {getTransactionTitle(record)}
                        </div>
+                       {recSubProject && (
+                         <span className="text-[10px] px-1.5 py-0.5 bg-[#FFF4C7] text-[#8D6E63] border border-[#FFE082]/70 rounded-md font-black">
+                           {recSubProject.icon} {recSubProject.name}
+                         </span>
+                       )}
                        {recordAccount?.type === 'credit' && (!record.postingDate || record.isPending) && (
                          <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-500 rounded font-bold">未入帳</span>
                        )}
@@ -13150,6 +13518,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
     </motion.div>
   );
 }
+
 
 function BudgetManagementPage({
   monthlyBudget,
@@ -18867,8 +19236,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
               </div>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
-                {projects.filter(p => !p.parentId && (p.name.includes(projectSearch) || projects.some(c => c.parentId === p.id && c.name.includes(projectSearch)))).map(p => {
-                  const children = projects.filter(c => c.parentId === p.id && (c.name.includes(projectSearch) || p.name.includes(projectSearch)));
+                {projects.filter(p => !(p.parentProjectId || p.parentId) && (p.name.includes(projectSearch) || projects.some(c => (c.parentProjectId || c.parentId) === p.id && c.name.includes(projectSearch)))).map(p => {
+                  const children = projects.filter(c => (c.parentProjectId || c.parentId) === p.id && (c.name.includes(projectSearch) || p.name.includes(projectSearch)));
                   return (
                     <div key={p.id} className="space-y-1">
                       <button 
