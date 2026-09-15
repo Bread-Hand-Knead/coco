@@ -329,14 +329,16 @@ interface Template {
   note?: string;
 }
 
-interface FixedRecord {
+export interface FixedRecord {
   id: string;
   name: string;
   amount: number;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
   period: 'weekly' | 'monthly' | 'yearly';
   day: number; // 1-31 for monthly/yearly, 0-6 for weekly
   accountId: string;
+  toAccountId?: string;
+  fee?: number;
   category: string;
   autoEntry: boolean;
   lastProcessedDate?: string; // YYYY-MM-DD
@@ -1768,14 +1770,17 @@ export default function App() {
 
       if (shouldProcess && processDateStr) {
         const id = `fixed_${fr.id}_${processDateStr}`;
+        const isTransfer = fr.type === 'transfer';
         const newTransaction: Transaction = {
           id,
           amount: (fr.type === 'expense' || fr.type === 'transfer') ? -Math.abs(fr.amount) : Math.abs(fr.amount),
-          category: fr.category,
-          note: fr.name,
+          category: isTransfer ? (fr.category || '轉帳') : fr.category,
+          note: fr.name || (isTransfer ? '固定轉帳' : ''),
           date: processDateStr,
           type: fr.type,
-          accountId: fr.accountId
+          accountId: fr.accountId,
+          toAccountId: isTransfer ? fr.toAccountId : undefined,
+          fee: isTransfer ? (fr.fee || 0) : undefined,
         };
         recordsToSync.push(newTransaction);
         changed = true;
@@ -10390,6 +10395,8 @@ function FixedRecordsView({ fixedRecords, accounts, categories, records, onBack,
         period: 'monthly',
         day: 1,
         accountId: accounts[0]?.id || 'cash',
+        toAccountId: accounts[1]?.id || '',
+        fee: 0,
         category: '其他',
         autoEntry: true
       });
@@ -10406,21 +10413,53 @@ function FixedRecordsView({ fixedRecords, accounts, categories, records, onBack,
     >
       <div className="flex-1 px-4 py-6 overflow-y-auto pb-10">
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-6 space-y-4">
-          {fixedRecords.length > 0 ? fixedRecords.map(record => (
+          {fixedRecords.length > 0 ? fixedRecords.map(record => {
+            const isTransfer = record.type === 'transfer';
+            const srcAcc = accounts.find(a => a.id === record.accountId);
+            const dstAcc = isTransfer ? accounts.find(a => a.id === record.toAccountId) : null;
+
+            return (
             <div 
               key={record.id} 
               onClick={() => setEditingRecord(record)}
               className="flex items-center gap-4 py-4 border-b border-stone-50 last:border-0 group cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-colors"
             >
               <div className="w-14 h-14 bg-[#FFFDF5] rounded-2xl flex-shrink-0 flex items-center justify-center text-2xl shadow-sm border border-white">
-                {getCategoryIcon(record.category, record.type, categories)}
+                {isTransfer ? (
+                  <ArrowRightLeft size={24} className="text-amber-600" />
+                ) : (
+                  getCategoryIcon(record.category, record.type, categories)
+                )}
               </div>
               
               <div className="flex-1 flex flex-col gap-1 min-w-0">
-                <span className="font-black text-lg text-[#5D4037] whitespace-pre-wrap break-all leading-tight">
-                  {record.name.replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim()}
-                </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-black text-lg text-[#5D4037] whitespace-pre-wrap break-all leading-tight">
+                    {record.name.replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim() || (isTransfer ? '定期轉帳' : '未命名')}
+                  </span>
+                  {isTransfer && (
+                    <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200/60 rounded-full font-black">
+                      轉帳
+                    </span>
+                  )}
+                </div>
+
+                {isTransfer ? (
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-stone-500 truncate">
+                    <span className="truncate">{srcAcc?.name || '未知帳戶'}</span>
+                    <span className="text-amber-600 font-black">➔</span>
+                    <span className="truncate">{dstAcc?.name || '未知帳戶'}</span>
+                    {(record.fee || 0) > 0 && (
+                      <span className="text-[10px] text-stone-400 font-bold ml-1">(手續費 ${record.fee})</span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs font-bold text-stone-400 truncate">
+                    {srcAcc?.name || '未知帳戶'} • {record.category}
+                  </span>
+                )}
+
+                <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold uppercase">
                     {record.period === 'monthly' ? `每月 ${record.day} 號` : record.period === 'weekly' ? `每週 ${['日','一','二','三','四','五','六'][record.day]}` : '每年'}
                   </span>
@@ -10429,13 +10468,14 @@ function FixedRecordsView({ fixedRecords, accounts, categories, records, onBack,
                   )}
                 </div>
                 <div className="flex items-center justify-between mt-1">
-                  <span className={`font-black text-xl ${record.type === 'income' ? 'text-blue-400' : 'text-rose-400'}`} style={getFontFamily()}>
-                    {record.type === 'income' ? '+' : '-'} $ {Math.abs(record.amount).toLocaleString()}
+                  <span className={`font-black text-xl ${isTransfer ? 'text-amber-600' : (record.type === 'income' ? 'text-blue-500' : 'text-rose-500')}`} style={getFontFamily()}>
+                    {isTransfer ? '' : (record.type === 'income' ? '+' : '-')} $ {Math.abs(record.amount).toLocaleString()}
                   </span>
                 </div>
               </div>
             </div>
-          )) : (
+          );}) : (
+
             <div className="flex flex-col items-center justify-center py-20 text-stone-300 gap-4">
               <Repeat size={48} />
               <span className="font-bold">尚無固定收支</span>
@@ -10478,9 +10518,38 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
   onSave: (fr: FixedRecord) => void,
   onDelete: () => void
 }) {
-  const [edited, setEdited] = useState<FixedRecord>({ ...record });
+  const [edited, setEdited] = useState<FixedRecord>(() => {
+    let toAcc = record.toAccountId;
+    if (record.type === 'transfer' && (!toAcc || toAcc === record.accountId)) {
+      const other = accounts.find(a => a.id !== record.accountId);
+      toAcc = other?.id || '';
+    }
+    return {
+      ...record,
+      toAccountId: toAcc,
+      fee: record.fee || 0,
+      category: record.type === 'transfer' ? (record.category || '轉帳') : record.category
+    };
+  });
   const [expandedBanks, setExpandedBanks] = useState<Record<string, boolean>>({});
+  const [expandedToBanks, setExpandedToBanks] = useState<Record<string, boolean>>({});
   const [amountStr, setAmountStr] = useState<string>(record.amount === 0 ? '' : record.amount.toString());
+  const [feeStr, setFeeStr] = useState<string>(record.fee ? record.fee.toString() : '');
+
+  const handleSave = () => {
+    if (edited.type === 'transfer') {
+      if (!edited.toAccountId || edited.toAccountId === edited.accountId) {
+        alert('轉出帳戶與轉入帳戶不可為同一帳戶，請選擇不同帳戶。');
+        return;
+      }
+    }
+    onSave({
+      ...edited,
+      category: edited.type === 'transfer' ? (edited.category || '轉帳') : edited.category,
+      fee: edited.type === 'transfer' ? (edited.fee || 0) : undefined,
+      toAccountId: edited.type === 'transfer' ? edited.toAccountId : undefined,
+    });
+  };
 
   return (
     <motion.div 
@@ -10513,7 +10582,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                   value={edited.name}
                   onChange={e => setEdited({ ...edited, name: e.target.value })}
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                  placeholder="如：房租"
+                  placeholder={edited.type === 'transfer' ? '如：定期存款' : '如：房租'}
                 />
               </div>
               <div className="space-y-2">
@@ -10532,16 +10601,39 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
               </div>
             </div>
 
+            {/* 類型三選一：支出 / 收入 / 轉帳 */}
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-stone-300 uppercase">類型</label>
               <div className="flex gap-2">
-                {['expense', 'income'].map(t => (
+                {(['expense', 'income', 'transfer'] as const).map(t => (
                   <button 
                     key={t}
-                    onClick={() => setEdited({ ...edited, type: t as any, category: '' })}
-                    className={`flex-1 py-3 rounded-xl font-bold text-sm border-2 transition-all ${edited.type === t ? 'bg-[#5D4037] text-white border-[#5D4037]' : 'bg-white text-stone-400 border-white'}`}
+                    onClick={() => {
+                      let newToAccountId = edited.toAccountId;
+                      let newCategory = edited.category;
+                      if (t === 'transfer') {
+                        newCategory = '轉帳';
+                        if (!newToAccountId || newToAccountId === edited.accountId) {
+                          const other = accounts.find(a => a.id !== edited.accountId);
+                          newToAccountId = other?.id || '';
+                        }
+                      } else {
+                        newCategory = '';
+                      }
+                      setEdited({
+                        ...edited,
+                        type: t,
+                        toAccountId: newToAccountId,
+                        category: newCategory,
+                      });
+                    }}
+                    className={`flex-1 py-3 rounded-xl font-bold text-sm border-2 transition-all ${
+                      edited.type === t 
+                        ? 'bg-[#5D4037] text-white border-[#5D4037]' 
+                        : 'bg-white text-stone-400 border-white'
+                    }`}
                   >
-                    {t === 'expense' ? '支出' : '收入'}
+                    {t === 'expense' ? '支出' : t === 'income' ? '收入' : '轉帳'}
                   </button>
                 ))}
               </div>
@@ -10589,57 +10681,137 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
               )}
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[18px] font-bold text-[#000000] uppercase px-8">扣款帳戶</label>
-              <AccountSelector 
-                accounts={accounts}
-                records={records}
-                currentSelectedId={edited.accountId}
-                onSelect={(id) => setEdited({ ...edited, accountId: id })}
-                expandedState={expandedBanks}
-                setExpandedState={setExpandedBanks}
-                keyPrefix="fixed-record"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[18px] font-bold text-[#000000] uppercase">選擇分類</label>
-              <HorizontalScrollArea className="px-8">
-                {categories.filter(c => c.type === edited.type).map(cat => (
-                  <button 
-                    key={cat.id}
-                    onClick={() => setEdited({ ...edited, category: cat.name })}
-                    className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                      edited.category.split(' > ')[0] === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
-                    }`}
-                  >
-                    <div className={`w-10 h-10 ${edited.category.split(' > ')[0] === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
-                      <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
-                    </div>
-                    <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
-                  </button>
-                ))}
-              </HorizontalScrollArea>
-              
-              {/* Sub Category Selection */}
-              {categories.find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type) && (
-                <div className="mt-2">
-                  <HorizontalScrollArea className="px-8">
-                    {categories.find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type)?.sub.map(sub => (
-                      <button 
-                        key={sub}
-                        onClick={() => setEdited({ ...edited, category: `${edited.category.split(' > ')[0]} > ${sub}` })}
-                        className={`flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 transition-all text-[18px] text-[#000000] ${
-                          edited.category.includes(sub) ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-[#000000]'
-                        }`}
-                      >
-                        {sub}
-                      </button>
-                    ))}
-                  </HorizontalScrollArea>
+            {/* 帳戶選擇區：若是轉帳顯示【轉出帳戶】與【轉入帳戶】，否則顯示【扣款帳戶】 */}
+            {edited.type === 'transfer' ? (
+              <>
+                {/* 轉出帳戶 */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-8">
+                    <label className="text-[18px] font-bold text-[#000000] uppercase">轉出帳戶</label>
+                    <span className="text-xs font-bold text-stone-400">扣款來源</span>
+                  </div>
+                  <AccountSelector 
+                    accounts={accounts}
+                    records={records}
+                    currentSelectedId={edited.accountId}
+                    onSelect={(id) => {
+                      let newToAccountId = edited.toAccountId;
+                      if (id === newToAccountId) {
+                        const other = accounts.find(a => a.id !== id);
+                        newToAccountId = other?.id || '';
+                      }
+                      setEdited({ ...edited, accountId: id, toAccountId: newToAccountId });
+                    }}
+                    expandedState={expandedBanks}
+                    setExpandedState={setExpandedBanks}
+                    keyPrefix="fixed-record-src"
+                  />
                 </div>
-              )}
-            </div>
+
+                {/* 轉入帳戶 */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-8">
+                    <label className="text-[18px] font-bold text-[#000000] uppercase">轉入帳戶</label>
+                    <span className="text-xs font-bold text-stone-400">存款目標</span>
+                  </div>
+                  <AccountSelector 
+                    accounts={accounts}
+                    records={records}
+                    currentSelectedId={edited.toAccountId || ''}
+                    onSelect={(id) => {
+                      let newSrcId = edited.accountId;
+                      if (id === newSrcId) {
+                        const other = accounts.find(a => a.id !== id);
+                        newSrcId = other?.id || '';
+                      }
+                      setEdited({ ...edited, toAccountId: id, accountId: newSrcId });
+                    }}
+                    expandedState={expandedToBanks}
+                    setExpandedState={setExpandedToBanks}
+                    keyPrefix="fixed-record-dst"
+                  />
+                </div>
+
+                {/* 手續費欄位 (選填) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-stone-300 uppercase">手續費 (選填)</label>
+                    <span className="text-[10px] text-stone-400 font-bold">由轉出帳戶額外扣除</span>
+                  </div>
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={feeStr}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setFeeStr(val);
+                        setEdited({ ...edited, fee: val === '' ? 0 : parseFloat(val) || 0 });
+                      }}
+                      className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-400 font-bold text-sm">元</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* 原 扣款帳戶 */
+              <div className="space-y-2">
+                <label className="text-[18px] font-bold text-[#000000] uppercase px-8">扣款帳戶</label>
+                <AccountSelector 
+                  accounts={accounts}
+                  records={records}
+                  currentSelectedId={edited.accountId}
+                  onSelect={(id) => setEdited({ ...edited, accountId: id })}
+                  expandedState={expandedBanks}
+                  setExpandedState={setExpandedBanks}
+                  keyPrefix="fixed-record"
+                />
+              </div>
+            )}
+
+            {/* 選擇分類：若是轉帳則隱藏 */}
+            {edited.type !== 'transfer' && (
+              <div className="space-y-2">
+                <label className="text-[18px] font-bold text-[#000000] uppercase">選擇分類</label>
+                <HorizontalScrollArea className="px-8">
+                  {categories.filter(c => c.type === edited.type).map(cat => (
+                    <button 
+                      key={cat.id}
+                      onClick={() => setEdited({ ...edited, category: cat.name })}
+                      className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
+                        edited.category.split(' > ')[0] === cat.name ? 'bg-[#5D4037] text-white border-[#5D4037] shadow-md' : 'bg-white text-stone-400 border-white shadow-sm'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 ${edited.category.split(' > ')[0] === cat.name ? 'bg-white/20' : 'bg-stone-50'} rounded-full flex items-center justify-center text-xl overflow-hidden`}>
+                        <AccountIcon icon={cat.icon} sizeClassName="w-6 h-6" />
+                      </div>
+                      <span className="text-[18px] font-bold text-[#000000] text-center px-1 leading-tight">{cat.name}</span>
+                    </button>
+                  ))}
+                </HorizontalScrollArea>
+                
+                {/* Sub Category Selection */}
+                {categories.find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type) && (
+                  <div className="mt-2">
+                    <HorizontalScrollArea className="px-8">
+                      {categories.find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type)?.sub.map(sub => (
+                        <button 
+                          key={sub}
+                          onClick={() => setEdited({ ...edited, category: `${edited.category.split(' > ')[0]} > ${sub}` })}
+                          className={`flex-shrink-0 px-6 h-12 rounded-full font-bold border-2 transition-all text-[18px] text-[#000000] ${
+                            edited.category.includes(sub) ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm text-[#000000]'
+                          }`}
+                        >
+                          {sub}
+                        </button>
+                      ))}
+                    </HorizontalScrollArea>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-4">
               <label className="text-[10px] font-bold text-stone-300 uppercase">備註</label>
@@ -10667,7 +10839,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
           </div>
 
           <button 
-            onClick={() => onSave(edited)}
+            onClick={handleSave}
             className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
           >
             <Check size={20} /> 儲存設定
@@ -10679,6 +10851,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
     </motion.div>
   );
 }
+
 
 const defaultTypeOrder: Account['type'][] = ['cash', 'bank', 'credit', 'e-payment', 'e-ticket', 'investment', 'deposit', 'insurance', 'points', 'other'];
 

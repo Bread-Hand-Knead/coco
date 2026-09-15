@@ -89,13 +89,16 @@ export interface FixedRecord {
   id: string;
   name: string;
   amount: number;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
   period: 'weekly' | 'monthly' | 'yearly';
   day: number;
   accountId: string;
+  toAccountId?: string;
+  fee?: number;
   category: string;
   autoEntry: boolean;
   lastProcessedDate?: string;
+  note?: string;
 }
 
 export interface Stock {
