@@ -576,8 +576,41 @@ const formatLocalDate = (date: Date) => {
 const getTransferSourceAndDest = (tx: Transaction) => {
   const isPos = tx.amount > 0;
   const src = isPos ? (tx.toAccountId || '') : tx.accountId;
-  const dst = isPos ? tx.accountId : (tx.toAccountId || '');
+  let dst = isPos ? tx.accountId : (tx.toAccountId || '');
+  if (tx.subItems && tx.subItems.some(s => s.toAccountId)) {
+    const dests = Array.from(new Set(tx.subItems.map(s => s.toAccountId).filter(Boolean))) as string[];
+    if (dests.length === 1) dst = dests[0];
+  }
   return { src, dst };
+};
+
+export const getTransferInAmountForAccount = (r: Transaction, targetAccountId: string): number => {
+  if (r.type !== 'transfer') return 0;
+  if (r.subItems && r.subItems.some(s => s.toAccountId)) {
+    return r.subItems
+      .filter(s => s.toAccountId === targetAccountId)
+      .reduce((sum, s) => sum + Math.abs(s.amount), 0);
+  }
+  if (r.toAccountId === targetAccountId) {
+    return r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1));
+  }
+  return 0;
+};
+
+export const isTransferInForAccount = (r: Transaction, targetIds: string[]): boolean => {
+  if (r.type !== 'transfer') return false;
+  if (r.subItems && r.subItems.some(s => s.toAccountId)) {
+    return r.subItems.some(s => s.toAccountId && targetIds.includes(s.toAccountId));
+  }
+  return Boolean(r.toAccountId && targetIds.includes(r.toAccountId));
+};
+
+export const getTransferCounterpartName = (r: Transaction, accounts: Account[]): string => {
+  if (r.subItems && r.subItems.some(s => s.toAccountId)) {
+    const names = r.subItems.map(s => accounts.find(a => a.id === s.toAccountId)?.name).filter(Boolean);
+    if (names.length > 0) return names.join(', ');
+  }
+  return accounts.find(a => a.id === r.toAccountId)?.name || '未知帳戶';
 };
 
 const getLatestExchangeRate = (records: Transaction[], accounts: Account[], targetCurrency: string, beforeDate?: string): number => {
@@ -1876,9 +1909,8 @@ export default function App() {
         }
         
         // Symmetrical Transfer Logic: Balance updates based on exact transfer receiver amounts
-        if (r.type === 'transfer' && r.toAccountId === id) {
-          const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
-          bal += Math.abs(toAmt);
+        if (r.type === 'transfer') {
+          bal += getTransferInAmountForAccount(r, id);
         }
       });
       return bal;
@@ -1921,9 +1953,8 @@ export default function App() {
           }
           if (r.fee) bal -= r.fee;
         }
-        if (r.type === 'transfer' && r.toAccountId === acc.id) {
-          const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
-          bal += Math.abs(toAmt);
+        if (r.type === 'transfer') {
+          bal += getTransferInAmountForAccount(r, acc.id);
         }
       });
       balances[acc.id] = bal;
@@ -2155,17 +2186,33 @@ export default function App() {
   const handleUpdateRecord = async (
     oldRecord: Transaction, 
     newRecord: Transaction, 
-    mergedRecordIdsToDelete?: string[], 
+    mergedRecordIdsToDelete?: (string | Transaction)[], 
     restoredRecordIds?: string[]
   ) => {
     if (mergedRecordIdsToDelete && mergedRecordIdsToDelete.length > 0) {
-      setRecords(prev => prev.filter(r => !mergedRecordIdsToDelete.includes(r.id)));
-      if (user) {
-        for (const id of mergedRecordIdsToDelete) {
-          try {
-            await deleteFromCloud('transactions', id);
-          } catch (e) {
-            console.error('刪除被合併紀錄失敗:', e);
+      if (typeof mergedRecordIdsToDelete[0] === 'string') {
+        const idsToDelete = mergedRecordIdsToDelete as string[];
+        setRecords(prev => prev.filter(r => !idsToDelete.includes(r.id)));
+        if (user) {
+          for (const id of idsToDelete) {
+            try {
+              await deleteFromCloud('transactions', id);
+            } catch (e) {
+              console.error('刪除被合併紀錄失敗:', e);
+            }
+          }
+        }
+      } else {
+        const childTxs = mergedRecordIdsToDelete as Transaction[];
+        const updateMap = new Map(childTxs.map(t => [t.id, t]));
+        setRecords(prev => prev.map(r => updateMap.get(r.id) || r));
+        if (user) {
+          for (const t of childTxs) {
+            try {
+              await syncToCloud('transactions', cleanData(t), t.id);
+            } catch (e) {
+              console.error('更新子紀錄失敗:', e);
+            }
           }
         }
       }
@@ -2447,14 +2494,44 @@ export default function App() {
       ? recordToDelete._mergedRecordIds 
       : [recordToDelete.id];
     
-    // 1. 樂觀 UI (Optimistic UI): 立即從本地介面移除
-    setRecords(prev => prev.filter(r => !targetIds.includes(r.id)));
+    const childIdsToRestore = records
+      .filter(r => r.parentId === recordToDelete.id || r.parentTransactionId === recordToDelete.id || (recordToDelete.subItemIds && recordToDelete.subItemIds.includes(r.id)))
+      .map(r => r.id);
+
+    // 1. 樂觀 UI (Optimistic UI): 立即從本地介面移除母紀錄，並還原被合併的子紀錄
+    setRecords(prev => prev
+      .filter(r => !targetIds.includes(r.id))
+      .map(r => {
+        if (childIdsToRestore.includes(r.id)) {
+          return {
+            ...r,
+            isMergedChild: false,
+            parentId: null,
+            parentTransactionId: undefined,
+            isChildTransaction: false
+          };
+        }
+        return r;
+      })
+    );
     
-    // 2. 執行背景異步刪除
+    // 2. 執行背景異步刪除與子交易還原同步
     if (user) {
       try {
         for (const tid of targetIds) {
           await deleteFromCloud('transactions', tid);
+        }
+        for (const cid of childIdsToRestore) {
+          const cr = records.find(r => r.id === cid);
+          if (cr) {
+            await syncToCloud('transactions', cleanData({
+              ...cr,
+              isMergedChild: false,
+              parentId: null,
+              parentTransactionId: undefined,
+              isChildTransaction: false
+            }), cid);
+          }
         }
       } catch (error) {
         console.error('Delete failed:', error);
@@ -3856,9 +3933,8 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
           bal -= r.fee;
         }
       }
-      if (r.type === 'transfer' && r.toAccountId === acc.id) {
-        const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
-        bal += Math.abs(toAmt);
+      if (r.type === 'transfer') {
+        bal += getTransferInAmountForAccount(r, acc.id);
       }
     });
     return bal;
@@ -3899,7 +3975,7 @@ export function calculateCreditCardUntransferred(
   const mergedRecords = getMergedRecords(records, accounts);
   
   const accountRecords = mergedRecords.filter(r => 
-    (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && 
+    (targetIds.includes(r.accountId) || isTransferInForAccount(r, targetIds)) && 
     r.category !== '初始資金'
   );
 
@@ -3925,7 +4001,7 @@ export function calculateCreditCardUntransferred(
     let isAutoPay = false;
     
     if (isTransferPayment) {
-      isTransferIn = r.toAccountId && targetIds.includes(r.toAccountId);
+      isTransferIn = isTransferInForAccount(r, targetIds);
       
       if (isTransferIn) {
         isAutoPay = 
@@ -6271,14 +6347,8 @@ function InvestmentSection({
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated, mergedIdsToDelete) => {
-              onUpdateRecord(editingRecord, updated);
-              if (mergedIdsToDelete && mergedIdsToDelete.length > 0) {
-                mergedIdsToDelete.forEach(id => {
-                  const rec = records.find(r => r.id === id);
-                  if (rec && typeof onDeleteRecord === 'function') onDeleteRecord(rec);
-                });
-              }
+            onSave={(updated, childUpdates) => {
+              handleUpdateRecord(editingRecord, updated, childUpdates);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -6479,7 +6549,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   const balanceMap = useMemo(() => {
     const mergedHistory = getMergedRecords(records, accounts);
     const relevant = mergedHistory
-      .filter(r => (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && r.category !== '初始資金')
+      .filter(r => (targetIds.includes(r.accountId) || isTransferInForAccount(r, targetIds)) && r.category !== '初始資金')
       .sort((a, b) => {
         const dateDiff = a.date.localeCompare(b.date);
         if (dateDiff !== 0) return dateDiff;
@@ -6505,9 +6575,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         }
         if (r.fee) bal -= r.fee;
       }
-      if (r.type === 'transfer' && r.toAccountId && targetIds.includes(r.toAccountId)) {
-        const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
-        bal += Math.abs(toAmt);
+      if (r.type === 'transfer') {
+        const inAmt = targetIds.reduce((sum, tid) => sum + getTransferInAmountForAccount(r, tid), 0);
+        bal += inAmt;
       }
       map[r.id] = bal;
       if ((r as any)._mergedRecordIds) {
@@ -6542,11 +6612,13 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         matched = true;
         desc = `支出/轉出 (${getTransactionTitle(r)})`;
       }
-      if (r.type === 'transfer' && r.toAccountId && targetIds.includes(r.toAccountId)) {
-        const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
-        change += Math.abs(toAmt);
-        matched = true;
-        desc = `收入/轉入 (${getTransactionTitle(r)})`;
+      if (r.type === 'transfer') {
+        const inAmt = targetIds.reduce((sum, tid) => sum + getTransferInAmountForAccount(r, tid), 0);
+        if (inAmt > 0) {
+          change += inAmt;
+          matched = true;
+          desc = `收入/轉入 (${getTransactionTitle(r)})`;
+        }
       }
       
       if (matched) {
@@ -6682,7 +6754,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     
     const raw = records.filter(r => {
       if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
-      if (!(targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId)))) return false;
+      if (!(targetIds.includes(r.accountId) || isTransferInForAccount(r, targetIds))) return false;
       if (r.category === '初始資金') return false;
       
       if (sortMode === 'billing-cycle') {
@@ -6784,7 +6856,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         noteText.includes('轉帳扣繳') ||
         noteText.includes('扣繳信用卡款') ||
         noteText.includes('自動扣繳');
-      const isRepayment = (r.type === 'transfer' && r.toAccountId && targetIds.includes(r.toAccountId)) || hasKeywords;
+      const isRepayment = (r.type === 'transfer' && isTransferInForAccount(r, targetIds)) || hasKeywords;
       
       if (isRepayment) {
         paymentRecords.push(r);
@@ -7160,9 +7232,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           }
           if (r.fee) bal -= r.fee;
         }
-        if (r.type === 'transfer' && r.toAccountId === acc.id) {
-          const toAmt = r.toAmount !== undefined ? r.toAmount : (r.amount * (r.exchangeRate || 1));
-          bal += Math.abs(toAmt);
+        if (r.type === 'transfer') {
+          bal += getTransferInAmountForAccount(r, acc.id);
         }
       });
       return bal;
@@ -7216,7 +7287,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 (() => {
                   const isPos = record.amount > 0;
                   const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
-                  const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                  const counterpartAccName = getTransferCounterpartName(record, accounts);
                   const firstAccName = isPos ? counterpartAccName : currentAccName;
                   const secondAccName = isPos ? currentAccName : counterpartAccName;
                   return (
@@ -7288,12 +7359,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               {/* 金額顯示 */}
               {(() => {
                 let isFrom = targetIds.includes(record.accountId);
-                let isTo = record.toAccountId && targetIds.includes(record.toAccountId);
+                let isTo = isTransferInForAccount(record, targetIds);
                 
                 if (record.type === 'transfer' || record._isMergedTransfer) {
                   const { src, dst } = getTransferSourceAndDest(record);
                   isFrom = targetIds.includes(src);
-                  isTo = dst && targetIds.includes(dst);
+                  isTo = (dst && targetIds.includes(dst)) || isTransferInForAccount(record, targetIds);
                 }
                 
                 let colorClass = 'text-stone-400';
@@ -7316,7 +7387,11 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   } else if (isTo && !isFrom) {
                     colorClass = 'text-[#03A9F4]';
                     sign = '+';
-                    const displayAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * (record.exchangeRate || 1));
+                    let displayAmt = record.toAmount !== undefined ? record.toAmount : Math.abs(record.amount * (record.exchangeRate || 1));
+                    if (record.subItems && record.subItems.some(s => s.toAccountId)) {
+                      const cardPortion = targetIds.reduce((sum, tid) => sum + getTransferInAmountForAccount(record, tid), 0);
+                      if (cardPortion > 0) displayAmt = cardPortion;
+                    }
                      return (
                        <div className="flex flex-col items-end">
                          <span className={`font-black text-lg sm:text-xl ${colorClass}`} style={getFontFamily()}>
@@ -7412,66 +7487,104 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   <div className="flex flex-col gap-2.5 bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200/70 w-full mb-1">
                     <div className="flex items-center justify-between font-black text-xs text-[#5D4037]">
                       <span className="flex items-center gap-1.5">
-                        <span className="text-amber-600">🛍️</span>
-                        <span>商品拆分歸屬明細 ({record.subItems.length} 項)</span>
+                        <span className="text-amber-600">{record.type === 'transfer' ? '💸' : '🛍️'}</span>
+                        <span>{record.type === 'transfer' ? '各卡繳款 / 轉帳明細' : '商品拆分歸屬明細'} ({record.subItems.length} 項)</span>
                       </span>
                       <span className="text-amber-900/80 font-bold text-[11px]">
-                        刷卡對帳總額: ${Math.abs(record.amount).toLocaleString()}
+                        {record.type === 'transfer' ? '扣款總金額' : '刷卡對帳總額'}: ${Math.abs(record.amount).toLocaleString()}
                       </span>
                     </div>
 
-                    {/* 🛒 個人消費清單及小計 */}
-                    {(() => {
-                      const personalItems = record.subItems.filter(i => !i.isPrepay);
-                      const personalSum = personalItems.reduce((s, i) => s + Math.abs(i.amount), 0);
-                      if (personalItems.length === 0) return null;
-                      return (
-                        <div className="bg-white p-3 rounded-xl border border-stone-200/80 space-y-1.5 shadow-xs">
-                          <div className="flex items-center justify-between text-xs font-black text-[#5D4037] pb-1 border-b border-stone-100">
-                            <span className="flex items-center gap-1">
-                              <span>🛒</span>
-                              <span>個人實質支出 ({personalItems.length} 項)</span>
-                            </span>
-                            <span className="text-[#5D4037] font-black">小計: ${personalSum.toLocaleString()}</span>
-                          </div>
-                          <div className="space-y-1.5 pt-0.5">
-                            {personalItems.map((item, idx) => (
-                              <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-stone-700">
-                                <span className="truncate max-w-[200px] text-stone-800">{item.name} {item.category ? `(${item.category})` : ''}</span>
-                                <span className="font-black text-[#5D4037]">${Math.abs(item.amount).toLocaleString()}</span>
+                    {record.type === 'transfer' ? (
+                      <div className="bg-white p-3 rounded-xl border border-stone-200/80 space-y-2 shadow-xs">
+                        <div className="space-y-2 pt-0.5">
+                          {record.subItems.map((item, idx) => {
+                            const destCard = accounts.find(a => a.id === item.toAccountId);
+                            const isThisCard = item.toAccountId && targetIds.includes(item.toAccountId);
+                            return (
+                              <div 
+                                key={item.id || idx} 
+                                className={`flex items-center justify-between text-xs p-2 rounded-lg border ${
+                                  isThisCard 
+                                    ? 'bg-amber-50/90 border-amber-300 font-black' 
+                                    : 'bg-stone-50/60 border-stone-200/60 font-bold text-stone-700'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <span className="text-amber-700">💳</span>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="truncate text-[#5D4037]">
+                                      {destCard?.name || item.name || '信用卡/帳戶'}
+                                    </span>
+                                    {item.name && item.name !== destCard?.name && (
+                                      <span className="text-[10px] text-stone-400 truncate">{item.name}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className={`font-black ml-2 ${isThisCard ? 'text-amber-900' : 'text-[#5D4037]'}`}>
+                                  $ {Math.abs(item.amount).toLocaleString()}
+                                </span>
                               </div>
-                            ))}
-                          </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })()}
+                      </div>
+                    ) : (
+                      <>
+                        {/* 🛒 個人消費清單及小計 */}
+                        {(() => {
+                          const personalItems = record.subItems.filter(i => !i.isPrepay);
+                          const personalSum = personalItems.reduce((s, i) => s + Math.abs(i.amount), 0);
+                          if (personalItems.length === 0) return null;
+                          return (
+                            <div className="bg-white p-3 rounded-xl border border-stone-200/80 space-y-1.5 shadow-xs">
+                              <div className="flex items-center justify-between text-xs font-black text-[#5D4037] pb-1 border-b border-stone-100">
+                                <span className="flex items-center gap-1">
+                                  <span>🛒</span>
+                                  <span>個人實質支出 ({personalItems.length} 項)</span>
+                                </span>
+                                <span className="text-[#5D4037] font-black">小計: ${personalSum.toLocaleString()}</span>
+                              </div>
+                              <div className="space-y-1.5 pt-0.5">
+                                {personalItems.map((item, idx) => (
+                                  <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-stone-700">
+                                    <span className="truncate max-w-[200px] text-stone-800">{item.name} {item.category ? `(${item.category})` : ''}</span>
+                                    <span className="font-black text-[#5D4037]">${Math.abs(item.amount).toLocaleString()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
-                    {/* 🏠 家裡代墊清單及小計 */}
-                    {(() => {
-                      const prepayItems = record.subItems.filter(i => !!i.isPrepay);
-                      const prepaySum = prepayItems.reduce((s, i) => s + Math.abs(i.amount), 0);
-                      if (prepayItems.length === 0) return null;
-                      return (
-                        <div className="bg-[#FFF4D3] p-3 rounded-xl border border-amber-200/80 space-y-1.5 shadow-xs">
-                          <div className="flex items-center justify-between text-xs font-black text-amber-900 pb-1 border-b border-amber-200/60">
-                            <span className="flex items-center gap-1">
-                              <span>🏠</span>
-                              <span>家裡代墊 ({prepayItems.length} 項)</span>
-                              <span className="text-[10px] px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full font-bold">代墊</span>
-                            </span>
-                            <span className="text-amber-950 font-black">小計: ${prepaySum.toLocaleString()}</span>
-                          </div>
-                          <div className="space-y-1.5 pt-0.5">
-                            {prepayItems.map((item, idx) => (
-                              <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-amber-900/90">
-                                <span className="truncate max-w-[200px]">{item.name} {item.category ? `(${item.category})` : ''}</span>
-                                <span className="font-black text-amber-950">${Math.abs(item.amount).toLocaleString()}</span>
+                        {/* 🏠 家裡代墊清單及小計 */}
+                        {(() => {
+                          const prepayItems = record.subItems.filter(i => !!i.isPrepay);
+                          const prepaySum = prepayItems.reduce((s, i) => s + Math.abs(i.amount), 0);
+                          if (prepayItems.length === 0) return null;
+                          return (
+                            <div className="bg-[#FFF4D3] p-3 rounded-xl border border-amber-200/80 space-y-1.5 shadow-xs">
+                              <div className="flex items-center justify-between text-xs font-black text-amber-900 pb-1 border-b border-amber-200/60">
+                                <span className="flex items-center gap-1">
+                                  <span>🏠</span>
+                                  <span>家裡代墊 ({prepayItems.length} 項)</span>
+                                  <span className="text-[10px] px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full font-bold">代墊</span>
+                                </span>
+                                <span className="text-amber-950 font-black">小計: ${prepaySum.toLocaleString()}</span>
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
+                              <div className="space-y-1.5 pt-0.5">
+                                {prepayItems.map((item, idx) => (
+                                  <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-amber-900/90">
+                                    <span className="truncate max-w-[200px]">{item.name} {item.category ? `(${item.category})` : ''}</span>
+                                    <span className="font-black text-amber-950">${Math.abs(item.amount).toLocaleString()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -8221,6 +8334,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
           ...prev,
           [origId]: {
             ...targetRecord,
+            isMergedChild: false,
             parentId: null,
             parentTransactionId: undefined,
             isChildTransaction: false
@@ -8229,12 +8343,17 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       }
     }
 
+    const isTransfer = edited.type === 'transfer';
+    const defaultTitle = isTransfer ? '信用卡扣款' : '主消費項目';
+    const baseTitle = (edited.note || edited.merchant || defaultTitle).replace(/ 等 \d+ (類明細|筆)$/, '');
+
     if (updatedSubs.length === 0) {
-      const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
       setEdited(prev => ({
         ...prev,
+        isParent: false,
         note: baseTitle,
         subItems: undefined,
+        subTransactions: undefined,
         subItemIds: [],
         baseAmount: baseOriginalAmount,
         amount: prev.type === 'expense' || prev.type === 'transfer' ? -baseOriginalAmount : baseOriginalAmount
@@ -8242,13 +8361,15 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       setAmountStr(baseOriginalAmount.toString());
     } else {
       const subTotal = updatedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
-      const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
-      const updatedNote = updatedSubs.length > 1 ? `${baseTitle} 等 ${updatedSubs.length} 類明細` : baseTitle;
+      const unit = isTransfer ? '筆' : '類明細';
+      const updatedNote = updatedSubs.length > 1 ? `${baseTitle} 等 ${updatedSubs.length} ${unit}` : baseTitle;
       
       setEdited(prev => ({
         ...prev,
+        isParent: updatedSubs.length > 1,
         note: updatedNote,
         subItems: updatedSubs,
+        subTransactions: prev.subTransactions?.filter(st => st.id !== itemToRemove?.originalRecordId),
         subItemIds: updatedSubs.map(s => s.originalRecordId).filter(Boolean) as string[],
         baseAmount: baseOriginalAmount,
         amount: prev.type === 'expense' || prev.type === 'transfer' ? -subTotal : subTotal
@@ -8268,6 +8389,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
               ...prev,
               [origId]: {
                 ...targetRecord,
+                isMergedChild: false,
                 parentId: null,
                 parentTransactionId: undefined,
                 isChildTransaction: false
@@ -8278,12 +8400,35 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       });
     }
 
-    const baseTitle = (edited.note || edited.merchant || '').replace(/ 等 \d+ 類明細$/, '');
+    if (edited.subTransactions) {
+      edited.subTransactions.forEach(st => {
+        const origId = st.id;
+        const targetRecord = records.find(r => r.id === origId) || childUpdatesMap[origId] || st;
+        if (targetRecord) {
+          setChildUpdatesMap(prev => ({
+            ...prev,
+            [origId]: {
+              ...targetRecord,
+              isMergedChild: false,
+              parentId: null,
+              parentTransactionId: undefined,
+              isChildTransaction: false
+            }
+          }));
+        }
+      });
+    }
+
+    const isTransfer = edited.type === 'transfer';
+    const defaultTitle = isTransfer ? '信用卡扣款' : '主消費項目';
+    const baseTitle = (edited.note || edited.merchant || defaultTitle).replace(/ 等 \d+ (類明細|筆)$/, '');
 
     setEdited(prev => ({
       ...prev,
+      isParent: false,
       note: baseTitle,
       subItems: undefined,
+      subTransactions: undefined,
       subItemIds: [],
       baseAmount: baseOriginalAmount,
       amount: prev.type === 'expense' || prev.type === 'transfer' ? -baseOriginalAmount : baseOriginalAmount
@@ -8307,23 +8452,30 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     if (!records || records.length === 0) return [];
     const currentDateMs = new Date(edited.date).getTime();
     const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+    const targetType = edited.type || 'expense';
 
     return records.filter(r => {
       if (r.id === edited.id) return false;
       if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
+      if (r.type !== targetType) return false;
       if (r.accountId !== edited.accountId) return false;
       const rDateMs = new Date(r.date).getTime();
-      if (isNaN(rDateMs) || Math.abs(rDateMs - currentDateMs) > threeDaysMs) return false;
-      if (mergeSearch.trim()) {
+      const hasSearch = mergeSearch.trim().length > 0;
+      const maxDiffMs = hasSearch ? 30 * 24 * 60 * 60 * 1000 : threeDaysMs;
+      if (isNaN(rDateMs) || Math.abs(rDateMs - currentDateMs) > maxDiffMs) return false;
+      if (hasSearch) {
         const query = mergeSearch.trim().toLowerCase();
         const noteMatch = (r.note || '').toLowerCase().includes(query);
         const merchantMatch = (r.merchant || '').toLowerCase().includes(query);
         const catMatch = (r.category || '').toLowerCase().includes(query);
-        if (!noteMatch && !merchantMatch && !catMatch) return false;
+        const toAccName = accounts.find(a => a.id === r.toAccountId)?.name || '';
+        const toMatch = toAccName.toLowerCase().includes(query);
+        const amtMatch = Math.abs(r.amount).toString().includes(query);
+        if (!noteMatch && !merchantMatch && !catMatch && !toMatch && !amtMatch) return false;
       }
       return true;
     });
-  }, [records, edited.id, edited.accountId, edited.date, mergeSearch]);
+  }, [records, accounts, edited.id, edited.accountId, edited.date, edited.type, mergeSearch]);
 
   const selectedMergeTotal = useMemo(() => {
     if (!records || records.length === 0 || selectedMergeIds.length === 0) return 0;
@@ -8352,34 +8504,58 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     setChildUpdatesMap(newChildUpdates);
 
     const existingSubTxs: Transaction[] = edited.subTransactions || [];
-    const combinedSubTxs = [...existingSubTxs, ...selectedRecords.map(r => ({ ...r, isMergedChild: true, parentId: edited.id }))];
+    const combinedSubTxs = [
+      ...existingSubTxs, 
+      ...selectedRecords.map(r => ({ 
+        ...r, 
+        isMergedChild: true, 
+        parentId: edited.id,
+        parentTransactionId: edited.id,
+        isChildTransaction: true
+      }))
+    ];
+
+    const isTransfer = edited.type === 'transfer';
+    const mainToAccName = accounts.find(a => a.id === edited.toAccountId)?.name || '信用卡';
 
     const existingSubs: SubItem[] = (edited.subItems && edited.subItems.length > 0)
       ? [...edited.subItems]
       : [
           {
             id: `sub_${Date.now()}_main`,
-            name: (edited.note || edited.merchant || '主消費項目').replace(/ 等 \d+ 類明細$/, ''),
+            originalRecordId: edited.id,
+            name: isTransfer
+              ? `繳 ${mainToAccName}${edited.note ? ` - ${edited.note}` : ''}`
+              : (edited.note || edited.merchant || '主消費項目').replace(/ 等 \d+ (類明細|筆)$/, ''),
             amount: baseOriginalAmount,
             category: edited.category,
-            isPrepay: !!edited.isPrepay
+            isPrepay: !!edited.isPrepay,
+            toAccountId: edited.toAccountId
           }
         ];
 
-    const newSubs: SubItem[] = selectedRecords.map((r, idx) => ({
-      id: `sub_${Date.now()}_merge_${idx}`,
-      originalRecordId: r.id,
-      name: r.note || r.merchant || `合併明細 ${idx + 1}`,
-      amount: Math.abs(r.amount),
-      category: r.category || edited.category,
-      isPrepay: !!r.isPrepay
-    }));
+    const newSubs: SubItem[] = selectedRecords.map((r, idx) => {
+      const cardName = accounts.find(a => a.id === r.toAccountId)?.name || '信用卡';
+      return {
+        id: `sub_${Date.now()}_merge_${idx}`,
+        originalRecordId: r.id,
+        name: isTransfer
+          ? `繳 ${cardName}${r.note ? ` - ${r.note}` : ''}`
+          : (r.note || r.merchant || `合併明細 ${idx + 1}`),
+        amount: Math.abs(r.amount),
+        category: r.category || edited.category,
+        isPrepay: !!r.isPrepay,
+        toAccountId: r.toAccountId
+      };
+    });
 
     const combinedSubs = [...existingSubs, ...newSubs];
     const totalSum = combinedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
 
-    const baseTitle = (edited.note || edited.merchant || '主消費項目').replace(/ 等 \d+ 類明細$/, '');
-    const updatedNote = `${baseTitle} 等 ${combinedSubs.length} 類明細`;
+    const defaultTitle = isTransfer ? '信用卡扣款' : '主消費項目';
+    const baseTitle = (edited.note || edited.merchant || defaultTitle).replace(/ 等 \d+ (類明細|筆)$/, '');
+    const unit = isTransfer ? '筆' : '類明細';
+    const updatedNote = `${baseTitle} 等 ${combinedSubs.length} ${unit}`;
 
     const subItemIds = combinedSubs.map(s => s.originalRecordId).filter(Boolean) as string[];
 
@@ -8833,12 +9009,12 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
             </div>
 
             {/* Sub-items Ownership & Split (拆分子項目與歸屬) Section */}
-            {edited.type === 'expense' && (
+            {(edited.type === 'expense' || edited.type === 'transfer') && (
               <div className="space-y-3 bg-amber-50/40 p-4 rounded-2xl border border-amber-200/60 shadow-sm" style={getFontFamily()}>
                 <div className="flex items-center justify-between">
                   <span className="text-[15px] font-bold text-[#5D4037] flex items-center gap-1.5">
-                    <span>🛍️</span>
-                    <span>拆分子項目與歸屬 (個人 vs 家裡代墊)</span>
+                    <span>{edited.type === 'transfer' ? '💸' : '🛍️'}</span>
+                    <span>{edited.type === 'transfer' ? '合併多卡繳款 / 轉帳明細' : '拆分子項目與歸屬 (個人 vs 家裡代墊)'}</span>
                   </span>
                   <div className="flex items-center gap-2">
                     <button
@@ -8851,30 +9027,40 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                       className="px-3 py-1 bg-[#5D4037] hover:bg-[#4A332C] text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all flex items-center gap-1"
                       style={getFontFamily()}
                     >
-                      <span>＋</span> 合併其他消費
+                      <span>＋</span> {edited.type === 'transfer' ? '合併其他繳款 / 轉帳' : '合併其他消費'}
                     </button>
                     {!edited.subItems || edited.subItems.length === 0 ? (
                       <button
                         type="button"
                         onClick={() => {
+                          const isTransfer = edited.type === 'transfer';
+                          const mainCardName = accounts.find(a => a.id === edited.toAccountId)?.name || '信用卡';
                           const initSub: SubItem[] = [
-                            { id: `sub_${Date.now()}_1`, name: edited.note || '項目 1', amount: Math.abs(edited.amount) || 0, category: edited.category, isPrepay: false }
+                            { 
+                              id: `sub_${Date.now()}_1`, 
+                              originalRecordId: edited.id,
+                              name: isTransfer ? `繳 ${mainCardName}` : (edited.note || '項目 1'), 
+                              amount: Math.abs(edited.amount) || 0, 
+                              category: edited.category, 
+                              isPrepay: false,
+                              toAccountId: edited.toAccountId
+                            }
                           ];
                           setEdited({ ...edited, subItems: initSub });
                         }}
                         className="px-3 py-1 bg-white hover:bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] shadow-xs active:scale-95 transition-all"
                         style={getFontFamily()}
                       >
-                        ＋ 開始拆分
+                        ＋ {edited.type === 'transfer' ? '開始拆分繳款' : '開始拆分'}
                       </button>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setEdited({ ...edited, subItems: undefined })}
+                        onClick={handleClearSubItems}
                         className="text-xs font-bold text-rose-500 hover:underline"
                         style={getFontFamily()}
                       >
-                        清除拆分
+                        {edited.subTransactions && edited.subTransactions.length > 0 ? '解除合併還原' : '清除拆分'}
                       </button>
                     )}
                   </div>
@@ -8889,56 +9075,114 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                             type="button"
                             onClick={() => handleRemoveSubItem(idx)}
                             className="absolute top-2 right-2 p-1 text-stone-300 hover:text-rose-500 transition-colors"
-                            title="刪除子項目"
+                            title={subItem.originalRecordId ? "解除合併此筆紀錄 (還原為獨立交易)" : "刪除子項目"}
                           >
                             <X size={14} />
                           </button>
 
-                          <div className="grid grid-cols-5 gap-2 pr-5">
-                            <div className="col-span-3 flex flex-col gap-1">
-                              <label className="text-[9px] font-bold text-stone-400">品項名稱</label>
-                              <input
-                                type="text"
-                                value={subItem.name}
-                                onChange={e => {
-                                  const nameVal = e.target.value;
-                                  const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, name: nameVal } : s);
-                                  setEdited({ ...edited, subItems: updatedSubs });
-                                }}
-                                className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
-                              />
+                          {edited.type === 'transfer' ? (
+                            <div className="space-y-2 pr-5">
+                              <div className="grid grid-cols-5 gap-2">
+                                <div className="col-span-3 flex flex-col gap-1">
+                                  <label className="text-[9px] font-bold text-stone-400">轉入卡別 / 帳戶</label>
+                                  <select
+                                    value={subItem.toAccountId || edited.toAccountId || ''}
+                                    onChange={e => {
+                                      const newTo = e.target.value;
+                                      const cardName = accounts.find(a => a.id === newTo)?.name || '信用卡';
+                                      const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { 
+                                        ...s, 
+                                        toAccountId: newTo,
+                                        name: s.name.startsWith('繳 ') ? `繳 ${cardName}` : s.name
+                                      } : s);
+                                      setEdited({ ...edited, subItems: updatedSubs });
+                                    }}
+                                    className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                                  >
+                                    {accounts.filter(a => a.id !== edited.accountId).map(a => (
+                                      <option key={a.id} value={a.id}>
+                                        {a.name} ({a.type === 'credit' ? '信用卡' : a.type === 'bank' ? '銀行' : '帳戶'})
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="col-span-2 flex flex-col gap-1">
+                                  <label className="text-[9px] font-bold text-stone-400">金額 ($)</label>
+                                  <input
+                                    type="number"
+                                    value={subItem.amount}
+                                    onChange={e => {
+                                      const amtVal = parseFloat(e.target.value) || 0;
+                                      handleUpdateSubItemAmount(idx, amtVal);
+                                    }}
+                                    className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-stone-400">備註說明</label>
+                                <input
+                                  type="text"
+                                  value={subItem.name}
+                                  onChange={e => {
+                                    const nameVal = e.target.value;
+                                    const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, name: nameVal } : s);
+                                    setEdited({ ...edited, subItems: updatedSubs });
+                                  }}
+                                  placeholder="如：中信uniopen聯名卡"
+                                  className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                                />
+                              </div>
                             </div>
-                            <div className="col-span-2 flex flex-col gap-1">
-                              <label className="text-[9px] font-bold text-stone-400">金額 ($)</label>
-                              <input
-                                type="number"
-                                value={subItem.amount}
-                                onChange={e => {
-                                  const amtVal = parseFloat(e.target.value) || 0;
-                                  handleUpdateSubItemAmount(idx, amtVal);
-                                }}
-                                className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
-                              />
-                            </div>
-                          </div>
+                          ) : (
+                            <>
+                              <div className="grid grid-cols-5 gap-2 pr-5">
+                                <div className="col-span-3 flex flex-col gap-1">
+                                  <label className="text-[9px] font-bold text-stone-400">品項名稱</label>
+                                  <input
+                                    type="text"
+                                    value={subItem.name}
+                                    onChange={e => {
+                                      const nameVal = e.target.value;
+                                      const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, name: nameVal } : s);
+                                      setEdited({ ...edited, subItems: updatedSubs });
+                                    }}
+                                    className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                                  />
+                                </div>
+                                <div className="col-span-2 flex flex-col gap-1">
+                                  <label className="text-[9px] font-bold text-stone-400">金額 ($)</label>
+                                  <input
+                                    type="number"
+                                    value={subItem.amount}
+                                    onChange={e => {
+                                      const amtVal = parseFloat(e.target.value) || 0;
+                                      handleUpdateSubItemAmount(idx, amtVal);
+                                    }}
+                                    className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
+                                  />
+                                </div>
+                              </div>
 
-                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100">
-                            <span className="text-[10px] font-bold text-stone-400">歸屬標籤：</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, isPrepay: !s.isPrepay } : s);
-                                setEdited({ ...edited, subItems: updatedSubs });
-                              }}
-                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border flex items-center gap-1 active:scale-95 ${
-                                subItem.isPrepay
-                                  ? 'bg-amber-100/90 border-amber-300 text-amber-900 shadow-xs'
-                                  : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
-                              }`}
-                            >
-                              <span>{subItem.isPrepay ? '🏠 家裡代墊 (家裡的)' : '🛒 個人支出 (我的)'}</span>
-                            </button>
-                          </div>
+                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100">
+                                <span className="text-[10px] font-bold text-stone-400">歸屬標籤：</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, isPrepay: !s.isPrepay } : s);
+                                    setEdited({ ...edited, subItems: updatedSubs });
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border flex items-center gap-1 active:scale-95 ${
+                                    subItem.isPrepay
+                                      ? 'bg-amber-100/90 border-amber-300 text-amber-900 shadow-xs'
+                                      : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
+                                  }`}
+                                >
+                                  <span>{subItem.isPrepay ? '🏠 家裡代墊 (家裡的)' : '🛒 個人支出 (我的)'}</span>
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -8947,21 +9191,24 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                       <button
                         type="button"
                         onClick={() => {
+                          const isTransfer = edited.type === 'transfer';
+                          const otherAcc = accounts.find(a => a.id !== edited.accountId);
                           const newSub: SubItem = {
                             id: `sub_${Date.now()}_${(edited.subItems?.length || 0) + 1}`,
-                            name: `項目 ${(edited.subItems?.length || 0) + 1}`,
+                            name: isTransfer ? `繳 ${otherAcc?.name || '信用卡'}` : `項目 ${(edited.subItems?.length || 0) + 1}`,
                             amount: 0,
                             category: edited.category,
-                            isPrepay: false
+                            isPrepay: false,
+                            toAccountId: isTransfer ? otherAcc?.id : undefined
                           };
                           setEdited({ ...edited, subItems: [...(edited.subItems || []), newSub] });
                         }}
                         className="px-3 py-1.5 bg-white border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] hover:bg-stone-50 active:scale-95 transition-all shadow-xs"
                       >
-                        ＋ 新增子項目
+                        ＋ {edited.type === 'transfer' ? '新增繳款卡別項目' : '新增子項目'}
                       </button>
                       <div className="text-right text-[11px] font-bold text-[#5D4037]">
-                        <span>子項目小計: </span>
+                        <span>{edited.type === 'transfer' ? '繳款小計: ' : '子項目小計: '}</span>
                         <span className="font-black text-amber-900">$ {edited.subItems.reduce((s, i) => s + Math.abs(i.amount), 0).toLocaleString()}</span>
                       </div>
                     </div>
@@ -9302,8 +9549,12 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
               >
                 <div className="p-4 border-b border-stone-100 flex items-center justify-between bg-stone-50/50">
                   <div>
-                    <h3 className="font-black text-[#5D4037] text-base">選擇要合併的消費紀錄</h3>
-                    <p className="text-[11px] font-bold text-stone-400">同帳戶且日期前後 3 天內的交易</p>
+                    <h3 className="font-black text-[#5D4037] text-base">
+                      {edited.type === 'transfer' ? '選擇要合併的轉帳 / 繳款紀錄' : '選擇要合併的消費紀錄'}
+                    </h3>
+                    <p className="text-[11px] font-bold text-stone-400">
+                      {edited.type === 'transfer' ? '同轉出帳戶且相近 3 天內的轉帳（多卡繳款彙整）' : '同帳戶且日期前後 3 天內的交易'}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -9321,7 +9572,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                       type="text"
                       value={mergeSearch}
                       onChange={e => setMergeSearch(e.target.value)}
-                      placeholder="搜尋備註、店家或分類..."
+                      placeholder={edited.type === 'transfer' ? "搜尋轉入卡別、備註或金額..." : "搜尋備註、店家或分類..."}
                       className="w-full pl-9 pr-4 py-2 bg-stone-100 rounded-xl text-xs font-bold text-[#5D4037] outline-none"
                     />
                   </div>
@@ -9330,11 +9581,12 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                 <div className="flex-1 overflow-y-auto p-4 space-y-2">
                   {mergeCandidates.length === 0 ? (
                     <div className="py-12 text-center text-stone-400 text-xs font-bold">
-                      無符合「同帳戶且相近 3 天內」的其他消費紀錄
+                      {edited.type === 'transfer' ? '無符合「同轉出帳戶且相近 3 天內」的其他轉帳紀錄' : '無符合「同帳戶且相近 3 天內」的其他消費紀錄'}
                     </div>
                   ) : (
                     mergeCandidates.map(c => {
                       const isSelected = selectedMergeIds.includes(c.id);
+                      const destCard = accounts.find(a => a.id === c.toAccountId);
                       return (
                         <div
                           key={c.id}
@@ -9358,15 +9610,17 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                             />
                             <div>
                               <div className="text-xs font-black text-[#5D4037]">
-                                {c.note || c.merchant || c.category || '消費紀錄'}
+                                {c.type === 'transfer'
+                                  ? `轉入: ${destCard?.name || '信用卡/帳戶'}${c.note ? ` (${c.note})` : ''}`
+                                  : (c.note || c.merchant || c.category || '消費紀錄')}
                               </div>
                               <div className="text-[10px] font-bold text-stone-400">
-                                {c.date} ｜ {c.category}
+                                {c.date} ｜ {c.type === 'transfer' ? '轉帳 / 繳款' : c.category}
                               </div>
                             </div>
                           </div>
                           <div className="text-xs font-black text-rose-500">
-                            $ {Math.abs(c.amount).toLocaleString()}
+                            - $ {Math.abs(c.amount).toLocaleString()}
                           </div>
                         </div>
                       );
@@ -9378,7 +9632,8 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                   <div className="text-xs font-bold text-[#5D4037]">
                     <span>已選取 <span className="font-black text-amber-800">{selectedMergeIds.length}</span> 筆</span>
                     <span className="block text-[11px] text-stone-500 font-bold">
-                      合併後對帳總金額: <span className="font-black text-amber-900">${(Math.abs(edited.amount) + selectedMergeTotal).toLocaleString()}</span>
+                      {edited.type === 'transfer' ? '合併後扣款總金額: ' : '合併後對帳總金額: '}
+                      <span className="font-black text-amber-900">${(Math.abs(edited.amount) + selectedMergeTotal).toLocaleString()}</span>
                     </span>
                   </div>
                   <button
@@ -9492,8 +9747,8 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
         sum += r.amount;
         if (r.fee) sum -= r.fee;
       }
-      if (r.type === 'transfer' && r.toAccountId === account.id) {
-        sum += (r.toAmount !== undefined ? r.toAmount : Math.abs(r.amount * (r.exchangeRate || 1)));
+      if (r.type === 'transfer') {
+        sum += getTransferInAmountForAccount(r, account.id);
       }
     });
     return sum;
@@ -10112,7 +10367,7 @@ function SearchView({
                     (() => {
                       const isPos = record.amount > 0;
                       const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
-                      const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                      const counterpartAccName = getTransferCounterpartName(record, accounts);
                       const firstAccName = isPos ? counterpartAccName : currentAccName;
                       const secondAccName = isPos ? currentAccName : counterpartAccName;
                       const displayDate = record.postingDate || record.date;
@@ -10332,7 +10587,7 @@ function CalendarView({ records, accounts, categories, onBack }: { records: Tran
                 (() => {
                   const isPos = record.amount > 0;
                   const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
-                  const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                  const counterpartAccName = getTransferCounterpartName(record, accounts);
                   const firstAccName = isPos ? counterpartAccName : currentAccName;
                   const secondAccName = isPos ? currentAccName : counterpartAccName;
                   const displayDate = record.postingDate || record.date;
@@ -13626,7 +13881,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                       (() => {
                         const isPos = record.amount > 0;
                         const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
-                        const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                        const counterpartAccName = getTransferCounterpartName(record, accounts);
                         const firstAccName = isPos ? counterpartAccName : currentAccName;
                         const secondAccName = isPos ? currentAccName : counterpartAccName;
                         const displayDate = record.postingDate || record.date;
@@ -14570,7 +14825,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                   (() => {
                     const isPos = record.amount > 0;
                     const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
-                    const counterpartAccName = accounts.find(a => a.id === record.toAccountId)?.name || '未知帳戶';
+                    const counterpartAccName = getTransferCounterpartName(record, accounts);
                     const firstAccName = isPos ? counterpartAccName : currentAccName;
                     const secondAccName = isPos ? currentAccName : counterpartAccName;
                     const displayDate = record.postingDate || record.date;

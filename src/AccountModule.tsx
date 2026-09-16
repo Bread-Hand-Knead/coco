@@ -305,7 +305,7 @@ export function AccountDetailView({ account, records, onBack, onEdit, onUpdateRe
     const childrenIds = accounts.filter(c => c.parentId === account.id).map(c => c.id);
     const targetIds = [account.id, ...childrenIds];
     
-    return records.filter(r => (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && r.category !== '初始資金')
+    return records.filter(r => (!r.parentId && !r.isMergedChild && !r.parentTransactionId && !r.isChildTransaction) && (targetIds.includes(r.accountId) || (r.toAccountId && targetIds.includes(r.toAccountId))) && r.category !== '初始資金')
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [records, account.id, accounts]);
 
