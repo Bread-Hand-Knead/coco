@@ -14,6 +14,8 @@ export interface SubItem {
   amount: number;
   category?: string;
   isPrepay?: boolean; // false: 個人支出 (我的), true: 家裡代墊 (家裡的)
+  toAccountId?: string; // 轉入帳戶/卡別 (用於合併轉帳/信用卡繳款)
+  originalRecordId?: string; // 原始紀錄 ID
 }
 
 export interface Transaction {
@@ -52,6 +54,14 @@ export interface Transaction {
   isChildTransaction?: boolean;
 }
 
+export interface RateHistoryItem {
+  id: string;
+  date: string;
+  time?: string;
+  rate: number;
+  note?: string;
+}
+
 export interface Account {
   id: string;
   name: string;
@@ -69,6 +79,7 @@ export interface Account {
   interestRate?: number; // 銀行存款帳戶/定存年利率 %
   interestLimit?: number; // 銀行高利活存計息上限金額
   excludeFromNetWorth?: boolean; // 是否不計入個人總資產與淨資產
+  rateHistory?: RateHistoryItem[]; // 每日匯率歷史與自訂匯率紀錄
 }
 
 export interface Template {

@@ -616,6 +616,28 @@ export const getTransferCounterpartName = (r: Transaction, accounts: Account[]):
 const getLatestExchangeRate = (records: Transaction[], accounts: Account[], targetCurrency: string, beforeDate?: string): number => {
   if (!targetCurrency || targetCurrency === 'TWD') return 1;
   
+  // 1. Check custom rateHistory on accounts matching targetCurrency
+  const matchedAccounts = accounts.filter(a => (a.currency || 'TWD') === targetCurrency && a.rateHistory && a.rateHistory.length > 0);
+  if (matchedAccounts.length > 0) {
+    let allLogs: RateHistoryItem[] = [];
+    matchedAccounts.forEach(a => {
+      if (a.rateHistory) allLogs.push(...a.rateHistory);
+    });
+    if (beforeDate) {
+      allLogs = allLogs.filter(l => l.date <= beforeDate);
+    }
+    if (allLogs.length > 0) {
+      allLogs.sort((a, b) => {
+        const dateDiff = b.date.localeCompare(a.date);
+        if (dateDiff !== 0) return dateDiff;
+        return (b.time || '').localeCompare(a.time || '');
+      });
+      if (allLogs[0].rate && !isNaN(allLogs[0].rate) && allLogs[0].rate > 0) {
+        return allLogs[0].rate;
+      }
+    }
+  }
+
   const relevantTransfers = records.filter(r => {
     if (r.type !== 'transfer' && !r._isMergedTransfer) return false;
     if (beforeDate && r.date > beforeDate) return false;
@@ -1085,6 +1107,7 @@ export default function App() {
   const [isAiSplitModalOpen, setIsAiSplitModalOpen] = useState(false);
   const [aiSplitInitialTab, setAiSplitInitialTab] = useState<'expense' | 'income'>('expense');
   const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
+  const [rateModalAccount, setRateModalAccount] = useState<Account | null>(null);
   const [historyFilter, setHistoryFilter] = useState<{ type: 'day' | 'week' | 'month' | 'year', date: string }>({ type: 'day', date: selectedDate });
   const [templates, setTemplates] = useState<Template[]>(INITIAL_TEMPLATES);
   const [fixedRecords, setFixedRecords] = useState<FixedRecord[]>([]);
@@ -3083,6 +3106,7 @@ export default function App() {
                 projects={projects}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
+                onOpenRateModal={(acc) => setRateModalAccount(acc)}
               />
             )}
             {currentView === 'accountDetail' && selectedAccountForDetail && (
@@ -3106,6 +3130,7 @@ export default function App() {
                 balance={accountBalances[selectedAccountForDetail.id] || 0}
                 categories={categories}
                 onUpdateAccountsList={setAccounts}
+                onOpenRateModal={(acc) => setRateModalAccount(acc)}
               />
             )}
             {currentView === 'history' && (
@@ -3379,6 +3404,18 @@ export default function App() {
                 setIsAccountEditModalOpen(false);
                 setEditingAccount(null);
               }}
+            />
+          )}
+        </AnimatePresence>
+        {/* Exchange Rate Modal */}
+        <AnimatePresence>
+          {rateModalAccount && (
+            <ExchangeRateModal
+              account={rateModalAccount}
+              isOpen={!!rateModalAccount}
+              onClose={() => setRateModalAccount(null)}
+              onSaveAccount={handleSaveAccount}
+              records={records}
             />
           )}
         </AnimatePresence>
@@ -4196,14 +4233,16 @@ function DynamicAccountBalance({
   transactions, 
   showAmounts,
   currencyMode = 'TWD',
-  className = "text-xl sm:text-[26px] font-black mt-1"
+  className = "text-xl sm:text-[26px] font-black mt-1",
+  onOpenRateModal
 }: { 
   account: Account | any, 
   accounts: Account[],
   transactions: Transaction[], 
   showAmounts: boolean,
   currencyMode?: 'TWD' | 'FOREIGN',
-  className?: string
+  className?: string,
+  onOpenRateModal?: (acc: Account) => void
 }) {
   const calculatedBalance = useMemo(() => {
     if (account.isBrandGroup && account.childAccounts) {
@@ -4216,10 +4255,8 @@ function DynamicAccountBalance({
     }
     const isCredit = account.type === 'credit';
     if (isCredit) {
-      // 信用卡帳戶 (負債類) 雙軌制動態計算
       return calculateAccountBalance(account, accounts, transactions);
     } else {
-      // 銀行/現金/電子支付帳戶 (資產類)
       return calculateAccountBalance(account, accounts, transactions);
     }
   }, [account, accounts, transactions, currencyMode]);
@@ -4251,8 +4288,23 @@ function DynamicAccountBalance({
         {isPoints && <span className="ml-1 text-sm sm:text-base font-black text-stone-500" style={getFontFamily()}>點</span>}
       </span>
       {twdText && (
-        <span className="text-xs font-bold text-stone-400" style={getFontFamily()}>
-          {twdText}
+        <span className="text-xs font-bold text-stone-400 flex items-center gap-1.5 flex-wrap" style={getFontFamily()}>
+          <span>{twdText}</span>
+          {onOpenRateModal && !account.isBrandGroup && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenRateModal(account);
+              }}
+              className="px-2 py-0.5 bg-amber-100/90 hover:bg-amber-200 text-amber-900 rounded-md text-[10px] font-black transition-all active:scale-95 shadow-2xs border border-amber-300/60 flex items-center gap-0.5 cursor-pointer"
+              style={getFontFamily()}
+              title="更新每日匯率與歷史紀錄"
+            >
+              <span>💱</span>
+              <span>匯率</span>
+            </button>
+          )}
         </span>
       )}
     </div>
@@ -4274,45 +4326,34 @@ function AccountCardMeta({ acc, accounts, records }: { acc: Account; accounts: A
       .filter(b => b.length > 0);
   };
 
-  const benefits = isCredit && acc.benefits ? splitBenefits(acc.benefits) : [];
-  const hasDateInfo = Boolean(acc.statementDate || acc.closingDay || acc.dueDate);
-
   return (
     <div className="mt-2 flex flex-col gap-2 border-t border-stone-100/50 pt-2" style={getFontFamily()}>
       {isCredit && (
         <>
-          {/* 本月刷卡與結帳日/繳款日 */}
-          <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2" style={getFontFamily()}>
-            {Boolean(acc.statementDate || acc.closingDay) && (
-              <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
-                📅 結帳日: <strong className="text-[#5D4037]">{acc.statementDate || acc.closingDay}日</strong>
-              </span>
-            )}
-            {Boolean(acc.dueDate) && (
-              <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
-                ⏰ 繳款日: <strong className="text-[#5D4037]">{acc.dueDate}日</strong>
-              </span>
-            )}
-          </div>
-
-          {/* 回饋權益 — 可摺疊 */}
-          {Boolean(benefits.length > 0) && (
-            <div>
+          {acc.benefits && (
+            <div className="flex flex-col gap-1">
               <button
                 type="button"
-                onClick={e => { e.stopPropagation(); setBenefitsOpen(o => !o); }}
-                className="flex items-center gap-1 text-[11px] font-bold text-[#5D4037]/70 hover:text-[#5D4037] transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setBenefitsOpen(!benefitsOpen);
+                }}
+                className="flex items-center justify-between text-xs font-bold text-[#5D4037]/80 hover:text-[#5D4037] w-full text-left"
               >
-                <span>💡 卡片回饋權益</span>
-                <span className={`transition-transform duration-200 ${benefitsOpen ? 'rotate-180' : ''}`}>▾</span>
+                <span className="flex items-center gap-1">
+                  🎁 回饋與通路 {splitBenefits(acc.benefits).length > 0 ? `(${splitBenefits(acc.benefits).length})` : ''}
+                </span>
+                <span className="text-[10px] text-stone-400">
+                  {benefitsOpen ? '收起 ▲' : '展開 ▼'}
+                </span>
               </button>
+
               {benefitsOpen && (
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {benefits.map((benefit, idx) => (
-                    <div
-                      key={idx}
-                      className="text-xs md:text-[13px] font-bold text-[#5D4037] bg-[#FFE082]/20 border border-[#FFE082]/50 px-2.5 py-1 rounded-xl flex items-center gap-1 transition-all"
-                      title={benefit}
+                <div className="flex flex-wrap gap-1.5 mt-1 animate-fade-in">
+                  {splitBenefits(acc.benefits).map((benefit, idx) => (
+                    <div 
+                      key={idx} 
+                      className="text-xs font-bold text-[#5D4037] bg-[#FFE082]/20 border border-[#FFE082]/50 px-2.5 py-1 rounded-xl flex items-center gap-1"
                       style={getFontFamily()}
                     >
                       <span>🎁</span>
@@ -4320,6 +4361,20 @@ function AccountCardMeta({ acc, accounts, records }: { acc: Account; accounts: A
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+          {(acc.statementDate || acc.closingDay || acc.dueDate) && (
+            <div className="text-xs font-bold text-stone-500/90 flex flex-wrap items-center gap-2 mt-0.5" style={getFontFamily()}>
+              {(acc.statementDate || acc.closingDay) && (
+                <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
+                  📅 結帳日: <strong className="text-[#5D4037]">{acc.statementDate || acc.closingDay}日</strong>
+                </span>
+              )}
+              {acc.dueDate && (
+                <span className="flex items-center gap-1 bg-[#F5F5F5] px-2.5 py-1 rounded-xl border border-stone-200/40">
+                  ⏰ 繳款日: <strong className="text-[#5D4037]">{acc.dueDate}日</strong>
+                </span>
               )}
             </div>
           )}
@@ -4353,6 +4408,319 @@ function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records
   return <AccountCardMeta acc={acc} accounts={accounts} records={records} />;
 }
 
+function ExchangeRateModal({
+  account,
+  accounts,
+  records,
+  onClose,
+  onSaveAccount
+}: {
+  account: Account;
+  accounts: Account[];
+  records: Transaction[];
+  onClose: () => void;
+  onSaveAccount: (updatedAccount: Account) => void;
+}) {
+  const currentBalance = useMemo(() => {
+    return calculateAccountBalance(account, accounts, records);
+  }, [account, accounts, records]);
+
+  const latestRate = useMemo(() => {
+    return getLatestExchangeRate(records, accounts, account.currency || 'USD');
+  }, [records, accounts, account.currency]);
+
+  const [rateInput, setRateInput] = useState(() => {
+    if (account.rateHistory && account.rateHistory.length > 0) {
+      const sorted = [...account.rateHistory].sort((a, b) => {
+        const dateDiff = b.date.localeCompare(a.date);
+        if (dateDiff !== 0) return dateDiff;
+        return (b.time || '').localeCompare(a.time || '');
+      });
+      return sorted[0].rate.toString();
+    }
+    return latestRate.toString();
+  });
+
+  const [dateInput, setDateInput] = useState(() => new Date().toISOString().split('T')[0]);
+  const [timeInput, setTimeInput] = useState(() => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  });
+  const [noteInput, setNoteInput] = useState('');
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+
+  const curName = account.currency || 'USD';
+
+  const historyLogs = useMemo(() => {
+    const logs = account.rateHistory || [];
+    return [...logs].sort((a, b) => {
+      const dateDiff = b.date.localeCompare(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      return (b.time || '').localeCompare(a.time || '');
+    });
+  }, [account.rateHistory]);
+
+  const handleAddOrUpdateLog = () => {
+    const rVal = parseFloat(rateInput);
+    if (isNaN(rVal) || rVal <= 0) {
+      alert('請輸入有效的匯率數值！');
+      return;
+    }
+    if (!dateInput) {
+      alert('請選擇日期！');
+      return;
+    }
+
+    let updatedLogs: RateHistoryItem[] = account.rateHistory ? [...account.rateHistory] : [];
+
+    if (editingLogId) {
+      updatedLogs = updatedLogs.map(l => l.id === editingLogId ? {
+        ...l,
+        date: dateInput,
+        time: timeInput,
+        rate: rVal,
+        note: noteInput.trim() || undefined
+      } : l);
+      setEditingLogId(null);
+    } else {
+      const newLog: RateHistoryItem = {
+        id: `rate_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        date: dateInput,
+        time: timeInput,
+        rate: rVal,
+        note: noteInput.trim() || undefined
+      };
+      updatedLogs.push(newLog);
+    }
+
+    onSaveAccount({
+      ...account,
+      rateHistory: updatedLogs
+    });
+
+    setNoteInput('');
+  };
+
+  const handleDeleteLog = (logId: string) => {
+    if (window.confirm('確定要刪除這筆歷史匯率紀錄嗎？')) {
+      const updatedLogs = (account.rateHistory || []).filter(l => l.id !== logId);
+      onSaveAccount({
+        ...account,
+        rateHistory: updatedLogs
+      });
+      if (editingLogId === logId) {
+        setEditingLogId(null);
+      }
+    }
+  };
+
+  const handleEditLog = (item: RateHistoryItem) => {
+    setEditingLogId(item.id);
+    setRateInput(item.rate.toString());
+    setDateInput(item.date);
+    setTimeInput(item.time || '12:00');
+    setNoteInput(item.note || '');
+  };
+
+  const currentPreviewTwd = Math.round(currentBalance * (parseFloat(rateInput) || latestRate));
+
+  return (
+    <div className="fixed inset-0 z-[300] bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-[#FFF9E3] w-full max-w-lg rounded-[36px] p-6 shadow-2xl border-2 border-white flex flex-col gap-4 max-h-[85vh] overflow-hidden"
+        style={getFontFamily()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">💱</span>
+            <div>
+              <h3 className="text-lg font-black text-[#5D4037]">
+                {account.name} 匯率紀錄與換算
+              </h3>
+              <p className="text-xs font-bold text-stone-400">
+                目前外幣餘額: {currentBalance.toLocaleString()} {curName}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 hover:bg-stone-100 rounded-full transition-colors text-stone-400 hover:text-stone-600"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1 custom-scrollbar">
+          {/* Rate Entry Form */}
+          <div className="bg-white p-4 rounded-2xl border border-stone-200/70 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-[#5D4037]">
+                {editingLogId ? '編輯匯率紀錄' : '記錄最新匯率'}
+              </span>
+              {editingLogId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingLogId(null);
+                    setNoteInput('');
+                  }}
+                  className="text-xs font-bold text-stone-400 hover:underline"
+                >
+                  取消編輯
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-stone-400">外幣幣別</label>
+                <input
+                  type="text"
+                  value={curName}
+                  disabled
+                  className="w-full px-3 py-2 bg-stone-100 rounded-xl text-xs font-black text-[#5D4037] border border-stone-200/50"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-stone-400">本次匯率 (1 {curName} = ? TWD)</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={rateInput}
+                  onChange={e => setRateInput(e.target.value)}
+                  placeholder="例如: 0.2184"
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-black text-[#5D4037] outline-none focus:bg-white focus:border-[#FFD54F]"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-stone-400">記錄日期</label>
+                <input
+                  type="date"
+                  value={dateInput}
+                  onChange={e => setDateInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-bold text-stone-400">記錄時間</label>
+                <input
+                  type="time"
+                  value={timeInput}
+                  onChange={e => setTimeInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-bold text-stone-400">備註說明 (選填)</label>
+              <input
+                type="text"
+                value={noteInput}
+                onChange={e => setNoteInput(e.target.value)}
+                placeholder="如：台銀現金賣出、網銀換匯"
+                className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+              />
+            </div>
+
+            <div className="pt-1 flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-xs font-bold text-stone-500">
+                即時試算折合：<strong className="text-[#5D4037] font-black text-sm">NT$ {currentPreviewTwd.toLocaleString()}</strong>
+              </div>
+              <button
+                type="button"
+                onClick={handleAddOrUpdateLog}
+                className="px-4 py-2 bg-[#5D4037] hover:bg-[#4E342E] text-white rounded-xl text-xs font-black shadow-md active:scale-95 transition-all"
+              >
+                {editingLogId ? '儲存更新' : '新增匯率紀錄'}
+              </button>
+            </div>
+          </div>
+
+          {/* History List */}
+          <div className="space-y-2">
+            <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block">
+              歷史匯率追蹤清單 ({historyLogs.length})
+            </span>
+
+            {historyLogs.length === 0 ? (
+              <div className="p-8 text-center bg-white/50 rounded-2xl border border-dashed border-stone-200 text-stone-400 text-xs font-bold">
+                尚無歷史匯率紀錄，點擊上方按鈕新增紀錄！
+              </div>
+            ) : (
+              historyLogs.map(item => {
+                const twdVal = Math.round(currentBalance * item.rate);
+                return (
+                  <div
+                    key={item.id}
+                    className="p-3 bg-white rounded-2xl border border-stone-100 flex items-center justify-between shadow-2xs hover:border-amber-200 transition-all gap-3"
+                  >
+                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-2 text-xs font-black text-[#5D4037] flex-wrap">
+                        <span>匯率: {item.rate}</span>
+                        <span className="text-stone-300">•</span>
+                        <span className="text-emerald-700">(折合 NT$ {twdVal.toLocaleString()})</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] font-bold text-stone-400 flex-wrap">
+                        <span>{item.date.replace(/-/g, '/')} {item.time || ''}</span>
+                        {item.note && (
+                          <>
+                            <span className="text-stone-300">•</span>
+                            <span className="text-stone-500 italic truncate">{item.note}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleEditLog(item)}
+                        className="p-1.5 text-stone-400 hover:text-amber-600 rounded-lg hover:bg-stone-50 transition-colors"
+                        title="編輯紀錄"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteLog(item.id)}
+                        className="p-1.5 text-stone-400 hover:text-rose-500 rounded-lg hover:bg-stone-50 transition-colors"
+                        title="刪除紀錄"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="pt-2 border-t border-[#5D4037]/10 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-3 bg-[#5D4037] text-white rounded-2xl font-black text-sm shadow-md hover:bg-[#4E342E] transition-all"
+          >
+            完成關閉
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function AccountsView({ 
   accounts, 
   netAssets, 
@@ -4372,7 +4740,8 @@ function AccountsView({
   projects,
   onUpdateRecord,
   onDeleteRecord,
-  onDuplicateRecord
+  onDuplicateRecord,
+  onOpenRateModal
 }: { 
   accounts: Account[], 
   netAssets: number,
@@ -4392,7 +4761,8 @@ function AccountsView({
   projects: Project[],
   onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
   onDeleteRecord: (record: Transaction) => void,
-  onDuplicateRecord?: (record: Transaction) => void
+  onDuplicateRecord?: (record: Transaction) => void,
+  onOpenRateModal?: (acc: Account) => void
 }) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [showAmounts, setShowAmounts] = useState(true);
@@ -4736,6 +5106,7 @@ function AccountsView({
                               showAmounts={showAmounts}
                               currencyMode={currencyMode}
                               className="text-xl sm:text-[26px] font-black mt-1"
+                              onOpenRateModal={onOpenRateModal}
                             />
                             {acc.type === 'credit' && (
                               <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-stone-400 mt-1 flex-wrap" style={getFontFamily()}>
@@ -4846,6 +5217,7 @@ function AccountsView({
                                       showAmounts={showAmounts}
                                       currencyMode={currencyMode}
                                       className="text-base sm:text-lg font-black mt-0.5"
+                                      onOpenRateModal={onOpenRateModal}
                                     />
                                     {l2acc.type === 'credit' && (
                                       <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
@@ -4933,6 +5305,7 @@ function AccountsView({
                                               showAmounts={showAmounts}
                                               currencyMode={currencyMode}
                                               className="text-sm sm:text-base font-black"
+                                              onOpenRateModal={onOpenRateModal}
                                             />
                                             {l3acc.type === 'credit' && (
                                               <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold text-stone-400 mt-0.5 flex-wrap" style={getFontFamily()}>
@@ -6514,7 +6887,7 @@ function InvestmentSection({
   );
 }
 
-function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, projects, balance, categories, onUpdateAccountsList, onDuplicateRecord }: { 
+function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, projects, balance, categories, onUpdateAccountsList, onDuplicateRecord, onOpenRateModal }: { 
   account: Account, 
   records: Transaction[],
   selectedDate: string,
@@ -6527,7 +6900,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   balance: number,
   categories: Category[],
   onUpdateAccountsList?: React.Dispatch<React.SetStateAction<Account[]>>,
-  onDuplicateRecord?: (record: Transaction) => void
+  onDuplicateRecord?: (record: Transaction) => void,
+  onOpenRateModal?: (acc: Account) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -7851,9 +8225,25 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 if (!activeCurrency || activeCurrency === 'TWD') return null;
                 const rate = getLatestExchangeRate(records, accounts, activeCurrency);
                 const twdBal = Math.round(calculatedBalance * rate);
+                const activeAcc = (selectedCardFilterId ? accounts.find(a => a.id === selectedCardFilterId) : account) || account;
                 return (
-                  <span className="text-sm font-bold text-stone-400 ml-1.5" style={getFontFamily()}>
-                    (約 NT$ {twdBal.toLocaleString()})
+                  <span className="text-sm font-bold text-stone-400 ml-1.5 flex items-center gap-1.5 flex-wrap" style={getFontFamily()}>
+                    <span>(約 NT$ {twdBal.toLocaleString()})</span>
+                    {onOpenRateModal && !activeAcc.isBrandGroup && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenRateModal(activeAcc);
+                        }}
+                        className="px-2 py-0.5 bg-amber-100/90 hover:bg-amber-200 text-amber-900 rounded-md text-[10px] font-black transition-all active:scale-95 shadow-2xs border border-amber-300/60 flex items-center gap-0.5 cursor-pointer"
+                        style={getFontFamily()}
+                        title="更新每日匯率與歷史紀錄"
+                      >
+                        <span>💱</span>
+                        <span>匯率</span>
+                      </button>
+                    )}
                   </span>
                 );
               })()}
