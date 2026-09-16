@@ -1109,7 +1109,6 @@ export default function App() {
   });
 
   const [selectedCategoryForSub, setSelectedCategoryForSub] = useState<string | null>(null);
-  const [stockDetailFilter, setStockDetailFilter] = useState<'all' | 'buy' | 'dividend'>('all');
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -5189,6 +5188,7 @@ function InvestmentSection({
   const [showDividendAnalysis, setShowDividendAnalysis] = useState(false);
   const [dividendDetailTarget, setDividendDetailTarget] = useState<{ type: 'stock' | 'bank'; name: string } | null>(null);
   const [selectedDividendYear, setSelectedDividendYear] = useState<string>('all');
+  const [stockDetailFilter, setStockDetailFilter] = useState<'all' | 'buy' | 'dividend'>('all');
 
   const dividendYears = useMemo(() => {
     const yearsSet = new Set<string>();
@@ -5684,7 +5684,10 @@ function InvestmentSection({
             return (
               <div 
                 key={s.id} 
-                onClick={() => setSelectedStockForDetail(s)}
+                onClick={() => {
+                  setStockDetailFilter('all');
+                  setSelectedStockForDetail(s);
+                }}
                 className="bg-white p-5 rounded-[30px] border-2 border-white shadow-sm flex flex-col gap-4 relative cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md transition-all active:scale-[0.99]"
               >
                 {/* Header */}
