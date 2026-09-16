@@ -1109,6 +1109,7 @@ export default function App() {
   });
 
   const [selectedCategoryForSub, setSelectedCategoryForSub] = useState<string | null>(null);
+  const [stockDetailFilter, setStockDetailFilter] = useState<'all' | 'buy' | 'dividend'>('all');
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -6267,11 +6268,37 @@ function InvestmentSection({
 
                 {/* Right Column: Transaction History */}
                 <div className="flex flex-col gap-2 flex-1 min-w-0 overflow-x-hidden">
-                  <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block shrink-0">交易歷史紀錄</span>
+                  <div className="flex items-center justify-between gap-2 shrink-0 px-1">
+                    <span className="text-xs font-black text-stone-500 uppercase tracking-widest block">交易歷史紀錄</span>
+                    
+                    {/* Transaction Type Filter Pills */}
+                    <div className="flex items-center gap-1 bg-[#FFFDF5] p-1 rounded-xl border border-stone-200/60 shadow-xs">
+                      {(['all', 'buy', 'dividend'] as const).map((filterKey) => {
+                        const labelMap = { all: '全部', buy: '買入', dividend: '股利' };
+                        const isActive = stockDetailFilter === filterKey;
+                        return (
+                          <button
+                            key={filterKey}
+                            type="button"
+                            onClick={() => setStockDetailFilter(filterKey)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                              isActive
+                                ? 'bg-[#5D4037] text-white shadow-xs'
+                                : 'text-stone-500 hover:text-[#5D4037] hover:bg-stone-100/80'
+                            }`}
+                            style={getFontFamily()}
+                          >
+                            {labelMap[filterKey]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1 min-h-[200px] max-h-[380px] custom-scrollbar">
                     {(() => {
                       const keyword = selectedStockForDetail.code.split(' (')[0].trim();
-                      const sortedList = records
+                      const allSortedList = records
                         .filter(r => r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword)))
                         .sort((a, b) => {
                           const dateDiff = b.date.localeCompare(a.date);
@@ -6279,10 +6306,20 @@ function InvestmentSection({
                           return (b.time || '').localeCompare(a.time || '');
                         });
 
+                      const sortedList = allSortedList.filter(r => {
+                        if (stockDetailFilter === 'buy') {
+                          return r.type === 'expense' || (r.note && (r.note.includes('[買入]') || r.note.includes('買入')));
+                        }
+                        if (stockDetailFilter === 'dividend') {
+                          return r.type === 'income' || (r.note && (r.note.includes('[股利]') || r.note.includes('股利')));
+                        }
+                        return true;
+                      });
+
                       if (sortedList.length === 0) {
                         return (
                           <div className="flex flex-col items-center justify-center py-10 bg-white/50 rounded-2xl border border-dashed border-stone-200">
-                            <p className="text-stone-400 text-xs font-bold">目前暫無此股票之交易明細</p>
+                            <p className="text-stone-400 text-xs font-bold">尚無相關紀錄</p>
                           </div>
                         );
                       }
