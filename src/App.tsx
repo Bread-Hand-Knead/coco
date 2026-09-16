@@ -405,7 +405,7 @@ export function findMatchingProjectId(categoryName: string | undefined | null, p
 
   for (const candidate of namesToTry) {
     if (!candidate) continue;
-    const match = projects.find(p => p.name.trim().toLowerCase() === candidate.toLowerCase());
+    const match = (Array.isArray(projects) ? projects : []).find(p => p.name.trim().toLowerCase() === candidate.toLowerCase());
     if (match) return match.id;
   }
   return null;
@@ -509,7 +509,7 @@ export const ensureProjectHierarchy = (projects: Project[]): Project[] => {
   });
 
   if (trafficCandidates.length > 0) {
-    let trafficParent = updated.find(p => 
+    let trafficParent = (Array.isArray(updated) ? updated : []).find(p => 
       !(p.parentProjectId || p.parentId) && 
       ['交通', '大眾運輸', '交通運輸'].includes(p.name.trim())
     );
@@ -678,14 +678,16 @@ const getLatestExchangeRate = (records: Transaction[] = [], accounts: Account[] 
   return 1;
 };
 
-const convertCurrency = (amount: number, fromCurrency: string, toCurrency: string, records: Transaction[], accounts: Account[]): number => {
-  if (fromCurrency === toCurrency) return amount;
+const convertCurrency = (amount: number = 0, fromCurrency: string = 'TWD', toCurrency: string = 'TWD', records: Transaction[] = [], accounts: Account[] = []): number => {
+  const validAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
+  if (!validAmount) return 0;
+  if (fromCurrency === toCurrency) return validAmount;
   
   // Convert to TWD first
-  let twdAmount = amount;
+  let twdAmount = validAmount;
   if (fromCurrency !== 'TWD') {
     const rate = getLatestExchangeRate(records, accounts, fromCurrency);
-    twdAmount = amount * rate;
+    twdAmount = validAmount * rate;
   }
   
   // Convert TWD to target currency
@@ -698,15 +700,15 @@ const convertCurrency = (amount: number, fromCurrency: string, toCurrency: strin
 };
 
 const getTwdEquivalentText = (records: Transaction[], accounts: Account[], record: Transaction): string | null => {
-  const recordCurrency = record.currency || accounts.find(a => a.id === record.accountId)?.currency || 'TWD';
+  const recordCurrency = record.currency || (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.currency || 'TWD';
   if (recordCurrency === 'TWD') return null;
   
   let twdAmt = 0;
   
   if (record.type === 'transfer' || record._isMergedTransfer) {
     const { src, dst } = getTransferSourceAndDest(record);
-    const srcAcc = accounts.find(a => a.id === src);
-    const dstAcc = accounts.find(a => a.id === dst);
+    const srcAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === src);
+    const dstAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === dst);
     const srcCur = srcAcc?.currency || 'TWD';
     const dstCur = dstAcc?.currency || 'TWD';
     
@@ -769,7 +771,7 @@ export const getGroupedAndUngrouped = (accountsList: Account[]) => {
   const ungrouped: Account[] = [];
 
   accountsList.forEach(acc => {
-    const parentName = acc.parentId ? accountsList.find(x => x.id === acc.parentId)?.name : undefined;
+    const parentName = acc.parentId ? (Array.isArray(accountsList) ? accountsList : []).find(x => x.id === acc.parentId)?.name : undefined;
     const bankKey = getBankKeyword(acc.name, parentName);
     if (bankKey) {
       if (!groups[bankKey]) groups[bankKey] = [];
@@ -796,7 +798,7 @@ export const getGroupedAndUngrouped = (accountsList: Account[]) => {
 const isAccountExcludedFromNetWorth = (acc: Account, allAccounts: Account[]): boolean => {
   if (acc.excludeFromNetWorth) return true;
   if (acc.parentId) {
-    const parent = allAccounts.find(p => p.id === acc.parentId);
+    const parent = (Array.isArray(allAccounts) ? allAccounts : []).find(p => p.id === acc.parentId);
     if (parent) return isAccountExcludedFromNetWorth(parent, allAccounts);
   }
   return false;
@@ -810,7 +812,7 @@ const checkAreAccountsSameBank = (accA: { id: string; name: string; parentId?: s
   if (accA.parentId && accB.parentId && accA.parentId === accB.parentId) return true;
   
   // 2. Same bank keyword in their name or parent name
-  const getParentName = (a: { id: string; name: string; parentId?: string }) => a.parentId ? accountsList.find(x => x.id === a.parentId)?.name : undefined;
+  const getParentName = (a: { id: string; name: string; parentId?: string }) => a.parentId ? (Array.isArray(accountsList) ? accountsList : []).find(x => x.id === a.parentId)?.name : undefined;
   const keywordA = getBankKeyword(accA.name, getParentName(accA));
   const keywordB = getBankKeyword(accB.name, getParentName(accB));
   
@@ -863,8 +865,8 @@ const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[
             const primary = A.amount < 0 ? A : B;
             const secondary = A.amount < 0 ? B : A;
             
-            const srcName = accounts.find(a => a.id === resolvedSender)?.name || '未知帳戶';
-            const dstName = accounts.find(a => a.id === resolvedDest)?.name || '未知帳戶';
+            const srcName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === resolvedSender)?.name || '未知帳戶';
+            const dstName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === resolvedDest)?.name || '未知帳戶';
 
             const mergedTx: Transaction = {
               ...primary,
@@ -1891,7 +1893,7 @@ export default function App() {
     if (currentView === 'fixedRecords') return '固定收支管理';
     if (currentView === 'projects') {
       if (selectedProjectId) {
-        return projects.find(p => p.id === selectedProjectId)?.name || '專案明細';
+        return (Array.isArray(projects) ? projects : []).find(p => p.id === selectedProjectId)?.name || '專案明細';
       }
       return '專案管理';
     }
@@ -1918,7 +1920,7 @@ export default function App() {
     const mergedRecords = getMergedRecords(records, accounts);
     // Recursive Balance Calculation (Dynamic Real-time Formula)
     const getBaseBalance = (id: string) => {
-      const acc = accounts.find(a => a.id === id);
+      const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === id);
       if (!acc) return 0;
       let bal = acc.initialBalance || 0;
       if (acc.type === 'credit' && !acc.initialBalance) {
@@ -2263,7 +2265,7 @@ export default function App() {
       if (user) {
         for (const id of restoredRecordIds) {
           try {
-            const recToRestore = records.find(r => r.id === id);
+            const recToRestore = (Array.isArray(records) ? records : []).find(r => r.id === id);
             if (recToRestore) {
               const restored = { ...recToRestore };
               delete (restored as any).parentTransactionId;
@@ -2407,7 +2409,7 @@ export default function App() {
     const groupRecords = records.filter(r => r.installmentGroupId === groupId);
     if (groupRecords.length === 0) return;
     
-    const first = groupRecords.find(r => r.currentInstallment === 1) || groupRecords[0];
+    const first = (Array.isArray(groupRecords) ? groupRecords : []).find(r => r.currentInstallment === 1) || groupRecords[0];
     const totalAmtAbs = Math.abs(newTotalAmount);
     const baseAmt = Math.floor(totalAmtAbs / newTotalInstallments);
     const remainderAmt = totalAmtAbs - (baseAmt * newTotalInstallments);
@@ -2554,7 +2556,7 @@ export default function App() {
           await deleteFromCloud('transactions', tid);
         }
         for (const cid of childIdsToRestore) {
-          const cr = records.find(r => r.id === cid);
+          const cr = (Array.isArray(records) ? records : []).find(r => r.id === cid);
           if (cr) {
             await syncToCloud('transactions', cleanData({
               ...cr,
@@ -2601,7 +2603,7 @@ export default function App() {
     }
     
     // 如果是新帳戶（不在目前的 accounts 列表中），則計算新順序：最大 order + 1
-    if (!accounts.find(a => a.id === updatedAcc.id)) {
+    if (!(Array.isArray(accounts) ? accounts : []).find(a => a.id === updatedAcc.id)) {
       const maxOrder = accounts.reduce((max, a) => Math.max(max, a.order || 0), 0);
       finalAccount.order = maxOrder + 1;
     }
@@ -2624,7 +2626,7 @@ export default function App() {
       }
     } else {
       setAccounts(prev => {
-        const exists = prev.find(a => a.id === finalAccount.id);
+        const exists = (Array.isArray(prev) ? prev : []).find(a => a.id === finalAccount.id);
         let newList;
         if (exists) {
           newList = prev.map(a => a.id === finalAccount.id ? finalAccount : a);
@@ -2649,7 +2651,7 @@ export default function App() {
       });
     }
     if (initialAmount !== undefined) {
-      const existingInit = records.find(r => r.accountId === finalAccount.id && r.category === '初始資金');
+      const existingInit = (Array.isArray(records) ? records : []).find(r => r.accountId === finalAccount.id && r.category === '初始資金');
       const id = existingInit ? existingInit.id : `init_${finalAccount.id}_${Date.now()}`;
       const initRecord: Transaction = {
         id,
@@ -2689,7 +2691,7 @@ export default function App() {
       parentProjectId: parentVal,
       isStandalone: parentVal === null ? true : false,
     };
-    if (!projects.find(x => x.id === p.id)) {
+    if (!(Array.isArray(projects) ? projects : []).find(x => x.id === p.id)) {
       const maxOrder = projects.reduce((max, x) => Math.max(max, x.order || 0), 0);
       finalProject.order = maxOrder + 1;
     }
@@ -2698,7 +2700,7 @@ export default function App() {
       await syncToCloud('projects', finalProject, finalProject.id);
     } else {
       setProjects(prev => {
-        const next = prev.find(x => x.id === finalProject.id)
+        const next = (Array.isArray(prev) ? prev : []).find(x => x.id === finalProject.id)
           ? prev.map(x => x.id === finalProject.id ? finalProject : x)
           : [...prev, finalProject];
         return ensureProjectHierarchy(next);
@@ -2763,7 +2765,7 @@ export default function App() {
                   <>
                     <button 
                       onClick={() => {
-                        const cur = projects.find(p => p.id === selectedProjectId);
+                        const cur = (Array.isArray(projects) ? projects : []).find(p => p.id === selectedProjectId);
                         if (cur) {
                           setEditingProject(cur);
                           setIsProjectEditModalOpen(true);
@@ -3120,7 +3122,7 @@ export default function App() {
             )}
             {currentView === 'accountDetail' && selectedAccountForDetail && (
               <AccountDetailView 
-                account={accounts.find(a => a.id === selectedAccountForDetail.id) || selectedAccountForDetail}
+                account={(Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedAccountForDetail.id) || selectedAccountForDetail}
                 records={records}
                 selectedDate={selectedDate}
                 onBack={() => {
@@ -3128,7 +3130,7 @@ export default function App() {
                   setCurrentView('accounts');
                 }}
                 onEdit={() => {
-                  setEditingAccount(accounts.find(a => a.id === selectedAccountForDetail.id) || selectedAccountForDetail);
+                  setEditingAccount((Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedAccountForDetail.id) || selectedAccountForDetail);
                   setIsAccountEditModalOpen(true);
                 }}
                 onUpdateRecord={handleUpdateRecord}
@@ -3168,7 +3170,7 @@ export default function App() {
                   if (user) {
                     await syncToCloud('fixedRecords', fr, fr.id);
                   } else {
-                    if (fixedRecords.find(r => r.id === fr.id)) {
+                    if ((Array.isArray(fixedRecords) ? fixedRecords : []).find(r => r.id === fr.id)) {
                       setFixedRecords(prev => prev.map(r => r.id === fr.id ? fr : r));
                     } else {
                       setFixedRecords(prev => [...prev, fr]);
@@ -3187,7 +3189,7 @@ export default function App() {
             {currentView === 'projects' && (
               selectedProjectId ? (
                 <ProjectDetailView 
-                  project={projects.find(p => p.id === selectedProjectId)!}
+                  project={(Array.isArray(projects) ? projects : []).find(p => p.id === selectedProjectId)!}
                   records={records}
                   accounts={accounts}
                   categories={categories}
@@ -3571,7 +3573,7 @@ function AccountSelector({
     }
   });
 
-  const selectedAcc = currentSelectedId ? accounts.find(a => a.id === currentSelectedId) : null;
+  const selectedAcc = currentSelectedId ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === currentSelectedId) : null;
   const selectedAccBalance = selectedAcc ? calculateAccountBalance(selectedAcc, accounts, records) : 0;
 
   // 合併列表進行渲染：單一帳戶在前，群組帳戶在後
@@ -3607,7 +3609,7 @@ function AccountSelector({
             );
           } else {
             const group = item;
-            const activeSub = group.accounts.find(a => a.id === currentSelectedId);
+            const activeSub = (Array.isArray(group?.accounts) ? group.accounts : []).find(a => a?.id === currentSelectedId);
             const isSelected = !!activeSub;
             const isExpanded = !!expandedState[group.bankName];
 
@@ -3660,7 +3662,7 @@ function AccountSelector({
         const isExpanded = !!expandedState[group.bankName];
         if (!isExpanded) return null;
         
-        const activeSub = group.accounts.find(a => a.id === currentSelectedId);
+        const activeSub = (Array.isArray(group?.accounts) ? group.accounts : []).find(a => a?.id === currentSelectedId);
         const bankAccounts = group.accounts.filter(a => a.type !== 'credit');
         const creditCards = group.accounts.filter(a => a.type === 'credit');
 
@@ -3959,7 +3961,7 @@ function StatCard({ title, date, expense, income, onClick }: { title: string, da
 
 export function calculateAccountBalance(account: Account, accounts: Account[], records: Transaction[]): number {
   if (account.isBrandGroup && (account as any).childAccounts) {
-    return (account as any).childAccounts.reduce((sum: number, c: Account) => {
+    return (Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).reduce((sum: number, c: Account) => {
       return sum + calculateAccountBalance(c, accounts, records);
     }, 0);
   }
@@ -3987,7 +3989,7 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
   };
 
   const getRecursiveBalance = (id: string): number => {
-    const acc = accounts.find(a => a.id === id);
+    const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === id);
     if (!acc) return 0;
     let total = getBaseBalance(acc);
     const children = accounts.filter(a => a.parentId === id && !isAccountExcludedFromNetWorth(a, accounts));
@@ -4010,7 +4012,7 @@ export function calculateCreditCardUntransferred(
   records: Transaction[]
 ): number {
   if (account.isBrandGroup && (account as any).childAccounts) {
-    return (account as any).childAccounts.reduce((sum: number, c: Account) => {
+    return (Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).reduce((sum: number, c: Account) => {
       return sum + calculateCreditCardUntransferred(c, accounts, records);
     }, 0);
   }
@@ -4114,7 +4116,7 @@ export function hasCreditCardClosingDay(account: Account, accounts: Account[]): 
   if (account.closingDay || account.statementDate) return true;
   
   if (account.isBrandGroup && account.childAccounts) {
-    return account.childAccounts.some(c => Boolean(c.closingDay || c.statementDate));
+    return (Array.isArray(account?.childAccounts) ? account.childAccounts : []).some(c => Boolean(c.closingDay || c.statementDate));
   }
   
   const children = accounts.filter(a => a.parentId === account.id || accounts.some(p => p.parentId === account.id && a.parentId === p.id));
@@ -4255,7 +4257,7 @@ function DynamicAccountBalance({
 }) {
   const calculatedBalance = useMemo(() => {
     if (account.isBrandGroup && account.childAccounts) {
-      return account.childAccounts.reduce((sum: number, c: Account) => {
+      return (Array.isArray(account?.childAccounts) ? account.childAccounts : []).reduce((sum: number, c: Account) => {
         const bal = calculateAccountBalance(c, accounts, transactions);
         const cur = c.currency || 'TWD';
         const rate = (currencyMode === 'FOREIGN' && cur !== 'TWD') ? getLatestExchangeRate(transactions, accounts, cur) : 1;
@@ -4863,7 +4865,7 @@ function AccountsView({
         const getOrder = (item: any) => {
           if (item.isBrandGroup) {
             // Use the minimum order of its children
-            return Math.min(...item.childAccounts.map((c: Account) => c.order || 0));
+            return Math.min(...(Array.isArray(item?.childAccounts) ? item.childAccounts : []).map((c: Account) => c.order || 0));
           }
           return item.order || 0;
         };
@@ -4917,7 +4919,7 @@ function AccountsView({
         const getOrder = (item: any) => {
           if (item.isBrandGroup) {
             // Use the minimum order of its children
-            return Math.min(...item.childAccounts.map((c: Account) => c.order || 0));
+            return Math.min(...(Array.isArray(item?.childAccounts) ? item.childAccounts : []).map((c: Account) => c.order || 0));
           }
           return item.order || 0;
         };
@@ -5025,7 +5027,7 @@ function AccountsView({
           .map(([type, typeAccounts]) => {
           const typeTotal = typeAccounts.reduce((sum, acc) => {
             if (acc.isBrandGroup && acc.childAccounts) {
-              return sum + acc.childAccounts.reduce((cSum: number, c: Account) => {
+              return sum + (Array.isArray(acc?.childAccounts) ? acc.childAccounts : []).reduce((cSum: number, c: Account) => {
                 const bal = calculateAccountBalance(c, accounts, records);
                 const cur = c.currency || 'TWD';
                 const rate = (currencyMode === 'FOREIGN' && cur !== 'TWD') ? getLatestExchangeRate(records, accounts, cur) : 1;
@@ -5040,7 +5042,7 @@ function AccountsView({
 
           const creditUntransferredTotal = type === 'credit' ? typeAccounts.reduce((sum, acc) => {
             if (acc.isBrandGroup && acc.childAccounts) {
-              return sum + acc.childAccounts.reduce((cSum: number, c: Account) => {
+              return sum + (Array.isArray(acc?.childAccounts) ? acc.childAccounts : []).reduce((cSum: number, c: Account) => {
                 const untransferred = calculateCreditCardUntransferred(c, accounts, records);
                 const cur = c.currency || 'TWD';
                 const rate = (currencyMode === 'FOREIGN' && cur !== 'TWD') ? getLatestExchangeRate(records, accounts, cur) : 1;
@@ -5606,7 +5608,7 @@ function InvestmentSection({
         const amt = Math.abs(r.amount);
         
         // 比對股票代號或名稱
-        const matchedStock = stocks.find(s => {
+        const matchedStock = (Array.isArray(stocks) ? stocks : []).find(s => {
           const keyword = s.code.split(' (')[0].trim();
           return r.note.includes(keyword);
         });
@@ -5614,7 +5616,7 @@ function InvestmentSection({
         stockMap[stockName] = (stockMap[stockName] || 0) + amt;
 
         // 比對入帳銀行帳戶
-        const acc = accounts.find(a => a.id === r.accountId);
+        const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
         const bankName = acc ? `${acc.icon} ${acc.name}` : '未知帳戶';
         bankMap[bankName] = (bankMap[bankName] || 0) + amt;
       }
@@ -5641,7 +5643,7 @@ function InvestmentSection({
     setStockCurrentPrice('');
     setStockCurrentMarketValue('');
     setStockTotalCost('');
-    const bankAcc = accounts.find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
+    const bankAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
     setStockLinkedAccount(bankAcc ? bankAcc.id : '');
     setStockPurchaseDate(new Date().toISOString().split('T')[0]);
     setStockEvaluationDate(new Date().toISOString().split('T')[0]);
@@ -6061,7 +6063,7 @@ function InvestmentSection({
             const roi = (hasCurrentPrice && cost > 0) ? (unrealizedPL / cost) * 100 : 0;
             const isFund = s.category === 'fund';
             const unitLabel = isFund ? '單位' : '股';
-            const linkedAcc = accounts.find(a => a.id === s.linkedAccount);
+            const linkedAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === s.linkedAccount);
             
             return (
               <div 
@@ -6710,7 +6712,7 @@ function InvestmentSection({
                       }
 
                       return sortedList.map(r => {
-                        const acc = accounts.find(a => a.id === r.accountId);
+                        const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
                         const isIncome = r.type === 'income';
                         
                         return (
@@ -6799,7 +6801,7 @@ function InvestmentSection({
               if (!isDiv) return false;
               if (selectedDividendYear !== 'all' && !r.date.startsWith(selectedDividendYear)) return false;
               if (isBank) {
-                const acc = accounts.find(a => a.id === r.accountId);
+                const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
                 const bankName = acc ? `${acc.icon} ${acc.name}` : '未知帳戶';
                 return bankName === targetLabel;
               } else {
@@ -6853,7 +6855,7 @@ function InvestmentSection({
                     <p className="text-center text-stone-400 text-xs font-bold py-10">此期間暫無股利紀錄</p>
                   ) : (
                     matchedRecords.map(r => {
-                      const acc = accounts.find(a => a.id === r.accountId);
+                      const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
                       return (
                         <div key={r.id} className="bg-white rounded-2xl border border-stone-100 p-4 shadow-sm flex items-center justify-between gap-4">
                           <div className="min-w-0 flex-1 flex flex-col gap-1.5">
@@ -6928,7 +6930,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
   const childrenIds = useMemo(() => {
     if (account.isBrandGroup && (account as any).childAccounts) {
-      return (account as any).childAccounts.map((c: any) => c.id);
+      return (Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).map((c: any) => c.id);
     }
     return accounts.filter(c => c.parentId === account.id).map(c => c.id);
   }, [account, accounts]);
@@ -6952,18 +6954,18 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       return [selectedCardFilterId];
     }
     if (account.isBrandGroup && (account as any).childAccounts) {
-      return (account as any).childAccounts.map((c: any) => c.id);
+      return (Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).map((c: any) => c.id);
     }
     return [account.id, ...childrenIds];
   }, [account, childrenIds, selectedCardFilterId]);
 
   const effectiveClosingDay = useMemo(() => {
     if (selectedCardFilterId) {
-      const childAcc = accounts.find(a => a.id === selectedCardFilterId);
+      const childAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedCardFilterId);
       if (childAcc && childAcc.closingDay) return childAcc.closingDay;
     }
     if (account.isBrandGroup && (account as any).childAccounts) {
-      const childWithClosing = (account as any).childAccounts.find((c: any) => c.closingDay);
+      const childWithClosing = (Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).find((c: any) => c.closingDay);
       return childWithClosing ? childWithClosing.closingDay : null;
     }
     return account.closingDay;
@@ -6985,7 +6987,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       
     const map: Record<string, number> = {};
     const initialBal = selectedCardFilterId
-      ? (accounts.find(a => a.id === selectedCardFilterId)?.initialBalance || 0)
+      ? ((Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedCardFilterId)?.initialBalance || 0)
       : (account.initialBalance || 0);
     let bal = initialBal;
     
@@ -7225,7 +7227,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
   const calculatedBalance = useMemo(() => { 
     if (selectedCardFilterId) {
-      const childAcc = accounts.find(a => a.id === selectedCardFilterId);
+      const childAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedCardFilterId);
       if (childAcc) {
         return calculateAccountBalance(childAcc, accounts, records);
       }
@@ -7663,7 +7665,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     };
 
     const getRecursiveBalance = (id: string): number => {
-      const acc = accounts.find(a => a.id === id);
+      const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === id);
       if (!acc) return 0;
       let total = getBaseBalance(acc);
       const children = accounts.filter(a => a.parentId === id);
@@ -7674,7 +7676,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     };
 
     if (account.isBrandGroup && (account as any).childAccounts) {
-      return (account as any).childAccounts.reduce((sum: number, c: Account) => {
+      return (Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).reduce((sum: number, c: Account) => {
         return sum + getRecursiveBalance(c.id);
       }, 0);
     }
@@ -7709,7 +7711,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               {record.type === 'transfer' ? (
                 (() => {
                   const isPos = record.amount > 0;
-                  const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                  const currentAccName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name || '未知帳戶';
                   const counterpartAccName = getTransferCounterpartName(record, accounts);
                   const firstAccName = isPos ? counterpartAccName : currentAccName;
                   const secondAccName = isPos ? currentAccName : counterpartAccName;
@@ -7766,7 +7768,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       )}
                       {(account.parentId === undefined || account.isBrandGroup) && record.accountId !== account.id && (
                         <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-[#F3F4F6] text-[#4B5563] rounded-full font-bold leading-none">
-                          {accounts.find(a => a.id === record.accountId)?.name}
+                          {(Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name}
                         </span>
                       )}
                     </div>
@@ -7922,7 +7924,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       <div className="bg-white p-3 rounded-xl border border-stone-200/80 space-y-2 shadow-xs">
                         <div className="space-y-2 pt-0.5">
                           {record.subItems.map((item, idx) => {
-                            const destCard = accounts.find(a => a.id === item.toAccountId);
+                            const destCard = (Array.isArray(accounts) ? accounts : []).find(a => a.id === item.toAccountId);
                             const isThisCard = item.toAccountId && targetIds.includes(item.toAccountId);
                             return (
                               <div 
@@ -8039,8 +8041,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 {/* 轉帳附加資訊：手續費與匯率 */}
                 {(record.type === 'transfer' || record._isMergedTransfer) && (() => {
                   const { src, dst } = getTransferSourceAndDest(record);
-                  const srcAcc = accounts.find(a => a.id === src);
-                  const dstAcc = accounts.find(a => a.id === dst);
+                  const srcAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === src);
+                  const dstAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === dst);
                   const srcCur = srcAcc?.currency || 'TWD';
                   const dstCur = dstAcc?.currency || 'TWD';
                   
@@ -8229,12 +8231,12 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
               )}
               {account.type !== 'points' && (() => {
                 const activeCurrency = selectedCardFilterId 
-                  ? accounts.find(a => a.id === selectedCardFilterId)?.currency || account.currency 
+                  ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedCardFilterId)?.currency || account.currency 
                   : account.currency;
                 if (!activeCurrency || activeCurrency === 'TWD') return null;
                 const rate = getLatestExchangeRate(records, accounts, activeCurrency);
                 const twdBal = Math.round(calculatedBalance * rate);
-                const activeAcc = (selectedCardFilterId ? accounts.find(a => a.id === selectedCardFilterId) : account) || account;
+                const activeAcc = (selectedCardFilterId ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedCardFilterId) : account) || account;
                 return (
                   <span className="text-sm font-bold text-stone-400 ml-1.5 flex items-center gap-1.5 flex-wrap" style={getFontFamily()}>
                     <span>(約 NT$ {twdBal.toLocaleString()})</span>
@@ -8368,7 +8370,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       title="點擊清除卡片篩選"
                       style={getFontFamily()}
                     >
-                      <span>卡片: {accounts.find(a => a.id === selectedCardFilterId)?.name}</span>
+                      <span>卡片: {(Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedCardFilterId)?.name}</span>
                       <span className="text-[8px] opacity-60 ml-0.5">✕</span>
                     </span>
                   )}
@@ -8684,7 +8686,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       >
                         💳 全部卡片明細
                       </button>
-                      {(account as any).childAccounts.map((child: any) => (
+                      {(Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).map((child: any) => (
                         <button
                           key={child.id}
                           onClick={() => {
@@ -8729,7 +8731,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       initial.amount = -initial.amount;
     }
     if (initial.type === 'transfer' && !initial.toAccountId) {
-      const otherAcc = accounts.find(a => a.id !== initial.accountId);
+      const otherAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== initial.accountId);
       initial.toAccountId = otherAcc?.id || '';
     }
     if (initial.time) {
@@ -8767,7 +8769,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
 
     if (itemToRemove && itemToRemove.originalRecordId) {
       const origId = itemToRemove.originalRecordId;
-      const targetRecord = records.find(r => r.id === origId) || childUpdatesMap[origId];
+      const targetRecord = (Array.isArray(records) ? records : []).find(r => r.id === origId) || childUpdatesMap[origId];
       if (targetRecord) {
         setChildUpdatesMap(prev => ({
           ...prev,
@@ -8822,7 +8824,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       edited.subItems.forEach(item => {
         if (item.originalRecordId) {
           const origId = item.originalRecordId;
-          const targetRecord = records.find(r => r.id === origId) || childUpdatesMap[origId];
+          const targetRecord = (Array.isArray(records) ? records : []).find(r => r.id === origId) || childUpdatesMap[origId];
           if (targetRecord) {
             setChildUpdatesMap(prev => ({
               ...prev,
@@ -8842,7 +8844,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     if (edited.subTransactions) {
       edited.subTransactions.forEach(st => {
         const origId = st.id;
-        const targetRecord = records.find(r => r.id === origId) || childUpdatesMap[origId] || st;
+        const targetRecord = (Array.isArray(records) ? records : []).find(r => r.id === origId) || childUpdatesMap[origId] || st;
         if (targetRecord) {
           setChildUpdatesMap(prev => ({
             ...prev,
@@ -8907,7 +8909,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
         const noteMatch = (r.note || '').toLowerCase().includes(query);
         const merchantMatch = (r.merchant || '').toLowerCase().includes(query);
         const catMatch = (r.category || '').toLowerCase().includes(query);
-        const toAccName = accounts.find(a => a.id === r.toAccountId)?.name || '';
+        const toAccName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.toAccountId)?.name || '';
         const toMatch = toAccName.toLowerCase().includes(query);
         const amtMatch = Math.abs(r.amount).toString().includes(query);
         if (!noteMatch && !merchantMatch && !catMatch && !toMatch && !amtMatch) return false;
@@ -8955,7 +8957,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     ];
 
     const isTransfer = edited.type === 'transfer';
-    const mainToAccName = accounts.find(a => a.id === edited.toAccountId)?.name || '信用卡';
+    const mainToAccName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === edited.toAccountId)?.name || '信用卡';
 
     const existingSubs: SubItem[] = (edited.subItems && edited.subItems.length > 0)
       ? [...edited.subItems]
@@ -8974,7 +8976,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
         ];
 
     const newSubs: SubItem[] = selectedRecords.map((r, idx) => {
-      const cardName = accounts.find(a => a.id === r.toAccountId)?.name || '信用卡';
+      const cardName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.toAccountId)?.name || '信用卡';
       return {
         id: `sub_${Date.now()}_merge_${idx}`,
         originalRecordId: r.id,
@@ -9066,8 +9068,8 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     }
   };
 
-  const fromAcc = accounts.find(a => a.id === edited.accountId);
-  const toAcc = accounts.find(a => a.id === edited.toAccountId);
+  const fromAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === edited.accountId);
+  const toAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === edited.toAccountId);
 
   const editRateLabel = useMemo(() => {
     const srcCur = fromAcc?.currency || 'TWD';
@@ -9266,7 +9268,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
 
                       {availableCategories
                         .find(c => c.name === selectedMainCat)
-                        ?.sub.map((sub, idx) => {
+                        ?.sub?.map((sub, idx) => {
                           const fullCatName = `${selectedMainCat} ＞ ${sub}`;
                           const isSelected = edited.category === fullCatName || edited.category === `${selectedMainCat} > ${sub}`;
                           return (
@@ -9439,8 +9441,8 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                 </div>
                 <div className="flex-1">
                   <span className="text-[15px] font-black text-[#5D4037] flex items-center gap-1.5">
-                    <AccountIcon icon={projects.find(p => p.id === (edited.projectId || 'p1'))?.icon || ''} sizeClassName="w-5 h-5" />
-                    <span>{projects.find(p => p.id === (edited.projectId || 'p1'))?.name || '無特別專案'}</span>
+                    <AccountIcon icon={(Array.isArray(projects) ? projects : []).find(p => p.id === (edited.projectId || 'p1'))?.icon || ''} sizeClassName="w-5 h-5" />
+                    <span>{(Array.isArray(projects) ? projects : []).find(p => p.id === (edited.projectId || 'p1'))?.name || '無特別專案'}</span>
                   </span>
                 </div>
                 <ChevronRight size={18} className="text-stone-300" />
@@ -9473,7 +9475,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                         type="button"
                         onClick={() => {
                           const isTransfer = edited.type === 'transfer';
-                          const mainCardName = accounts.find(a => a.id === edited.toAccountId)?.name || '信用卡';
+                          const mainCardName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === edited.toAccountId)?.name || '信用卡';
                           const initSub: SubItem[] = [
                             { 
                               id: `sub_${Date.now()}_1`, 
@@ -9528,7 +9530,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                                     value={subItem.toAccountId || edited.toAccountId || ''}
                                     onChange={e => {
                                       const newTo = e.target.value;
-                                      const cardName = accounts.find(a => a.id === newTo)?.name || '信用卡';
+                                      const cardName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === newTo)?.name || '信用卡';
                                       const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { 
                                         ...s, 
                                         toAccountId: newTo,
@@ -9631,7 +9633,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                         type="button"
                         onClick={() => {
                           const isTransfer = edited.type === 'transfer';
-                          const otherAcc = accounts.find(a => a.id !== edited.accountId);
+                          const otherAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== edited.accountId);
                           const newSub: SubItem = {
                             id: `sub_${Date.now()}_${(edited.subItems?.length || 0) + 1}`,
                             name: isTransfer ? `繳 ${otherAcc?.name || '信用卡'}` : `項目 ${(edited.subItems?.length || 0) + 1}`,
@@ -9846,7 +9848,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                   const newAccountId = e.target.value;
                   let newToAccountId = edited.toAccountId;
                   if (edited.type === 'transfer' && newAccountId === newToAccountId) {
-                    const other = accounts.find(a => a.id !== newAccountId);
+                    const other = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== newAccountId);
                     newToAccountId = other?.id || '';
                   }
                   setEdited({ ...edited, accountId: newAccountId, toAccountId: newToAccountId });
@@ -9870,7 +9872,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                       const newToAccountId = e.target.value;
                       let newAccountId = edited.accountId;
                       if (newToAccountId === newAccountId) {
-                        const other = accounts.find(a => a.id !== newToAccountId);
+                        const other = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== newToAccountId);
                         newAccountId = other?.id || '';
                       }
                       setEdited({ ...edited, toAccountId: newToAccountId, accountId: newAccountId });
@@ -9947,7 +9949,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                 
                 let finalToAccountId = edited.toAccountId;
                 if (resolvedType === 'transfer' && !finalToAccountId) {
-                  const other = accounts.find(a => a.id !== edited.accountId);
+                  const other = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== edited.accountId);
                   finalToAccountId = other?.id || '';
                 }
 
@@ -10025,7 +10027,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                   ) : (
                     mergeCandidates.map(c => {
                       const isSelected = selectedMergeIds.includes(c.id);
-                      const destCard = accounts.find(a => a.id === c.toAccountId);
+                      const destCard = (Array.isArray(accounts) ? accounts : []).find(a => a.id === c.toAccountId);
                       return (
                         <div
                           key={c.id}
@@ -10159,7 +10161,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   onViewDetail?: (acc: Account) => void
 }) {
   const accountTypes: Account['type'][] = ['cash', 'bank', 'investment', 'credit', 'e-ticket', 'e-payment', 'points', 'deposit', 'insurance', 'other'];
-  const isNew = !accounts.find(a => a.id === account.id);
+  const isNew = !(Array.isArray(accounts) ? accounts : []).find(a => a.id === account.id);
   const [editedAcc, setEditedAcc] = useState<Account>(() => {
     const baseAcc = { ...account };
     if (baseAcc.type === 'points' && baseAcc.excludeFromNetWorth === undefined) {
@@ -10167,14 +10169,14 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
     }
     // Migrate initialBalance from records if not present on account
     if (account.initialBalance !== undefined) return baseAcc;
-    const initRec = records.find(r => r.accountId === account.id && r.category === '初始資金');
+    const initRec = (Array.isArray(records) ? records : []).find(r => r.accountId === account.id && r.category === '初始資金');
     const legacyInit = initRec ? (initRec.type === 'income' ? initRec.amount : -initRec.amount) : 0;
     return { ...baseAcc, initialBalance: legacyInit };
   });
   const [initialBalanceStr, setInitialBalanceStr] = useState<string>(
-    (account.initialBalance !== undefined ? account.initialBalance : (records.find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)) === 0 
+    (account.initialBalance !== undefined ? account.initialBalance : ((Array.isArray(records) ? records : []).find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)) === 0 
       ? '' 
-      : (account.initialBalance !== undefined ? account.initialBalance : (records.find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)).toString()
+      : (account.initialBalance !== undefined ? account.initialBalance : ((Array.isArray(records) ? records : []).find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)).toString()
   );
 
   const otherRecordsSum = useMemo(() => {
@@ -10201,7 +10203,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
   useEffect(() => {
     if (editedAcc.type !== 'credit') return;
 
-    const parentAcc = editedAcc.parentId ? accounts.find(a => a.id === editedAcc.parentId) : undefined;
+    const parentAcc = editedAcc.parentId ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === editedAcc.parentId) : undefined;
     const currentBankKey = getBankKeyword(editedAcc.name, parentAcc?.name);
 
     if (prevBankKey.current === null && currentBankKey) {
@@ -10212,7 +10214,7 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
     const bankKeyChanged = currentBankKey !== prevBankKey.current;
 
     if (isNew || parentIdChanged || bankKeyChanged) {
-      const sameBankCard = accounts.find(a => {
+      const sameBankCard = (Array.isArray(accounts) ? accounts : []).find(a => {
         return checkAreAccountsSameBank(editedAcc, a, accounts);
       });
 
@@ -10805,7 +10807,7 @@ function SearchView({
                   {record.type === 'transfer' ? (
                     (() => {
                       const isPos = record.amount > 0;
-                      const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                      const currentAccName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name || '未知帳戶';
                       const counterpartAccName = getTransferCounterpartName(record, accounts);
                       const firstAccName = isPos ? counterpartAccName : currentAccName;
                       const secondAccName = isPos ? currentAccName : counterpartAccName;
@@ -10831,7 +10833,7 @@ function SearchView({
                         {record.date}
                       </span>
                       <span className="text-[10px] font-bold text-stone-300 bg-stone-50 px-2 rounded-full">
-                        {accounts.find(a => a.id === record.accountId)?.name}
+                        {(Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name}
                       </span>
                     </div>
                   )}
@@ -11025,7 +11027,7 @@ function CalendarView({ records, accounts, categories, onBack }: { records: Tran
               {record.type === 'transfer' ? (
                 (() => {
                   const isPos = record.amount > 0;
-                  const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                  const currentAccName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name || '未知帳戶';
                   const counterpartAccName = getTransferCounterpartName(record, accounts);
                   const firstAccName = isPos ? counterpartAccName : currentAccName;
                   const secondAccName = isPos ? currentAccName : counterpartAccName;
@@ -11048,7 +11050,7 @@ function CalendarView({ records, accounts, categories, onBack }: { records: Tran
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
-                    {accounts.find(a => a.id === record.accountId)?.name}
+                    {(Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name}
                   </span>
                   {record.isPrepay && (
                     <span className="text-[10px] px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full font-bold">
@@ -11147,8 +11149,8 @@ function FixedRecordsView({ fixedRecords, accounts, categories, records, onBack,
         <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-6 space-y-4">
           {fixedRecords.length > 0 ? fixedRecords.map(record => {
             const isTransfer = record.type === 'transfer';
-            const srcAcc = accounts.find(a => a.id === record.accountId);
-            const dstAcc = isTransfer ? accounts.find(a => a.id === record.toAccountId) : null;
+            const srcAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId);
+            const dstAcc = isTransfer ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.toAccountId) : null;
 
             return (
             <div 
@@ -11253,7 +11255,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
   const [edited, setEdited] = useState<FixedRecord>(() => {
     let toAcc = record.toAccountId;
     if (record.type === 'transfer' && (!toAcc || toAcc === record.accountId)) {
-      const other = accounts.find(a => a.id !== record.accountId);
+      const other = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== record.accountId);
       toAcc = other?.id || '';
     }
     return {
@@ -11346,7 +11348,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                       if (t === 'transfer') {
                         newCategory = '轉帳';
                         if (!newToAccountId || newToAccountId === edited.accountId) {
-                          const other = accounts.find(a => a.id !== edited.accountId);
+                          const other = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== edited.accountId);
                           newToAccountId = other?.id || '';
                         }
                       } else {
@@ -11429,7 +11431,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                     onSelect={(id) => {
                       let newToAccountId = edited.toAccountId;
                       if (id === newToAccountId) {
-                        const other = accounts.find(a => a.id !== id);
+                        const other = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== id);
                         newToAccountId = other?.id || '';
                       }
                       setEdited({ ...edited, accountId: id, toAccountId: newToAccountId });
@@ -11453,7 +11455,7 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                     onSelect={(id) => {
                       let newSrcId = edited.accountId;
                       if (id === newSrcId) {
-                        const other = accounts.find(a => a.id !== id);
+                        const other = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== id);
                         newSrcId = other?.id || '';
                       }
                       setEdited({ ...edited, toAccountId: id, accountId: newSrcId });
@@ -11525,10 +11527,10 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                 </HorizontalScrollArea>
                 
                 {/* Sub Category Selection */}
-                {categories.find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type) && (
+                {(Array.isArray(categories) ? categories : []).find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type) && (
                   <div className="mt-2">
                     <HorizontalScrollArea className="px-8">
-                      {categories.find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type)?.sub.map(sub => (
+                      {(Array.isArray(categories) ? categories : []).find(c => c.name === edited.category.split(' > ')[0] && c.type === edited.type)?.sub?.map(sub => (
                         <button 
                           key={sub}
                           onClick={() => setEdited({ ...edited, category: `${edited.category.split(' > ')[0]} > ${sub}` })}
@@ -12043,7 +12045,7 @@ function ProjectSortModal({ projects, onClose, onSave }: {
     });
 
     projects.forEach(p => {
-      if (!finalProjects.find(fp => fp.id === p.id)) {
+      if (!(Array.isArray(finalProjects) ? finalProjects : []).find(fp => fp.id === p.id)) {
         finalProjects.push({ ...p, order: currentOrder++ });
       }
     });
@@ -12478,7 +12480,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
   }, [categories, tab]);
 
   const selectedCategory = useMemo(() => 
-    categories.find(c => c.id === selectedCategoryId)
+    (Array.isArray(categories) ? categories : []).find(c => c.id === selectedCategoryId)
   , [categories, selectedCategoryId]);
 
   const moveCategory = (id: string, direction: 'up' | 'down') => {
@@ -12506,7 +12508,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
   };
 
   const moveSubByIndex = (catId: string, idx: number, direction: 'up' | 'down') => {
-    const cat = categories.find(c => c.id === catId);
+    const cat = (Array.isArray(categories) ? categories : []).find(c => c.id === catId);
     if (!cat || !cat.sub) return;
     if (direction === 'up' && idx === 0) return;
     if (direction === 'down' && idx === cat.sub.length - 1) return;
@@ -12519,7 +12521,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
   };
 
   const moveSubToCategory = (catId: string, subIdx: number, targetCatId: string) => {
-    const sourceCat = categories.find(c => c.id === catId);
+    const sourceCat = (Array.isArray(categories) ? categories : []).find(c => c.id === catId);
     if (!sourceCat) return;
     const subName = sourceCat.sub[subIdx];
     
@@ -12576,7 +12578,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
 
   const handleSaveSubCategory = () => {
     if (!newSubName || !selectedCategoryId) return;
-    const cat = categories.find(c => c.id === selectedCategoryId);
+    const cat = (Array.isArray(categories) ? categories : []).find(c => c.id === selectedCategoryId);
     if (!cat) return;
 
     const currentSub = cat.sub || [];
@@ -12594,7 +12596,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
   };
 
   const removeSubByIndex = (catId: string, index: number) => {
-    const cat = categories.find(c => c.id === catId);
+    const cat = (Array.isArray(categories) ? categories : []).find(c => c.id === catId);
     if (!cat) return;
     if (window.confirm(`確定要刪除子分類「${cat.sub[index]}」嗎？`)) {
       onSave(categories.map(c => c.id === catId ? {
@@ -12712,7 +12714,7 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
             </button>
           </>
         ) : (
-          selectedCategory?.sub.map((sub, idx) => (
+          selectedCategory?.sub?.map((sub, idx) => (
             <div 
               key={`${selectedCategoryId}-${idx}`}
               className="flex items-center justify-between bg-white p-4 md:p-3 rounded-[25px] border-2 border-white shadow-sm group"
@@ -12962,7 +12964,7 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
   }, [categories, tab]);
 
   const selectedCategory = useMemo(() => 
-    categories.find(c => c.id === selectedCategoryId)
+    (Array.isArray(categories) ? categories : []).find(c => c.id === selectedCategoryId)
   , [categories, selectedCategoryId]);
 
   const moveCategory = (id: string, direction: 'up' | 'down') => {
@@ -12985,7 +12987,7 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
   };
 
   const moveSubByIndex = (catId: string, idx: number, direction: 'up' | 'down') => {
-    const cat = categories.find(c => c.id === catId);
+    const cat = (Array.isArray(categories) ? categories : []).find(c => c.id === catId);
     if (!cat || !cat.sub) return;
     if (direction === 'up' && idx === 0) return;
     if (direction === 'down' && idx === cat.sub.length - 1) return;
@@ -13032,7 +13034,7 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
   };
 
   const removeSubByIndex = (catId: string, index: number) => {
-    const cat = categories.find(c => c.id === catId);
+    const cat = (Array.isArray(categories) ? categories : []).find(c => c.id === catId);
     if (!cat) return;
     if (window.confirm(`確定要刪除子分類「${cat.sub[index]}」嗎？`)) {
       onSave(categories.map(c => c.id === catId ? {
@@ -13127,7 +13129,7 @@ function CategoryManagePage({ categories, onSave, onBack, onMoveSubCategory }: {
                 <span>{selectedCategory?.icon}</span>
                 {selectedCategory?.name} - 子分類管理
              </h3>
-             {selectedCategory?.sub.map((sub, idx) => (
+             {selectedCategory?.sub?.map((sub, idx) => (
                <div 
                  key={`${selectedCategoryId}-${idx}`}
                  className="flex items-center justify-between bg-white p-4 md:p-3 rounded-[25px] border-2 border-white shadow-sm"
@@ -14284,9 +14286,9 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
             </div>
             <div className="divide-y divide-stone-50">
               {group.records.map(record => {
-                const recordAccount = accounts.find(a => a.id === record.accountId);
+                const recordAccount = (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId);
                 const recSubProject = hasChildren && record.projectId && record.projectId !== project.id
-                  ? projects.find(p => p.id === record.projectId)
+                  ? (Array.isArray(projects) ? projects : []).find(p => p.id === record.projectId)
                   : null;
 
                 return (
@@ -14319,7 +14321,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
                     {record.type === 'transfer' ? (
                       (() => {
                         const isPos = record.amount > 0;
-                        const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                        const currentAccName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name || '未知帳戶';
                         const counterpartAccName = getTransferCounterpartName(record, accounts);
                         const firstAccName = isPos ? counterpartAccName : currentAccName;
                         const secondAccName = isPos ? currentAccName : counterpartAccName;
@@ -15263,7 +15265,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                 {record.type === 'transfer' ? (
                   (() => {
                     const isPos = record.amount > 0;
-                    const currentAccName = accounts.find(a => a.id === record.accountId)?.name || '未知帳戶';
+                    const currentAccName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name || '未知帳戶';
                     const counterpartAccName = getTransferCounterpartName(record, accounts);
                     const firstAccName = isPos ? counterpartAccName : currentAccName;
                     const secondAccName = isPos ? currentAccName : counterpartAccName;
@@ -15292,7 +15294,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                       {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
                     </span>
                   {(() => {
-                    const acc = accounts.find(a => a.id === record.accountId);
+                    const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId);
                     return acc?.type === 'credit' && (!record.postingDate || record.isPending);
                   })() && (
                     <span className="text-[10px] px-2 py-0.5 bg-orange-100 text-orange-500 rounded-full font-bold">
@@ -15305,7 +15307,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
                     </span>
                   )}
                   <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold" style={getFontFamily()}>
-                    {accounts.find(a => a.id === record.accountId)?.name}
+                    {(Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name}
                   </span>
                 </div>
                 )}
@@ -15445,7 +15447,7 @@ function ReportsView({ records, projects, categories }: {
     if (main === targetMainCat) return true;
 
     // Check against categories list definition
-    const parentCatObj = categories.find(c => c.name === targetMainCat);
+    const parentCatObj = (Array.isArray(categories) ? categories : []).find(c => c.name === targetMainCat);
     if (parentCatObj && parentCatObj.sub) {
       if (parentCatObj.sub.includes(cleanCat)) return true;
       if (sub && parentCatObj.sub.includes(sub)) return true;
@@ -15875,7 +15877,7 @@ function MoreView({
 
     const findExistingAccountId = (nameText: string) => {
       const cleaned = cleanAccName(nameText);
-      const acc = accounts.find(a => cleanAccName(a.name) === cleaned);
+      const acc = (Array.isArray(accounts) ? accounts : []).find(a => cleanAccName(a.name) === cleaned);
       return acc?.id;
     };
 
@@ -15944,7 +15946,7 @@ function MoreView({
           resolvedAccountId = accounts[0]?.id || 'cash';
         }
         if (!resolvedToAccountId) {
-          const sibling = accounts.find(a => a.id !== resolvedAccountId);
+          const sibling = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== resolvedAccountId);
           resolvedToAccountId = sibling?.id || '';
         }
       }
@@ -15983,8 +15985,8 @@ function MoreView({
     });
 
     const getAccountSortingInfo = (r: Transaction) => {
-      const acc = accounts.find(x => x.id === r.accountId);
-      const parentAcc = acc?.parentId ? accounts.find(x => x.id === acc.parentId) : null;
+      const acc = (Array.isArray(accounts) ? accounts : []).find(x => x.id === r.accountId);
+      const parentAcc = acc?.parentId ? (Array.isArray(accounts) ? accounts : []).find(x => x.id === acc.parentId) : null;
       const parentName = parentAcc ? parentAcc.name : (acc?.name || '未知帳戶');
       const childName = parentAcc ? (acc?.name || '') : '';
       return { parentName, childName };
@@ -16308,11 +16310,11 @@ function MoreView({
         if (!name) return undefined;
         const trimmed = name.trim();
         // 1. Precise 100% exact full string match with ===
-        let found = accounts.find(a => a.name.trim() === trimmed) || 
+        let found = (Array.isArray(accounts) ? accounts : []).find(a => a.name.trim() === trimmed) || 
                     newAccountsToCreate.find(a => a.name.trim() === trimmed);
         if (found) return found.id;
         // 2. Case-insensitive full string match (no substring) with ===
-        found = accounts.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase()) ||
+        found = (Array.isArray(accounts) ? accounts : []).find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase()) ||
                 newAccountsToCreate.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
         if (found) return found.id;
         return undefined;
@@ -16454,7 +16456,7 @@ function MoreView({
 
         if (!mainName) return;
 
-        let mainCat = updatedCategories.find(c => c.name.toLowerCase() === mainName.toLowerCase() && c.type === type);
+        let mainCat = (Array.isArray(updatedCategories) ? updatedCategories : []).find(c => c.name.toLowerCase() === mainName.toLowerCase() && c.type === type);
         
         if (!mainCat) {
           const newId = `cat_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -16533,7 +16535,7 @@ function MoreView({
             resolvedAccountId = accounts[0]?.id || 'cash';
           }
           if (!resolvedToAccountId) {
-            const sibling = accounts.find(a => a.id !== resolvedAccountId) || newAccountsToCreate.find(a => a.id !== resolvedAccountId);
+            const sibling = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== resolvedAccountId) || newAccountsToCreate.find(a => a.id !== resolvedAccountId);
             resolvedToAccountId = sibling?.id || '';
           }
         }
@@ -16679,8 +16681,8 @@ function MoreView({
     const foreignHeaders = ['消費日期', '入帳日期', '類型', '主分類', '子分類', '專案', '外幣金額', '外幣幣別', '折合台幣金額', '匯率', '手續費', '來源帳戶', '目的帳戶', '備註', '是否已轉帳', '轉帳日期', 'ID'];
     
     const getAccountSortingInfo = (r: Transaction) => {
-      const acc = accounts.find(x => x.id === r.accountId);
-      const parentAcc = acc?.parentId ? accounts.find(x => x.id === acc.parentId) : null;
+      const acc = (Array.isArray(accounts) ? accounts : []).find(x => x.id === r.accountId);
+      const parentAcc = acc?.parentId ? (Array.isArray(accounts) ? accounts : []).find(x => x.id === acc.parentId) : null;
       const parentName = parentAcc ? parentAcc.name : (acc?.name || '未知帳戶');
       const childName = parentAcc ? (acc?.name || '') : '';
       return { parentName, childName };
@@ -16709,8 +16711,8 @@ function MoreView({
     const foreignRows: any[][] = [];
 
     filtered.forEach(r => {
-      const acc = accounts.find(a => a.id === r.accountId);
-      const toAcc = r.toAccountId ? accounts.find(a => a.id === r.toAccountId) : null;
+      const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
+      const toAcc = r.toAccountId ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.toAccountId) : null;
       
       const isForeign = 
         (acc && acc.currency && acc.currency !== 'TWD') || 
@@ -16733,7 +16735,7 @@ function MoreView({
         destAccount = toAccName;
       }
 
-      const proj = projects.find(p => p.id === r.projectId);
+      const proj = (Array.isArray(projects) ? projects : []).find(p => p.id === r.projectId);
       let catMain = r.category;
       let catSub = '';
       if (r.category && r.category.includes(' > ')) {
@@ -16741,7 +16743,7 @@ function MoreView({
         catMain = parts[0];
         catSub = parts[1];
       } else {
-        const catObj = categories.find(c => c.name === r.category || c.sub.includes(r.category));
+        const catObj = (Array.isArray(categories) ? categories : []).find(c => c.name === r.category || c?.sub?.includes(r.category));
         if (catObj && catObj.sub.includes(r.category)) {
           catMain = catObj.name;
           catSub = r.category;
@@ -16830,7 +16832,7 @@ function MoreView({
       XLSX.utils.book_append_sheet(wb, twdSheet, '台幣帳戶明細');
       XLSX.utils.book_append_sheet(wb, foreignSheet, '外幣帳戶明細');
       
-      const accName = exportAccountId === 'all' ? '' : `_${accounts.find(a => a.id === exportAccountId)?.name || ''}`;
+      const accName = exportAccountId === 'all' ? '' : `_${(Array.isArray(accounts) ? accounts : []).find(a => a.id === exportAccountId)?.name || ''}`;
       XLSX.writeFile(wb, `KK記帳_匯出${accName}_${exportRange.start}_${exportRange.end}.xlsx`);
     } catch (err) {
       console.error('Failed to export Excel:', err);
@@ -16904,7 +16906,7 @@ function MoreView({
           let deducedAccountName = '';
           for (const sName of workbook.SheetNames) {
             const cleanS = sName.trim();
-            const matched = accounts.find(a => cleanS.toLowerCase() === a.name.trim().toLowerCase() || cleanS.includes(a.name));
+            const matched = (Array.isArray(accounts) ? accounts : []).find(a => cleanS.toLowerCase() === a.name.trim().toLowerCase() || cleanS.includes(a.name));
             if (matched) {
               deducedAccountName = matched.name;
               break;
@@ -16912,7 +16914,7 @@ function MoreView({
           }
           if (!deducedAccountName && file.name) {
             const baseFileName = file.name.replace(/\.[^.]+$/, '');
-            const matched = accounts.find(a => baseFileName.includes(a.name) || (a.name.length >= 2 && baseFileName.toLowerCase().includes(a.name.toLowerCase())));
+            const matched = (Array.isArray(accounts) ? accounts : []).find(a => baseFileName.includes(a.name) || (a.name.length >= 2 && baseFileName.toLowerCase().includes(a.name.toLowerCase())));
             if (matched) {
               deducedAccountName = matched.name;
             }
@@ -17029,7 +17031,7 @@ function MoreView({
             let genAcc = String(getVal(row, ['帳戶', '帳戶名稱', 'Account', '主要帳戶', '本戶帳戶', '本戶', '帳號', '帳戶/卡號']) || '').trim();
 
             if (!genAcc && (row as any)._sheetName) {
-              const sheetMatched = accounts.find(a => (row as any)._sheetName.trim().toLowerCase() === a.name.trim().toLowerCase() || (row as any)._sheetName.includes(a.name));
+              const sheetMatched = (Array.isArray(accounts) ? accounts : []).find(a => (row as any)._sheetName.trim().toLowerCase() === a.name.trim().toLowerCase() || (row as any)._sheetName.includes(a.name));
               if (sheetMatched) {
                 genAcc = sheetMatched.name;
               }
@@ -17045,10 +17047,10 @@ function MoreView({
               if (!name) return undefined;
               const trimmed = name.trim();
               // 1. Precise 100% exact full string match with ===
-              let found = accounts.find(a => a.name.trim() === trimmed);
+              let found = (Array.isArray(accounts) ? accounts : []).find(a => a.name.trim() === trimmed);
               if (found) return found;
               // 2. Case-insensitive full string match (no substring) with ===
-              found = accounts.find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
+              found = (Array.isArray(accounts) ? accounts : []).find(a => a.name.trim().toLowerCase() === trimmed.toLowerCase());
               return found;
             };
             
@@ -17204,7 +17206,7 @@ function MoreView({
                 destAccName = counterpartCandidate || incAcc || '';
                 // 若目的帳戶尚未找到，嘗試自備註尋找提及之其他既有帳戶
                 if (!destAccName) {
-                  const matchedAcc = accounts.find(a => a.name !== currentAccName && rawNoteText.includes(a.name));
+                  const matchedAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.name !== currentAccName && rawNoteText.includes(a.name));
                   if (matchedAcc) destAccName = matchedAcc.name;
                 }
               } else {
@@ -17212,7 +17214,7 @@ function MoreView({
                 destAccName = currentAccName;
                 // 若來源帳戶尚未找到，嘗試自備註尋找提及之其他既有帳戶
                 if (!sourceAccName) {
-                  const matchedAcc = accounts.find(a => a.name !== currentAccName && rawNoteText.includes(a.name));
+                  const matchedAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.name !== currentAccName && rawNoteText.includes(a.name));
                   if (matchedAcc) sourceAccName = matchedAcc.name;
                 }
               }
@@ -17258,7 +17260,7 @@ function MoreView({
                                   ? projectName.split(' > ').map(s => s.trim()).pop() || ''
                                   : projectName;
                
-               const foundProject = projects.find(p => 
+               const foundProject = (Array.isArray(projects) ? projects : []).find(p => 
                  p.name.toLowerCase() === projectName.toLowerCase() || 
                  p.name.toLowerCase() === nameToFind.toLowerCase()
                );
@@ -17435,7 +17437,7 @@ function MoreView({
       return;
     }
 
-    const targetAccount = accounts.find(a => a.id === selectedDeleteAccountId);
+    const targetAccount = (Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedDeleteAccountId);
     if (!targetAccount) return;
 
     const getAccountAndDescendants = (accId: string): string[] => {
@@ -18204,8 +18206,8 @@ function MoreView({
                       <div className="text-base font-black text-[#5D4037]/60 mt-1" style={getFontFamily()}>
                         {r.type === 'transfer' ? (
                           (() => {
-                            const sName = r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name;
-                            const dName = r._importDestAccountName || accounts.find(a => a.id === r.toAccountId)?.name;
+                            const sName = r._importSourceAccountName || (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name;
+                            const dName = r._importDestAccountName || (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.toAccountId)?.name;
                             const isNewSource = Boolean(sName && pendingNewAccountNames.includes(sName));
                             const isNewDest = Boolean(dName && pendingNewAccountNames.includes(dName));
                             return (sName && dName && dName !== '-') ? (
@@ -18232,8 +18234,8 @@ function MoreView({
                         ) : (
                           (() => {
                             const accName = r.type === 'income' 
-                              ? (r._importDestAccountName || r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name)
-                              : (r._importSourceAccountName || accounts.find(a => a.id === r.accountId)?.name);
+                              ? (r._importDestAccountName || r._importSourceAccountName || (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name)
+                              : (r._importSourceAccountName || (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name);
                             const isNew = Boolean(accName && pendingNewAccountNames.includes(accName));
                             return (
                               <span className={isNew ? "text-amber-700 font-black" : ""}>
@@ -18409,7 +18411,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       const parts = rawCat.split(' > ');
       return { main: parts[0].trim(), sub: parts[1]?.trim() || null };
     }
-    const catObj = categories.find(c => c.name === rawCat || (c.sub && c.sub.includes(rawCat)));
+    const catObj = (Array.isArray(categories) ? categories : []).find(c => c.name === rawCat || (c.sub && c?.sub?.includes(rawCat)));
     if (catObj) {
       if (catObj.name === rawCat) {
         return { main: rawCat, sub: null };
@@ -18486,7 +18488,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const postingDateInputRef = useRef<HTMLInputElement>(null);
 
   const selectedProject = useMemo(() => {
-    return projects.find(p => p.id === selectedProjectId);
+    return (Array.isArray(projects) ? projects : []).find(p => p.id === selectedProjectId);
   }, [projects, selectedProjectId]);
 
   useEffect(() => {
@@ -18532,7 +18534,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   }, [mainCategory, subCategory, projects]);
 
   // Ensure currency mode affects new records too
-  const [currency, setCurrency] = useState(accounts.find(a => a.id === (tab === 'transfer' ? 'acc1' : 'acc1'))?.currency || 'TWD');
+  const [currency, setCurrency] = useState((Array.isArray(accounts) ? accounts : []).find(a => a.id === (tab === 'transfer' ? 'acc1' : 'acc1'))?.currency || 'TWD');
 
   // For Project Picker Search
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
@@ -18985,7 +18987,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
   // Check if current account is credit card
   const isCreditCard = useMemo(() => {
-    const acc = accounts.find(a => a.id === selectedAccountId);
+    const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedAccountId);
     return acc?.type === 'credit';
   }, [selectedAccountId, accounts]);
 
@@ -18996,8 +18998,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
   }, [isCreditCard]);
 
-  const currentAccount = accounts.find(a => a.id === selectedAccountId);
-  const currentToAccount = accounts.find(a => a.id === toAccountId);
+  const currentAccount = (Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedAccountId);
+  const currentToAccount = (Array.isArray(accounts) ? accounts : []).find(a => a.id === toAccountId);
 
   // Synchronize transaction currency with the selected account's currency
   useEffect(() => {
@@ -19085,7 +19087,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setShowCalculator(true);
   };
 
-  const currentMainCat = categories.find(c => c.name === mainCategory);
+  const currentMainCat = (Array.isArray(categories) ? categories : []).find(c => c.name === mainCategory);
 
   const filteredCategories = categories.filter(c => {
     if (tab === 'expense') return c.type === 'expense';
@@ -19138,7 +19140,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
 
     const catName = subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'));
-    const cat = categories.find(c => c.name === catName || c.sub.includes(catName));
+    const cat = (Array.isArray(categories) ? categories : []).find(c => c.name === catName || c?.sub?.includes(catName));
     const resolvedType = (tab === 'template' ? 'expense' : tab);
 
     const newTemplate = {
@@ -19329,7 +19331,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     // 2. 處理分類邏輯
     // 嘗試在現有分類列表中尋找匹配項
     const catName = t.category;
-    const catObj = categories.find(c => c.name === catName || (c.sub && c.sub.includes(catName)));
+    const catObj = (Array.isArray(categories) ? categories : []).find(c => c.name === catName || (c.sub && c?.sub?.includes(catName)));
     
     if (catObj) {
       if (catObj.name === catName) {
@@ -19370,7 +19372,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       amount: parseFloat(editingTemplate.amount as any) || 0
     };
 
-    const exists = templates.find(t => t.id === finalTemplate.id);
+    const exists = (Array.isArray(templates) ? templates : []).find(t => t.id === finalTemplate.id);
     if (exists) {
       onUpdateTemplates(templates.map(t => t.id === finalTemplate.id ? finalTemplate : t));
     } else {
@@ -19881,7 +19883,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                       {tab === 'transfer' ? '4. 選擇子分類' : '3. 選擇子分類'}
                     </span>
                     <HorizontalScrollArea className="px-8">
-                      {currentMainCat?.sub.map((sub, i) => (
+                      {currentMainCat?.sub?.map((sub, i) => (
                         <button 
                           key={`${currentMainCat.id}-sub-${i}`}
                           onClick={() => {
@@ -20200,7 +20202,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     <ChevronLeft className="w-5 h-5 text-[#5D4037]" />
                   </button>
                   <h3 className="text-lg font-bold text-[#5D4037]">
-                    {templates.find(t => t.id === editingTemplate.id) ? '編輯範本' : '新增範本'}
+                    {(Array.isArray(templates) ? templates : []).find(t => t.id === editingTemplate.id) ? '編輯範本' : '新增範本'}
                   </h3>
                 </div>
                 {templates.some(t => t.id === editingTemplate.id) && (
@@ -20334,11 +20336,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                   </div>
 
                   {/* Sub Category */}
-                  {Boolean(categories.find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub?.length) && (
+                  {Boolean((Array.isArray(categories) ? categories : []).find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub?.length) && (
                     <div className="space-y-2">
                       <label className="text-[14px] font-bold text-stone-600 uppercase px-1">子分類</label>
                       <div className="grid grid-cols-3 gap-2">
-                        {categories.find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub.map(sub => (
+                        {(Array.isArray(categories) ? categories : []).find(c => c.name === editingTemplate.category.split(' > ')[0])?.sub?.map(sub => (
                           <button 
                             key={sub}
                             onClick={() => setEditingTemplate({...editingTemplate, category: `${editingTemplate.category.split(' > ')[0]} > ${sub}`})}
@@ -20597,7 +20599,7 @@ function PrepaymentsView({
         {prepayRecords.length > 0 ? (
           <div className="space-y-4">
             {prepayRecords.map(r => {
-              const accName = accounts.find(a => a.id === r.accountId)?.name || '未知帳戶';
+              const accName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name || '未知帳戶';
               const isSettled = r.isSettled === true || r.type === 'income';
               return (
                 <div 
@@ -21189,7 +21191,7 @@ ${categoriesString}
               >
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-stone-400 shrink-0">帳戶：</span>
-                  <span className="font-bold truncate">{accounts.find(a => a.id === selectedAccountId)?.name}</span>
+                  <span className="font-bold truncate">{(Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedAccountId)?.name}</span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <div 
