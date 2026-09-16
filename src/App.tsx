@@ -607,43 +607,52 @@ export const isTransferInForAccount = (r: Transaction, targetIds: string[]): boo
 
 export const getTransferCounterpartName = (r: Transaction, accounts: Account[]): string => {
   if (r.subItems && r.subItems.some(s => s.toAccountId)) {
-    const names = r.subItems.map(s => accounts.find(a => a.id === s.toAccountId)?.name).filter(Boolean);
+    const names = (r.subItems || []).map(s => (accounts || []).find(a => a?.id === s?.toAccountId)?.name).filter(Boolean);
     if (names.length > 0) return names.join(', ');
   }
-  return accounts.find(a => a.id === r.toAccountId)?.name || '未知帳戶';
+  return (accounts || []).find(a => a?.id === r?.toAccountId)?.name || '未知帳戶';
 };
 
-const getLatestExchangeRate = (records: Transaction[], accounts: Account[], targetCurrency: string, beforeDate?: string): number => {
+const getLatestExchangeRate = (records: Transaction[] = [], accounts: Account[] = [], targetCurrency: string, beforeDate?: string): number => {
   if (!targetCurrency || targetCurrency === 'TWD') return 1;
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
+  const safeRecords = Array.isArray(records) ? records : [];
   
   // 1. Check custom rateHistory on accounts matching targetCurrency
-  const matchedAccounts = accounts.filter(a => (a.currency || 'TWD') === targetCurrency && a.rateHistory && a.rateHistory.length > 0);
+  const matchedAccounts = safeAccounts.filter(a => a && (a.currency || 'TWD') === targetCurrency);
   if (matchedAccounts.length > 0) {
     let allLogs: RateHistoryItem[] = [];
     matchedAccounts.forEach(a => {
-      if (a.rateHistory) allLogs.push(...a.rateHistory);
+      const logs = Array.isArray(a?.rateHistory) ? a.rateHistory : [];
+      if (logs.length > 0) allLogs.push(...logs);
     });
     if (beforeDate) {
-      allLogs = allLogs.filter(l => l.date <= beforeDate);
+      allLogs = allLogs.filter(l => l && l.date <= beforeDate);
     }
     if (allLogs.length > 0) {
       allLogs.sort((a, b) => {
-        const dateDiff = b.date.localeCompare(a.date);
+        const dateDiff = (b?.date || '').localeCompare(a?.date || '');
         if (dateDiff !== 0) return dateDiff;
-        return (b.time || '').localeCompare(a.time || '');
+        return (b?.time || '').localeCompare(a?.time || '');
       });
-      if (allLogs[0].rate && !isNaN(allLogs[0].rate) && allLogs[0].rate > 0) {
-        return allLogs[0].rate;
+      if (allLogs[0]?.rate && !isNaN(Number(allLogs[0].rate)) && Number(allLogs[0].rate) > 0) {
+        return Number(allLogs[0].rate);
       }
+    }
+    // Fallback to direct account.exchangeRate if present on matched account
+    const accWithDirectRate = matchedAccounts.find(a => a && (a as any).exchangeRate && !isNaN(Number((a as any).exchangeRate)) && Number((a as any).exchangeRate) > 0);
+    if (accWithDirectRate && (accWithDirectRate as any).exchangeRate) {
+      return Number((accWithDirectRate as any).exchangeRate);
     }
   }
 
-  const relevantTransfers = records.filter(r => {
+  const relevantTransfers = safeRecords.filter(r => {
+    if (!r) return false;
     if (r.type !== 'transfer' && !r._isMergedTransfer) return false;
     if (beforeDate && r.date > beforeDate) return false;
     
-    const srcAcc = accounts.find(a => a.id === r.accountId);
-    const dstAcc = accounts.find(a => a.id === r.toAccountId);
+    const srcAcc = safeAccounts.find(a => a?.id === r.accountId);
+    const dstAcc = safeAccounts.find(a => a?.id === r.toAccountId);
     const srcCur = srcAcc?.currency || 'TWD';
     const dstCur = dstAcc?.currency || 'TWD';
     
@@ -652,13 +661,13 @@ const getLatestExchangeRate = (records: Transaction[], accounts: Account[], targ
   
   if (relevantTransfers.length > 0) {
     relevantTransfers.sort((a, b) => {
-      const dateDiff = b.date.localeCompare(a.date);
+      const dateDiff = (b?.date || '').localeCompare(a?.date || '');
       if (dateDiff !== 0) return dateDiff;
-      return b.id.localeCompare(a.id);
+      return (b?.id || '').localeCompare(a?.id || '');
     });
     const latest = relevantTransfers[0];
-    if (latest.exchangeRate) {
-      return latest.exchangeRate;
+    if (latest && latest.exchangeRate && !isNaN(Number(latest.exchangeRate)) && Number(latest.exchangeRate) > 0) {
+      return Number(latest.exchangeRate);
     }
   }
   

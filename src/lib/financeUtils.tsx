@@ -29,9 +29,10 @@ export const getCategoryIcon = (categoryName: string, type: 'income' | 'expense'
   if (mainCategoryName === '薪資' || mainCategoryName === '月薪' || mainCategoryName === '獎金') return getIconNode('💼');
 
   // Exact match with main category name
-  const category = categories.find(c => 
-    c.name === mainCategoryName || 
-    (c.sub && c.sub.some(s => s.trim() === mainCategoryName))
+  const safeCategories = Array.isArray(categories) ? categories : [];
+  const category = safeCategories.find(c => 
+    c && (c.name === mainCategoryName || 
+    (c.sub && Array.isArray(c.sub) && c.sub.some(s => s && s.trim() === mainCategoryName)))
   );
   if (category) return getIconNode(category.icon);
 
@@ -39,7 +40,7 @@ export const getCategoryIcon = (categoryName: string, type: 'income' | 'expense'
   if (cleanName.includes(' > ') || cleanName.includes(' ＞ ')) {
     const subPart = cleanName.split(/ > | ＞ /)[1]?.trim();
     if (subPart) {
-      const subCategory = categories.find(c => c.sub && c.sub.some(s => s.trim() === subPart));
+      const subCategory = safeCategories.find(c => c && c.sub && Array.isArray(c.sub) && c.sub.some(s => s && s.trim() === subPart));
       if (subCategory) return getIconNode(subCategory.icon);
     }
   }

@@ -382,7 +382,7 @@ export function AccountDetailView({ account, records, onBack, onEdit, onUpdateRe
                       <span className="text-xs font-bold text-stone-300">{record.date}</span>
                       {account.parentId === undefined && record.accountId !== account.id && (
                         <span className="text-[10px] px-2 py-0.5 bg-stone-100 text-stone-400 rounded-full font-bold">
-                          {accounts.find(a => a.id === record.accountId)?.name}
+                          {(Array.isArray(accounts) ? accounts : []).find(a => a?.id === record.accountId)?.name}
                         </span>
                       )}
                     </div>
@@ -621,10 +621,12 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
   onDelete: (id: string) => void,
   onViewDetail?: (acc: Account) => void
 }) {
-  const isNew = !accounts.find(a => a.id === account.id);
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
+  const safeRecords = Array.isArray(records) ? records : [];
+  const isNew = !safeAccounts.find(a => a?.id === account.id);
   const [editedAcc, setEditedAcc] = useState<Account>({ ...account });
   const [initialAmount, setInitialAmount] = useState(() => {
-    const initRec = records.find(r => r.accountId === account.id && r.category === '初始資金');
+    const initRec = safeRecords.find(r => r?.accountId === account.id && r?.category === '初始資金');
     if (!initRec) return 0;
     return initRec.type === 'income' ? initRec.amount : -initRec.amount;
   });
