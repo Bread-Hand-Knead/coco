@@ -18543,6 +18543,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   // For Receipt Image Scanning (OCR)
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
 
+  // For Header Collapsible Bar (Narrow / Split-screen mode)
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+
   const parseTaiwanEInvoiceQR = (qrText: string) => {
     try {
       // Taiwan E-invoice QR code format:
@@ -19528,50 +19531,155 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     );
   };
 
-  const renderDateProjectCamera = () => (
-    <div className="w-full flex flex-col gap-2">
-      {tab !== 'transfer' && (
-        <div className="flex items-center gap-2 w-full">
-          <label className="flex-1 h-11 px-3.5 bg-white hover:bg-[#FFD54F]/10 active:scale-95 transition-all rounded-2xl border-2 border-[#5D4037]/10 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#5D4037]">
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment"
-              className="hidden" 
-              onChange={handleScanReceipt} 
-              disabled={isScanningReceipt}
-            />
-            {isScanningReceipt ? (
-              <>
-                <Loader2 className="w-4 h-4 text-[#5D4037] animate-spin" />
-                <span className="text-xs font-black">辨識中</span>
-              </>
+  const renderCollapsibleHeaderSummary = () => (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: 0.2 }}
+      className="w-full bg-[#FFFDF5] hover:bg-[#FFF9E6] transition-all rounded-2xl border-2 border-[#5D4037]/15 shadow-sm p-2 flex items-center justify-between text-[#5D4037] cursor-pointer select-none"
+      style={getFontFamily()}
+    >
+      <div 
+        onClick={() => setIsHeaderCollapsed(false)}
+        className="flex items-center gap-2 flex-1 min-w-0 pr-2"
+        title="點擊展開修改日期、時間與專案"
+      >
+        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold truncate">
+          <span className="flex items-center gap-1 shrink-0 text-[#5D4037]">
+            <CalendarIcon size={14} className="text-[#FFD54F]" />
+            {consumptionDate.replace(/-/g, '/')}
+          </span>
+          <span className="text-stone-300 font-normal">｜</span>
+          <span className="flex items-center gap-1 shrink-0 text-[#5D4037]">
+            <Clock size={14} className="text-[#FFD54F]" />
+            {consumptionTime || '00:00'}
+          </span>
+          <span className="text-stone-300 font-normal">｜</span>
+          <span className="flex items-center gap-1 truncate text-[#5D4037]">
+            {selectedProject?.icon ? (
+              <AccountIcon icon={selectedProject.icon} sizeClassName="w-3.5 h-3.5" />
             ) : (
-              <>
-                <Camera size={16} className="text-[#5D4037]" />
-                <span className="text-xs font-black">發票掃描</span>
-              </>
+              <Layers size={13} className="text-[#FFD54F]" />
             )}
-          </label>
-          <button
-            type="button"
-            onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
-            className="flex-1 h-11 px-3.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#0369A1]"
-            style={getFontFamily()}
-          >
-            <Sparkles size={16} className="text-[#0369A1]" />
-            <span className="text-xs font-black">AI 智慧拆分</span>
-          </button>
+            <span className="truncate">{selectedProject?.name || '預設專案'}</span>
+          </span>
         </div>
-      )}
-      <div className="w-full">
-        {renderCompactBar()}
       </div>
-      {renderCreditCardSubBar()}
-    </div>
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        {tab !== 'transfer' && (
+          <>
+            <label 
+              onClick={(e) => e.stopPropagation()} 
+              className="p-1.5 bg-white hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-xl border border-stone-200 shadow-sm flex items-center justify-center cursor-pointer text-[#5D4037]"
+              title="發票掃描"
+            >
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment"
+                className="hidden" 
+                onChange={handleScanReceipt} 
+                disabled={isScanningReceipt}
+              />
+              {isScanningReceipt ? (
+                <Loader2 className="w-3.5 h-3.5 text-[#5D4037] animate-spin" />
+              ) : (
+                <Camera size={14} className="text-[#5D4037]" />
+              )}
+            </label>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenAiSplit(tab === 'income' ? 'income' : 'expense');
+              }}
+              className="p-1.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-xl border border-[#0284C7]/40 shadow-sm flex items-center justify-center text-[#0369A1]"
+              title="AI 智慧拆分"
+            >
+              <Sparkles size={14} className="text-[#0369A1]" />
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={() => setIsHeaderCollapsed(false)}
+          className="p-1.5 bg-stone-100 hover:bg-stone-200 active:scale-95 rounded-xl transition-all text-stone-600 flex items-center justify-center"
+          title="點擊展開完整選項"
+        >
+          <ChevronDown size={16} />
+        </button>
+      </div>
+    </motion.div>
   );
 
+  const renderDateProjectCamera = () => {
+    if (isHeaderCollapsed) {
+      return renderCollapsibleHeaderSummary();
+    }
 
+    return (
+      <motion.div 
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: 'auto' }}
+        exit={{ opacity: 0, height: 0 }}
+        transition={{ duration: 0.2 }}
+        className="w-full flex flex-col gap-2"
+      >
+        <div className="flex items-center justify-between gap-2 w-full">
+          {tab !== 'transfer' ? (
+            <div className="flex items-center gap-2 flex-1">
+              <label className="flex-1 h-10 px-3 bg-white hover:bg-[#FFD54F]/10 active:scale-95 transition-all rounded-2xl border-2 border-[#5D4037]/10 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#5D4037]">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment"
+                  className="hidden" 
+                  onChange={handleScanReceipt} 
+                  disabled={isScanningReceipt}
+                />
+                {isScanningReceipt ? (
+                  <>
+                    <Loader2 className="w-4 h-4 text-[#5D4037] animate-spin" />
+                    <span className="text-xs font-black">辨識中</span>
+                  </>
+                ) : (
+                  <>
+                    <Camera size={16} className="text-[#5D4037]" />
+                    <span className="text-xs font-black">發票掃描</span>
+                  </>
+                )}
+              </label>
+              <button
+                type="button"
+                onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
+                className="flex-1 h-10 px-3 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#0369A1]"
+                style={getFontFamily()}
+              >
+                <Sparkles size={16} className="text-[#0369A1]" />
+                <span className="text-xs font-black">AI 智慧拆分</span>
+              </button>
+            </div>
+          ) : <div className="flex-1" />}
+
+          <button
+            type="button"
+            onClick={() => setIsHeaderCollapsed(true)}
+            className="h-10 px-2.5 bg-stone-100 hover:bg-stone-200 active:scale-95 transition-all rounded-2xl border border-stone-200 text-stone-600 flex items-center gap-1 text-xs font-bold shrink-0"
+            title="縮回精簡摘要模式"
+          >
+            <ChevronUp size={16} />
+            <span className="hidden sm:inline">收合</span>
+          </button>
+        </div>
+        <div className="w-full">
+          {renderCompactBar()}
+        </div>
+        {renderCreditCardSubBar()}
+      </motion.div>
+    );
+  };
 
   const renderCalculator = () => (
     <>
@@ -19675,42 +19783,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         {/* Date & Project & Camera Selection Area (Mobile only) */}
         {tab !== 'template' && !showCalculator && (
           <div className="mx-6 flex flex-col gap-2 md:hidden shrink-0">
-            {tab !== 'transfer' && (
-              <div className="flex items-center gap-2">
-                <label className="flex-1 h-9 bg-white hover:bg-[#FFD54F]/10 active:scale-95 transition-all rounded-xl border border-stone-200/80 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#5D4037]">
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    capture="environment"
-                    className="hidden" 
-                    onChange={handleScanReceipt} 
-                    disabled={isScanningReceipt}
-                  />
-                  {isScanningReceipt ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 text-[#5D4037] animate-spin" />
-                      <span className="text-xs font-bold">辨識中...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Camera size={14} className="text-[#5D4037]" />
-                      <span className="text-xs font-bold">發票掃描</span>
-                    </>
-                  )}
-                </label>
-                <button
-                  type="button"
-                  onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
-                  className="flex-1 h-9 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-xl border border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#0369A1]"
-                  style={getFontFamily()}
-                >
-                  <Sparkles size={14} className="text-[#0369A1]" />
-                  <span className="text-xs font-bold">AI 智慧拆分</span>
-                </button>
-              </div>
-            )}
-            {renderCompactBar()}
-            {renderCreditCardSubBar()}
+            {renderDateProjectCamera()}
           </div>
         )}
 
