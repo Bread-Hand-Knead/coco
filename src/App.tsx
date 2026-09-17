@@ -3317,7 +3317,7 @@ export default function App() {
                 accounts={accounts}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={confirmDeleteRecord}
-                onDuplicateRecord={handleDuplicateRecord}
+                onDuplicateRecord={handleDuplicateTransaction}
               />
             )}
             {currentView === 'more' && (
