@@ -1064,6 +1064,30 @@ const cleanData = (obj: any) => {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+
+  const [aiParseCount, setAiParseCount] = useState<number>(() => {
+    try {
+      const val = localStorage.getItem('coco_ai_parse_count');
+      return val ? parseInt(val, 10) || 0 : 0;
+    } catch (_) {
+      return 0;
+    }
+  });
+
+  const incrementAiParseCount = useCallback(() => {
+    setAiParseCount(prev => {
+      const next = prev + 1;
+      try {
+        localStorage.setItem('coco_ai_parse_count', String(next));
+        if (user && db) {
+          setDoc(doc(db, 'users', user.uid), { aiParseCount: next }, { merge: true }).catch(console.error);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  }, [user]);
   const [currentView, setCurrentView] = useState<'home' | 'reports' | 'more' | 'accounts' | 'calendar' | 'accountDetail' | 'history' | 'fixedRecords' | 'projects' | 'budget' | 'categories' | 'installments' | 'search' | 'prepayments'>('home');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -1375,6 +1399,10 @@ export default function App() {
       if (data?.monthlyBudget !== undefined) {
         setMonthlyBudget(data.monthlyBudget);
         try { localStorage.setItem('coco_budget_cache', JSON.stringify(data.monthlyBudget)); } catch (e) {}
+      }
+      if (data?.aiParseCount !== undefined && typeof data.aiParseCount === 'number') {
+        setAiParseCount(data.aiParseCount);
+        try { localStorage.setItem('coco_ai_parse_count', String(data.aiParseCount)); } catch (e) {}
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}`));
 
@@ -2955,6 +2983,14 @@ export default function App() {
                       <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">
                         {user ? '雲端同步中' : '未登入'}
                       </span>
+                      <div 
+                        onClick={() => alert('✨ 累計透過 AI 智慧拆分與發票辨識處理的記帳次數')}
+                        className="mt-1 flex items-center gap-1.5 px-2.5 py-0.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] text-[#0369A1] rounded-full border border-[#0284C7]/30 text-[11px] font-black cursor-pointer shadow-xs active:scale-95 transition-all w-fit"
+                        title="點擊查看說明"
+                      >
+                        <Sparkles size={12} className="text-[#0284C7] shrink-0" />
+                        <span>AI 解析使用：{aiParseCount} 次</span>
+                      </div>
                     </div>
                   </div>
                   
@@ -3330,6 +3366,7 @@ export default function App() {
                 templates={templates}
                 fixedRecords={fixedRecords}
                 user={user}
+                aiParseCount={aiParseCount}
                 onForceSync={handleForceSync}
                 setRecords={setRecords}
                 setAccounts={setAccounts}
@@ -3396,6 +3433,7 @@ export default function App() {
               projects={projects}
               user={user}
               onSaveBatch={handleSaveBatchRecords}
+              onIncrementAiCount={incrementAiParseCount}
             />
           )}
         </AnimatePresence>
@@ -16055,6 +16093,7 @@ function MoreView({
   templates,
   fixedRecords,
   user,
+  aiParseCount = 0,
   onForceSync,
   setRecords, 
   setAccounts,
@@ -16074,6 +16113,7 @@ function MoreView({
   templates: Template[],
   fixedRecords: FixedRecord[],
   user: User | null,
+  aiParseCount?: number,
   onForceSync: () => Promise<boolean | undefined>,
   setRecords: (r: Transaction[]) => void,
   setAccounts: React.Dispatch<React.SetStateAction<Account[]>>,
@@ -17962,6 +18002,37 @@ function MoreView({
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="flex flex-col gap-4 px-4 py-6"
     >
+      {/* 個人資訊區塊 (Profile Info Section) */}
+      <div className="bg-white rounded-[30px] p-5 shadow-sm border-2 border-white flex items-center justify-between">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 bg-[#FFF9E3] rounded-2xl flex items-center justify-center text-2xl overflow-hidden border border-[#FFD54F]/40 shadow-xs">
+            {user?.photoURL ? (
+              <img src={user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+            ) : '🦊'}
+          </div>
+          <div className="flex flex-col">
+            <span className="text-base font-black text-[#5D4037]">{user ? user.displayName : '訪客模式'}</span>
+            <div 
+              onClick={() => alert('✨ 累計透過 AI 智慧拆分與發票辨識處理的記帳次數')}
+              className="mt-1 flex items-center gap-1.5 px-2.5 py-0.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] text-[#0369A1] rounded-full border border-[#0284C7]/30 text-[12px] font-black cursor-pointer shadow-xs active:scale-95 transition-all w-fit"
+              title="點擊查看說明"
+            >
+              <Sparkles size={12} className="text-[#0284C7] shrink-0" />
+              <span>AI 解析使用：{aiParseCount} 次</span>
+            </div>
+          </div>
+        </div>
+        {user ? (
+          <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200/60">
+            雲端同步中
+          </span>
+        ) : (
+          <span className="text-xs font-bold text-stone-400 bg-stone-100 px-3 py-1 rounded-full">
+            未登入
+          </span>
+        )}
+      </div>
+
       <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-2">
         <span className="font-black text-lg mb-2 text-[#5D4037]">系統設定</span>
         <button 
@@ -21106,9 +21177,10 @@ interface AiSplitModalProps {
   projects: Project[];
   user: User | null;
   onSaveBatch: (records: any[]) => Promise<void>;
+  onIncrementAiCount?: () => void;
 }
 
-function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categories, projects, user, onSaveBatch }: AiSplitModalProps) {
+function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categories, projects, user, onSaveBatch, onIncrementAiCount }: AiSplitModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [rawText, setRawText] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
@@ -21314,6 +21386,7 @@ ${categoriesString}
 
       setParsedItems(items);
       setStep(2);
+      onIncrementAiCount?.();
     } catch (err: any) {
       console.error('AI split failed:', err);
       alert('解析失敗：' + (err.message || '請確認網路連線或 API 金鑰是否正確。'));
