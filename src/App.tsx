@@ -3314,6 +3314,10 @@ export default function App() {
                 records={records} 
                 projects={projects}
                 categories={categories}
+                accounts={accounts}
+                onUpdateRecord={handleUpdateRecord}
+                onDeleteRecord={confirmDeleteRecord}
+                onDuplicateRecord={handleDuplicateRecord}
               />
             )}
             {currentView === 'more' && (
@@ -15400,14 +15404,298 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-function ReportsView({ records, projects, categories }: { 
+function CategoryDetailModal({
+  categoryName,
+  dateInterval,
+  records,
+  categories,
+  accounts = [],
+  totalPeriodExpense,
+  onClose,
+  onSelectRecord
+}: {
+  categoryName: string,
+  dateInterval: { start: Date, end: Date },
+  records: Transaction[],
+  categories: Category[],
+  accounts?: Account[],
+  totalPeriodExpense: number,
+  onClose: () => void,
+  onSelectRecord: (r: Transaction) => void
+}) {
+  const [subFilter, setSubFilter] = useState<string>('all');
+
+  // Semantic fallback dictionary for un-categorized or legacy records
+  const SEMANTIC_FALLBACKS: Record<string, string[]> = useMemo(() => ({
+    '飲食': ['午餐', '晚餐', '早餐', '宵夜', '飲料', '食材', '奶類', '點心', '水果', '咖啡', '外食', '外送', '下午茶', '甜點', '便當'],
+    '醫療&健康': ['中醫', '西醫', '診所', '藥局', '保健', '牙醫', '眼科', '體檢', '健保', '復健'],
+    '醫療健康': ['中醫', '西醫', '診所', '藥局', '保健', '牙醫', '眼科', '體檢', '健保', '復健'],
+    '交通': ['捷運', '公車', '高鐵', '台鐵', '計程車', '加油', '停車', '悠遊卡', '加油費', '車資', '過路費', '定期票'],
+    '居住': ['房租', '水費', '電費', '瓦斯', '管理費', '網路費', '傢俱', '家電', '日常用品', '居家'],
+    '家庭': ['房租', '水費', '電費', '瓦斯', '管理費', '網路費', '傢俱', '家電', '日常用品', '居家', '家用'],
+    '娛樂': ['電影', '遊戲', '追星', '展覽', 'KTV', '演唱會', '吉伊卡哇', '玩具', '動漫', '訂閱'],
+    '購物': ['服飾', '鞋款', '美妝', '3C', '雜貨', '蝦皮', '淘寶']
+  }), []);
+
+  const catObj = useMemo(() => (Array.isArray(categories) ? categories : []).find(c => c.name === categoryName), [categories, categoryName]);
+  const isParentCat = useMemo(() => !!catObj && Array.isArray(catObj.sub) && catObj.sub.length > 0, [catObj]);
+
+  const childSubNames = useMemo(() => {
+    if (isParentCat && catObj) {
+      const definedSubs = catObj.sub || [];
+      const fallbacks = SEMANTIC_FALLBACKS[categoryName] || [];
+      return Array.from(new Set([...definedSubs, ...fallbacks]));
+    }
+    return [];
+  }, [isParentCat, catObj, categoryName, SEMANTIC_FALLBACKS]);
+
+  // Valid period records matching category/subcategory rules
+  const matchingRecords = useMemo(() => {
+    return records.filter(r => {
+      if (r.type === 'transfer' || r.isPrepay || r.parentId || (r as any).isMergedChild) return false;
+      if (r.type !== 'expense') return false;
+
+      const d = parseISO(r.postingDate || r.date);
+      if (d < dateInterval.start || d > dateInterval.end) return false;
+
+      if (!r.category) return false;
+      const cleanCat = r.category.trim();
+      const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+      const mainPart = parts[0];
+      const subPart = parts[1];
+
+      if (isParentCat) {
+        if (mainPart === categoryName || cleanCat === categoryName) return true;
+        if (subPart && childSubNames.includes(subPart)) return true;
+        if (childSubNames.includes(cleanCat) || childSubNames.includes(mainPart)) return true;
+        return false;
+      } else {
+        if (cleanCat === categoryName || subPart === categoryName || parts.includes(categoryName)) return true;
+        return false;
+      }
+    });
+  }, [records, dateInterval, categoryName, isParentCat, childSubNames]);
+
+  // Subcategories present in actual records
+  const presentSubCategories = useMemo(() => {
+    if (!isParentCat) return [];
+    const subsSet = new Set<string>();
+    matchingRecords.forEach(r => {
+      const cleanCat = (r.category || '').trim();
+      const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+      if (parts.length > 1 && parts[1]) {
+        subsSet.add(parts[1]);
+      } else if (parts[0] !== categoryName) {
+        subsSet.add(parts[0]);
+      } else {
+        subsSet.add('主要 / 直屬');
+      }
+    });
+    return Array.from(subsSet);
+  }, [isParentCat, matchingRecords, categoryName]);
+
+  // Filter records based on active subFilter tab inside modal
+  const filteredRecords = useMemo(() => {
+    if (subFilter === 'all') return matchingRecords;
+    return matchingRecords.filter(r => {
+      const cleanCat = (r.category || '').trim();
+      const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+      if (subFilter === '主要 / 直屬') {
+        return parts[0] === categoryName && parts.length === 1;
+      }
+      return parts.includes(subFilter) || cleanCat === subFilter;
+    });
+  }, [matchingRecords, subFilter, categoryName]);
+
+  const catTotal = useMemo(() => {
+    return matchingRecords.reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
+  }, [matchingRecords]);
+
+  const percentage = useMemo(() => {
+    if (totalPeriodExpense <= 0) return '0.0';
+    return ((catTotal / totalPeriodExpense) * 100).toFixed(1);
+  }, [catTotal, totalPeriodExpense]);
+
+  // Sorted records (newest to oldest)
+  const sortedRecords = useMemo(() => {
+    return [...filteredRecords].sort((a, b) => {
+      const dateA = a.date + (a.time || '');
+      const dateB = b.date + (b.time || '');
+      return dateB.localeCompare(dateA);
+    });
+  }, [filteredRecords]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end md:items-center justify-center p-0 md:p-6"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 250 }}
+        className="bg-[#FFFDF5] w-full max-w-xl rounded-t-[32px] md:rounded-[32px] p-6 flex flex-col gap-4 max-h-[85vh] md:max-h-[80vh] overflow-hidden shadow-2xl border border-stone-100"
+        onClick={e => e.stopPropagation()}
+        style={getFontFamily()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-stone-200/60 pb-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-[#FFD54F]/20 border border-[#FFD54F]/40 flex items-center justify-center text-xl shrink-0">
+              <AccountIcon icon={catObj?.icon || '📁'} sizeClassName="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-black text-[#5D4037]">{categoryName}</h3>
+                <span className="text-xs font-black bg-[#FFD54F] text-[#5D4037] px-2.5 py-0.5 rounded-full shadow-xs">
+                  {percentage}% 佔比
+                </span>
+              </div>
+              <p className="text-xs font-bold text-stone-400 mt-0.5">
+                {isParentCat ? '母分類 (含旗下所有子分類加總)' : '單一分類明細'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-stone-100 rounded-full transition-colors text-stone-400 hover:text-stone-600"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Top Summary Banner */}
+        <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs flex items-center justify-between shrink-0">
+          <div>
+            <span className="text-xs font-bold text-stone-400 block">此期間總花費</span>
+            <span className="text-2xl font-black text-rose-600">${catTotal.toLocaleString()}</span>
+          </div>
+          <div className="text-right">
+            <span className="text-xs font-bold text-stone-400 block">交易筆數</span>
+            <span className="text-base font-black text-[#5D4037]">{matchingRecords.length} 筆交易</span>
+          </div>
+        </div>
+
+        {/* Sub-category Filter Tabs (If Parent Category) */}
+        {isParentCat && presentSubCategories.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1 custom-scrollbar shrink-0">
+            <button
+              onClick={() => setSubFilter('all')}
+              className={`px-3 py-1.5 rounded-full text-xs font-black transition-all shrink-0 ${
+                subFilter === 'all'
+                  ? 'bg-[#5D4037] text-white shadow-xs'
+                  : 'bg-white text-stone-500 border border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              全部 ({matchingRecords.length})
+            </button>
+            {presentSubCategories.map(subName => {
+              const count = matchingRecords.filter(r => {
+                const cleanCat = (r.category || '').trim();
+                const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+                if (subName === '主要 / 直屬') return parts[0] === categoryName && parts.length === 1;
+                return parts.includes(subName) || cleanCat === subName;
+              }).length;
+
+              return (
+                <button
+                  key={subName}
+                  onClick={() => setSubFilter(subName)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-black transition-all shrink-0 ${
+                    subFilter === subName
+                      ? 'bg-[#FFD54F] text-[#5D4037] shadow-xs'
+                      : 'bg-white text-stone-500 border border-stone-200 hover:bg-stone-50'
+                  }`}
+                >
+                  {subName} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Transaction List */}
+        <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-0">
+          {sortedRecords.length === 0 ? (
+            <div className="py-12 text-center text-stone-400 text-sm font-bold bg-stone-50/50 rounded-2xl border border-dashed border-stone-200">
+              無相關交易明細紀錄
+            </div>
+          ) : (
+            sortedRecords.map((r) => {
+              const accName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name || '未指定帳戶';
+              const amt = Math.abs(r.amount) + (r.fee || 0);
+
+              return (
+                <div
+                  key={r.id}
+                  onClick={() => onSelectRecord(r)}
+                  className="p-3.5 bg-white hover:bg-amber-50/40 active:scale-[0.99] transition-all rounded-2xl border border-stone-200/80 shadow-xs flex items-center justify-between cursor-pointer group"
+                >
+                  <div className="flex flex-col gap-1 min-w-0 pr-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-[#5D4037] text-sm truncate group-hover:text-amber-900">
+                        {r.note || r.category || '消費明細'}
+                      </span>
+                      {r.category && r.category !== categoryName && (
+                        <span className="text-[10px] font-bold bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full shrink-0">
+                          {r.category}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-stone-400">
+                      <span>📅 {r.date} {r.time || ''}</span>
+                      <span>•</span>
+                      <span className="text-stone-500">💳 {accName}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className="text-base font-black text-rose-600">
+                      -${amt.toLocaleString()}
+                    </span>
+                    {r.fee ? (
+                      <span className="block text-[10px] font-bold text-stone-400">含手續費 ${r.fee}</span>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function ReportsView({ 
+  records, 
+  projects, 
+  categories,
+  accounts = [],
+  onUpdateRecord,
+  onDeleteRecord,
+  onDuplicateRecord
+}: { 
   records: Transaction[], 
   projects: Project[], 
-  categories: Category[] 
+  categories: Category[],
+  accounts?: Account[],
+  onUpdateRecord?: (oldRecord: Transaction, updatedRecord: Partial<Transaction>, mergedIdsToDelete?: string[], restoredChildIds?: string[]) => void,
+  onDeleteRecord?: (record: Transaction) => void,
+  onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [dateRange, setDateRange] = useState<'thisMonth' | 'last3Months' | 'last6Months' | 'lastYear'>('thisMonth');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeSector, setActiveSector] = useState<any>(null);
+
+  // Category Detail Modal & Editing Record State
+  const [detailCategory, setDetailCategory] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   
   const COLORS = ['#FFD54F', '#FFAB91', '#81C784', '#90CAF9', '#CE93D8', '#BCAAA4', '#B0BEC5', '#FFCCBC', '#C5E1A5', '#FFF59D'];
 
@@ -15591,8 +15879,11 @@ function ReportsView({ records, projects, categories }: {
             <button
               key={cat.id || cat.name}
               type="button"
-              onClick={() => setSelectedCategory(cat.name)}
-              className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-1.5 shrink-0 ${
+              onClick={() => {
+                setSelectedCategory(cat.name);
+                setDetailCategory(cat.name);
+              }}
+              className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-1.5 shrink-0 active:scale-95 ${
                 selectedCategory === cat.name 
                   ? 'bg-[#FFD54F] text-[#5D4037] border-[#FFD54F] shadow-sm scale-[1.02]' 
                   : 'bg-white text-stone-500 border-stone-100 hover:bg-stone-50'
@@ -15661,10 +15952,15 @@ function ReportsView({ records, projects, categories }: {
                     stroke="none"
                     onMouseEnter={(data) => setActiveSector(data)}
                     onMouseLeave={() => setActiveSector(null)}
-                    onClick={(data) => setActiveSector(data)}
+                    onClick={(data) => {
+                      setActiveSector(data);
+                      if (data && data.name) {
+                        setDetailCategory(data.name);
+                      }
+                    }}
                   >
                     {stats.pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} className="cursor-pointer" />
                     ))}
                   </Pie>
                   <Tooltip 
@@ -15683,15 +15979,20 @@ function ReportsView({ records, projects, categories }: {
 
             <div className="grid grid-cols-2 gap-3 mt-8">
               {stats.pieData.map((entry, index) => (
-                <div key={entry.name} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl">
+                <button
+                  key={entry.name}
+                  type="button"
+                  onClick={() => setDetailCategory(entry.name)}
+                  className="flex items-center justify-between p-3 bg-stone-50 hover:bg-amber-50/60 active:scale-[0.98] transition-all rounded-2xl cursor-pointer text-left border border-stone-100 hover:border-amber-200/80 shadow-xs"
+                >
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
                     <span className="text-xs font-bold text-[#5D4037] truncate">{entry.name}</span>
                   </div>
-                  <span className="text-[10px] font-black text-stone-400">
-                    {stats.expense > 0 ? ((entry.value / stats.expense) * 100).toFixed(1) : 0}%
+                  <span className="text-[10px] font-black text-stone-400 shrink-0 ml-1">
+                    {stats.expense > 0 ? ((entry.value / stats.expense) * 100).toFixed(1) : 0}% 🔍
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           </>
@@ -15699,6 +16000,48 @@ function ReportsView({ records, projects, categories }: {
       </div>
 
       <div className="h-[60px]" />
+
+      {/* Category Detail Modal */}
+      <AnimatePresence>
+        {detailCategory && (
+          <CategoryDetailModal
+            categoryName={detailCategory}
+            dateInterval={dateInterval}
+            records={records}
+            categories={categories}
+            accounts={accounts}
+            totalPeriodExpense={stats.expense}
+            onClose={() => setDetailCategory(null)}
+            onSelectRecord={(r) => setEditingRecord(r)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Edit Record Modal triggered from Category Detail Modal */}
+      <AnimatePresence>
+        {editingRecord && (
+          <EditRecordModal 
+            record={editingRecord}
+            records={records}
+            accounts={accounts}
+            projects={projects}
+            categories={categories}
+            onClose={() => setEditingRecord(null)}
+            onSave={(updated, mergedIdsToDelete, restoredIds) => {
+              onUpdateRecord?.(editingRecord, updated, mergedIdsToDelete, restoredIds);
+              setEditingRecord(null);
+            }}
+            onDelete={() => {
+              onDeleteRecord?.(editingRecord);
+              setEditingRecord(null);
+            }}
+            onDuplicate={(rec) => {
+              setEditingRecord(null);
+              onDuplicateRecord?.(rec);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
