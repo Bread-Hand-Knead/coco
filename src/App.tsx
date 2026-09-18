@@ -998,8 +998,11 @@ export const parseSmartTransactionTitle = (title: string, isExpense: boolean = t
 
 export const getRecordPersonalAmount = (r: Transaction): number => {
   if (r.type !== 'expense') return 0;
-  if (r.subItems && r.subItems.length > 0) {
-    const personalSum = r.subItems.filter(i => !i.isPrepay).reduce((sum, item) => sum + Math.abs(item.amount), 0);
+  const items = (r.subItems && r.subItems.length > 0) ? r.subItems : (r.subTransactions && r.subTransactions.length > 0) ? r.subTransactions : null;
+  if (items && items.length > 0) {
+    const personalSum = items
+      .filter((i: any) => !i.isPrepay && !(typeof i.tag === 'string' && i.tag.includes('家裡代墊')) && i.reimbursementTag !== 'family')
+      .reduce((sum, item) => sum + Math.abs(item.amount), 0);
     return personalSum + (r.fee || 0);
   }
   if (r.isPrepay) return 0;
@@ -1008,8 +1011,11 @@ export const getRecordPersonalAmount = (r: Transaction): number => {
 
 export const getRecordPrepayAmount = (r: Transaction): number => {
   if (r.type !== 'expense') return 0;
-  if (r.subItems && r.subItems.length > 0) {
-    return r.subItems.filter(i => !!i.isPrepay).reduce((sum, item) => sum + Math.abs(item.amount), 0);
+  const items = (r.subItems && r.subItems.length > 0) ? r.subItems : (r.subTransactions && r.subTransactions.length > 0) ? r.subTransactions : null;
+  if (items && items.length > 0) {
+    return items
+      .filter((i: any) => !!i.isPrepay || (typeof i.tag === 'string' && i.tag.includes('家裡代墊')) || i.reimbursementTag === 'family')
+      .reduce((sum, item) => sum + Math.abs(item.amount), 0);
   }
   if (r.isPrepay) return Math.abs(r.amount);
   return 0;
@@ -21047,17 +21053,17 @@ function PrepaymentsView({
 
   // Filter prepay transactions
   const prepayRecords = useMemo(() => {
-    return records.filter(r => r.isPrepay === true).sort((a, b) => b.date.localeCompare(a.date));
+    return records.filter(r => r.isPrepay === true || getRecordPrepayAmount(r) > 0).sort((a, b) => b.date.localeCompare(a.date));
   }, [records]);
 
   const totalReceivable = useMemo(() => {
     return records
-      .filter(r => r.isPrepay === true && r.type === 'expense' && !r.isSettled)
-      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+      .filter(r => r.type === 'expense' && !r.isSettled)
+      .reduce((sum, r) => sum + getRecordPrepayAmount(r), 0);
   }, [records]);
 
   const pendingCount = useMemo(() => {
-    return records.filter(r => r.isPrepay === true && r.type === 'expense' && !r.isSettled).length;
+    return records.filter(r => r.type === 'expense' && !r.isSettled && getRecordPrepayAmount(r) > 0).length;
   }, [records]);
 
   return (
@@ -21088,6 +21094,12 @@ function PrepaymentsView({
             {prepayRecords.map(r => {
               const accName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name || '未知帳戶';
               const isSettled = r.isSettled === true || r.type === 'income';
+              const prepayAmt = getRecordPrepayAmount(r);
+              const totalAmt = Math.abs(r.amount);
+              const personalAmt = getRecordPersonalAmount(r);
+              const displayAmt = r.type === 'expense' ? (prepayAmt > 0 ? prepayAmt : totalAmt) : totalAmt;
+              const hasMixedSubItems = ((r.subItems && r.subItems.length > 0) || (r.subTransactions && r.subTransactions.length > 0)) && prepayAmt > 0 && personalAmt > 0;
+
               return (
                 <div 
                   key={r.id}
@@ -21100,6 +21112,11 @@ function PrepaymentsView({
                   
                   <div className="flex-1 min-w-0 flex flex-col gap-1">
                     <span className={`font-black text-[#5D4037] truncate ${isSettled ? 'line-through text-stone-400' : ''}`}>{r.note || '未命名明細'}</span>
+                    {hasMixedSubItems && (
+                      <div className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-100 px-2 py-0.5 rounded-md w-fit">
+                        整筆 ${totalAmt.toLocaleString()} / 含個人 ${personalAmt.toLocaleString()}
+                      </div>
+                    )}
                     <div className="flex items-center gap-1.5 text-[10px] text-stone-400 font-bold">
                       <span>{r.date}</span>
                       <span>•</span>
@@ -21111,7 +21128,7 @@ function PrepaymentsView({
 
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <span className={`font-black text-base ${isSettled ? 'line-through text-stone-400 font-bold' : (r.type === 'income' ? 'text-teal-600' : 'text-sky-600')}`}>
-                      {r.type === 'income' ? '+' : ''}$ {Math.abs(r.amount).toLocaleString()}
+                      {r.type === 'income' ? '+' : ''}$ {displayAmt.toLocaleString()}
                     </span>
                     <button 
                       onClick={(e) => {
