@@ -9144,20 +9144,31 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       >
         <AnimatePresence>
           {isProjectPickerOpen && (
-            <div className="fixed inset-0 z-[350] flex items-center justify-center p-6">
+            <div className="fixed inset-0 z-[350] flex items-center justify-center p-6" onClick={(e) => e.stopPropagation()}>
               <motion.div 
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md"
-                onClick={() => setIsProjectPickerOpen(false)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsProjectPickerOpen(false);
+                }}
               />
               <motion.div 
                 initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-                className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh]"
+                className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh] z-10"
                 style={getFontFamily()}
+                onClick={(e) => e.stopPropagation()}
               >
                 <div className="p-6 pb-2 border-b border-stone-50 flex items-center justify-between">
                   <h3 className="text-xl font-black text-[#5D4037]">選取專案</h3>
-                  <button onClick={() => setIsProjectPickerOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                  <button 
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsProjectPickerOpen(false);
+                    }} 
+                    className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+                  >
                     <X size={20} className="text-stone-400" />
                   </button>
                 </div>
@@ -20601,20 +20612,31 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       {/* Project Selection Modal */}
       <AnimatePresence>
         {isProjectPickerOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6" onClick={(e) => e.stopPropagation()}>
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-[#5D4037]/40 backdrop-blur-md"
-              onClick={() => setIsProjectPickerOpen(false)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsProjectPickerOpen(false);
+              }}
             />
             <motion.div 
               initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-              className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh]"
+              className="relative bg-[#FFFDF5] w-full max-w-sm rounded-[40px] shadow-2xl border-2 border-white overflow-hidden flex flex-col max-h-[80vh] z-10"
               style={getFontFamily()}
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="p-6 pb-2 border-b border-stone-50 flex items-center justify-between">
                 <h3 className="text-xl font-black text-[#5D4037]">選取專案</h3>
-                <button onClick={() => setIsProjectPickerOpen(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                <button 
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsProjectPickerOpen(false);
+                  }} 
+                  className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+                >
                   <X size={20} className="text-stone-400" />
                 </button>
               </div>
