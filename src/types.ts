@@ -125,7 +125,8 @@ export interface Stock {
   currentPrice?: number;  // 目前市價 / 最新淨值
   evaluationDate?: string; // 市值評估日期
   linkedAccount: string;  // 綁定之證券交割銀行帳戶 ID
-  purchaseDate?: string;  // 購買日期
+  purchaseDate?: string;  // 購買日期 (成交日)
+  settlementDate?: string; // 交割日期 (扣款日)
   notes?: string;         // 備註說明
   fee?: number;           // 手續費 (元)
   totalCost?: number;     // 投入總成本 (元)

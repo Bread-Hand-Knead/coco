@@ -299,7 +299,8 @@ export interface Stock {
   currentPrice?: number;  // 目前市價 / 最新淨值 (元)
   evaluationDate?: string; // 市值評估日期 (YYYY-MM-DD)
   linkedAccount: string;  // 綁定之證券/基金交割銀行帳戶 ID
-  purchaseDate?: string;  // 購買日期
+  purchaseDate?: string;  // 購買日期 (成交日)
+  settlementDate?: string; // 交割日期 (扣款日)
   notes?: string;         // 備註說明
   fee?: number;           // 手續費 (元)
   totalCost?: number;     // 投入總成本 (元)
@@ -5507,6 +5508,28 @@ function InvestmentSection({
   onDeleteRecord: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
+  // Helper to calculate T+2 trading days for stock settlement date
+  const calculateSettlementDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-').map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return dateStr;
+    let d = new Date(parts[0], parts[1] - 1, parts[2]);
+
+    let addedTradingDays = 0;
+    while (addedTradingDays < 2) {
+      d.setDate(d.getDate() + 1);
+      const dayOfWeek = d.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Skip Sunday (0) and Saturday (6)
+        addedTradingDays++;
+      }
+    }
+
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   // states for stock add/edit
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
   const [selectedStockForDetail, setSelectedStockForDetail] = useState<Stock | null>(null);
@@ -5527,6 +5550,11 @@ function InvestmentSection({
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
+  const [stockSettlementDate, setStockSettlementDate] = useState(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return calculateSettlementDate(todayStr);
+  });
+  const [isStockSettlementManual, setIsStockSettlementManual] = useState(false);
   const [stockEvaluationDate, setStockEvaluationDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
@@ -5545,8 +5573,27 @@ function InvestmentSection({
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
+  const [buySettlementDate, setBuySettlementDate] = useState(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return calculateSettlementDate(todayStr);
+  });
+  const [isBuySettlementManual, setIsBuySettlementManual] = useState(false);
   const [buyAccount, setBuyAccount] = useState('');
   const [buyNotes, setBuyNotes] = useState('');
+
+  const handleStockPurchaseDateChange = (val: string) => {
+    setStockPurchaseDate(val);
+    if (!isStockSettlementManual) {
+      setStockSettlementDate(calculateSettlementDate(val));
+    }
+  };
+
+  const handleBuyDateChange = (val: string) => {
+    setBuyDate(val);
+    if (!isBuySettlementManual) {
+      setBuySettlementDate(calculateSettlementDate(val));
+    }
+  };
 
   // Change handlers for stock modal (cost decoupling)
   const handleStockSharesChange = (val: string) => {
@@ -5873,8 +5920,11 @@ function InvestmentSection({
     setIsStockCostManualOverride(false);
     const bankAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
     setStockLinkedAccount(bankAcc ? bankAcc.id : '');
-    setStockPurchaseDate(new Date().toISOString().split('T')[0]);
-    setStockEvaluationDate(new Date().toISOString().split('T')[0]);
+    const todayStr = new Date().toISOString().split('T')[0];
+    setStockPurchaseDate(todayStr);
+    setStockSettlementDate(calculateSettlementDate(todayStr));
+    setIsStockSettlementManual(false);
+    setStockEvaluationDate(todayStr);
     setStockNotes('');
     setIsStockModalOpen(true);
   };
@@ -5894,7 +5944,15 @@ function InvestmentSection({
       : (Math.round(stock.shares * stock.avgPrice) + (stock.fee || 0));
     setStockTotalCost(calculatedTotal.toString());
     setStockLinkedAccount(stock.linkedAccount);
-    setStockPurchaseDate(stock.purchaseDate || new Date().toISOString().split('T')[0]);
+    const pDate = stock.purchaseDate || new Date().toISOString().split('T')[0];
+    setStockPurchaseDate(pDate);
+    if (stock.settlementDate) {
+      setStockSettlementDate(stock.settlementDate);
+      setIsStockSettlementManual(true);
+    } else {
+      setStockSettlementDate(calculateSettlementDate(pDate));
+      setIsStockSettlementManual(false);
+    }
     setStockEvaluationDate(stock.evaluationDate || new Date().toISOString().split('T')[0]);
     setStockNotes(stock.notes || '');
     setIsStockModalOpen(true);
@@ -5923,6 +5981,9 @@ function InvestmentSection({
     const calculatedDefaultCost = Math.round(sharesNum * priceNum) + feeNum;
     const inputCost = parseFloat(stockTotalCost) || calculatedDefaultCost;
     const cleanCode = stockCode.trim();
+    const finalSettlementDate = (stockSettlementDate && stockSettlementDate.trim()) 
+      ? stockSettlementDate.trim() 
+      : calculateSettlementDate(stockPurchaseDate || new Date().toISOString().split('T')[0]);
 
     // 檢查同證券交割帳戶下是否已存在相同股票/基金代碼（同標的自動加權平均合併）
     const existingIndex = isNew ? stocks.findIndex(s => 
@@ -5954,6 +6015,8 @@ function InvestmentSection({
         evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : existing.evaluationDate,
         fee: (existing.fee || 0) + feeNum,
         totalCost: newTotalCost,
+        purchaseDate: stockPurchaseDate,
+        settlementDate: finalSettlementDate,
         notes: stockNotes.trim() ? stockNotes.trim() : mergedNotes
       };
 
@@ -5964,8 +6027,8 @@ function InvestmentSection({
           amount: -inputCost,
           category: '投資',
           note: `[買入] ${cleanCode} ${sharesNum}${stockCategory === 'fund' ? '單位' : '股'} @ $${priceNum}${feeNum > 0 ? ` (含手續費 $${feeNum})` : ''}`,
-          date: stockPurchaseDate || new Date().toISOString().split('T')[0],
-          postingDate: stockPurchaseDate || new Date().toISOString().split('T')[0],
+          date: finalSettlementDate,
+          postingDate: finalSettlementDate,
           type: 'expense',
           accountId: stockLinkedAccount
         });
@@ -5981,6 +6044,7 @@ function InvestmentSection({
         evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : undefined,
         linkedAccount: stockLinkedAccount,
         purchaseDate: stockPurchaseDate,
+        settlementDate: finalSettlementDate,
         fee: feeNum,
         totalCost: inputCost,
         notes: stockNotes.trim() || undefined
@@ -5993,8 +6057,8 @@ function InvestmentSection({
           amount: -inputCost,
           category: '投資',
           note: `[買入] ${cleanCode} ${sharesNum}${stockCategory === 'fund' ? '單位' : '股'} @ $${priceNum}${feeNum > 0 ? ` (含手續費 $${feeNum})` : ''}`,
-          date: stockPurchaseDate || new Date().toISOString().split('T')[0],
-          postingDate: stockPurchaseDate || new Date().toISOString().split('T')[0],
+          date: finalSettlementDate,
+          postingDate: finalSettlementDate,
           type: 'expense',
           accountId: stockLinkedAccount
         });
@@ -6011,7 +6075,15 @@ function InvestmentSection({
     setBuyTotalCost('');
     setBuyFee('0');
     setIsBuyCostManualOverride(false);
-    setBuyDate(new Date().toISOString().split('T')[0]);
+    const todayStr = new Date().toISOString().split('T')[0];
+    setBuyDate(todayStr);
+    if (stock.settlementDate) {
+      setBuySettlementDate(stock.settlementDate);
+      setIsBuySettlementManual(true);
+    } else {
+      setBuySettlementDate(calculateSettlementDate(todayStr));
+      setIsBuySettlementManual(false);
+    }
     setBuyAccount(stock.linkedAccount);
     setBuyNotes('');
   };
@@ -6032,14 +6104,17 @@ function InvestmentSection({
 
     const calculatedDefaultCost = Math.round(bShares * bPrice) + bFee;
     const totalCost = parseFloat(buyTotalCost) || calculatedDefaultCost;
+    const finalBuySettlementDate = (buySettlementDate && buySettlementDate.trim()) 
+      ? buySettlementDate.trim() 
+      : calculateSettlementDate(buyDate || new Date().toISOString().split('T')[0]);
     
-    // Add transaction (expense)
+    // Add transaction (expense) strictly recorded on settlement date
     onAddRecord({
       amount: -totalCost,
       category: '投資',
       note: `[買入] ${buyingStock.code} ${bShares}股 @ $${bPrice}${bFee > 0 ? ` (含手續費 $${bFee})` : ''}${buyNotes.trim() ? ' (' + buyNotes.trim() + ')' : ''}`,
-      date: buyDate,
-      postingDate: buyDate,
+      date: finalBuySettlementDate,
+      postingDate: finalBuySettlementDate,
       type: 'expense',
       accountId: buyAccount
     });
@@ -6059,7 +6134,8 @@ function InvestmentSection({
       avgPrice: newAvgPrice,
       fee: (buyingStock.fee || 0) + bFee,
       totalCost: newTotalCost,
-      linkedAccount: buyAccount
+      linkedAccount: buyAccount,
+      settlementDate: finalBuySettlementDate
     };
 
     onSaveStock(updatedStock);
@@ -6794,14 +6870,33 @@ function InvestmentSection({
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">購買日期</label>
-                <input 
-                  type="date"
-                  value={stockPurchaseDate}
-                  onChange={e => setStockPurchaseDate(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">買入日期 (成交日)</label>
+                  <input 
+                    type="date"
+                    value={stockPurchaseDate}
+                    onChange={e => handleStockPurchaseDateChange(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-xs font-black text-stone-500">交割日期 (扣款日)</label>
+                    <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                      T+2 扣款
+                    </span>
+                  </div>
+                  <input 
+                    type="date"
+                    value={stockSettlementDate}
+                    onChange={e => {
+                      setStockSettlementDate(e.target.value);
+                      setIsStockSettlementManual(true);
+                    }}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -6898,14 +6993,33 @@ function InvestmentSection({
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">買入日期</label>
-                <input 
-                  type="date"
-                  value={buyDate}
-                  onChange={e => setBuyDate(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">買入日期 (成交日)</label>
+                  <input 
+                    type="date"
+                    value={buyDate}
+                    onChange={e => handleBuyDateChange(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-xs font-black text-stone-500">交割日期 (扣款日)</label>
+                    <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                      T+2 扣款
+                    </span>
+                  </div>
+                  <input 
+                    type="date"
+                    value={buySettlementDate}
+                    onChange={e => {
+                      setBuySettlementDate(e.target.value);
+                      setIsBuySettlementManual(true);
+                    }}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
