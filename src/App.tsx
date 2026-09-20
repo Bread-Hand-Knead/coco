@@ -3607,6 +3607,8 @@ interface AccountSelectorProps {
   setExpandedState: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>;
   keyPrefix: string;
   currentTab?: string;
+  disabledAccountIds?: string[];
+  disabledBadgeText?: string;
 }
 
 function AccountSelector({
@@ -3617,7 +3619,9 @@ function AccountSelector({
   expandedState,
   setExpandedState,
   keyPrefix,
-  currentTab
+  currentTab,
+  disabledAccountIds = [],
+  disabledBadgeText
 }: AccountSelectorProps) {
   const [subTabState, setSubTabState] = useState<{ [bankName: string]: 'bank' | 'credit' }>({});
   const { groupedList, singleList } = getGroupedAndUngrouped(accounts);
@@ -3663,19 +3667,31 @@ function AccountSelector({
           if (item.type === 'single') {
             const acc = item.account;
             const isSelected = currentSelectedId === acc.id;
+            const isDisabled = disabledAccountIds.includes(acc.id);
             return (
               <button 
                 key={`${keyPrefix}-${acc.id}`}
-                onClick={() => onSelect(isSelected ? '' : acc.id)}
+                disabled={isDisabled}
+                onClick={() => {
+                  if (isDisabled) return;
+                  onSelect(isSelected ? '' : acc.id);
+                }}
                 type="button"
-                className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-2 border-2 transition-all ${
-                  isSelected ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm'
+                className={`flex-shrink-0 w-20 h-24 rounded-[20px] flex flex-col items-center justify-center gap-1 border-2 transition-all relative ${
+                  isDisabled
+                    ? 'bg-stone-100/90 border-stone-200 text-stone-400 opacity-60 cursor-not-allowed'
+                    : (isSelected ? 'bg-[#FFD54F] border-[#FFD54F] shadow-md' : 'bg-white border-white shadow-sm')
                 }`}
               >
-                <div className="w-10 h-10 bg-white/50 rounded-full flex items-center justify-center text-xl">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${isDisabled ? 'bg-stone-200/50' : 'bg-white/50'}`}>
                   <AccountIcon icon={acc.icon} sizeClassName="w-6 h-6" />
                 </div>
-                <span className="text-[14px] font-bold text-[#000000] text-center px-1 leading-tight" style={getFontFamily()}>{acc.name}</span>
+                <span className={`text-[13px] font-bold text-center px-1 leading-tight ${isDisabled ? 'text-stone-400 line-through' : 'text-[#000000]'}`} style={getFontFamily()}>{acc.name}</span>
+                {isDisabled && (
+                  <span className="text-[9px] font-black text-rose-500 text-center leading-none px-1">
+                    {disabledBadgeText || '(已選)'}
+                  </span>
+                )}
               </button>
             );
           } else {
@@ -3796,26 +3812,36 @@ function AccountSelector({
               <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-200/40">
                 {displayedAccounts.map(subAcc => {
                   const isSubSelected = currentSelectedId === subAcc.id;
+                  const isSubDisabled = disabledAccountIds.includes(subAcc.id);
                   const subBal = calculateAccountBalance(subAcc, accounts, records);
                   return (
                     <button
                       key={`${keyPrefix}-sub-${subAcc.id}`}
+                      disabled={isSubDisabled}
                       onClick={() => {
+                        if (isSubDisabled) return;
                         onSelect(isSubSelected ? '' : subAcc.id);
                         // Auto-collapse drawer on account selection
                         setExpandedState(prev => ({ ...prev, [group.bankName]: false }));
                       }}
                       type="button"
                       className={`px-3.5 py-2.5 rounded-xl text-[14px] font-bold shadow-sm transition-all border flex items-center gap-2 ${
-                        isSubSelected 
-                          ? 'bg-[#FFD54F] border-[#FFD54F] text-[#5D4037] shadow-md scale-[1.02]' 
-                          : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-100 hover:border-stone-200'
+                        isSubDisabled
+                          ? 'bg-stone-100 border-stone-200 text-stone-400 opacity-60 cursor-not-allowed'
+                          : (isSubSelected 
+                              ? 'bg-[#FFD54F] border-[#FFD54F] text-[#5D4037] shadow-md scale-[1.02]' 
+                              : 'bg-white border-stone-100 text-[#5D4037] active:bg-stone-100 hover:border-stone-200')
                       }`}
                     >
                       <AccountIcon icon={subAcc.icon} sizeClassName="w-5 h-5" className="text-lg flex items-center justify-center" />
-                      <span>
+                      <span className={isSubDisabled ? 'line-through' : ''}>
                         {subAcc.name} {subBal < 0 ? '-' : ''}${Math.abs(subBal).toLocaleString()}
                       </span>
+                      {isSubDisabled && (
+                        <span className="text-[10px] font-black text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-md border border-rose-200">
+                          {disabledBadgeText || '(已選)'}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -10400,8 +10426,17 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
               </select>
             </div>
 
+            {edited.type === 'transfer' && edited.accountId && edited.toAccountId && edited.accountId === edited.toAccountId && (
+              <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-2xl flex items-center gap-2 text-amber-900 text-xs font-black shadow-sm">
+                <span className="text-base shrink-0">⚠️</span>
+                <span>轉出與轉入不可為同一個帳戶，請選擇不同帳戶</span>
+              </div>
+            )}
+
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1" style={getFontFamily()}>帳戶</label>
+              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1" style={getFontFamily()}>
+                {edited.type === 'transfer' ? '轉出帳戶' : '帳戶'}
+              </label>
               <select 
                 value={edited.accountId}
                 onChange={e => {
@@ -10416,9 +10451,14 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                 className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
                 style={getFontFamily()}
               >
-                {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => (
-                  <option key={a.id} value={a.id} style={getFontFamily()}>{a.name}</option>
-                ))}
+                {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => {
+                  const isDisabled = edited.type === 'transfer' && a.id === edited.toAccountId;
+                  return (
+                    <option key={a.id} value={a.id} disabled={isDisabled} style={getFontFamily()}>
+                      {a.name} {isDisabled ? '(已選為轉入帳戶)' : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -10440,9 +10480,14 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
                     style={getFontFamily()}
                   >
-                    {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => (
-                      <option key={a.id} value={a.id} style={getFontFamily()}>{a.name}</option>
-                    ))}
+                    {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => {
+                      const isDisabled = a.id === edited.accountId;
+                      return (
+                        <option key={a.id} value={a.id} disabled={isDisabled} style={getFontFamily()}>
+                          {a.name} {isDisabled ? '(已選為轉出帳戶)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -10511,6 +10556,11 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                 if (resolvedType === 'transfer' && !finalToAccountId) {
                   const other = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== edited.accountId);
                   finalToAccountId = other?.id || '';
+                }
+
+                if (resolvedType === 'transfer' && edited.accountId && finalToAccountId && edited.accountId === finalToAccountId) {
+                  alert('⚠️ 轉出與轉入不可為同一個帳戶，請選擇不同帳戶！');
+                  return;
                 }
 
                 const finalNote = (edited.note || '').trim();
@@ -11978,6 +12028,12 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
             {/* 帳戶選擇區：若是轉帳顯示【轉出帳戶】與【轉入帳戶】，否則顯示【扣款帳戶】 */}
             {edited.type === 'transfer' ? (
               <>
+                {edited.accountId && edited.toAccountId && edited.accountId === edited.toAccountId && (
+                  <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-2xl flex items-center gap-2 text-amber-900 text-xs font-black shadow-sm mx-1">
+                    <span className="text-base shrink-0">⚠️</span>
+                    <span>轉出與轉入不可為同一個帳戶，請選擇不同帳戶</span>
+                  </div>
+                )}
                 {/* 轉出帳戶 */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between px-8">
@@ -11999,6 +12055,8 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                     expandedState={expandedBanks}
                     setExpandedState={setExpandedBanks}
                     keyPrefix="fixed-record-src"
+                    disabledAccountIds={edited.toAccountId ? [edited.toAccountId] : []}
+                    disabledBadgeText="(已選為轉入帳戶)"
                   />
                 </div>
 
@@ -12023,6 +12081,8 @@ function FixedRecordEditModal({ record, accounts, categories, records, onClose, 
                     expandedState={expandedToBanks}
                     setExpandedState={setExpandedToBanks}
                     keyPrefix="fixed-record-dst"
+                    disabledAccountIds={edited.accountId ? [edited.accountId] : []}
+                    disabledBadgeText="(已選為轉出帳戶)"
                   />
                 </div>
 
@@ -19886,7 +19946,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     expandedState: { [key: string]: boolean }, 
     setExpandedState: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>,
     keyPrefix: string,
-    currentTabMode?: string
+    currentTabMode?: string,
+    disabledAccountIds?: string[],
+    disabledBadgeText?: string
   ) => {
     return (
       <AccountSelector 
@@ -19898,6 +19960,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         setExpandedState={setExpandedState}
         keyPrefix={keyPrefix}
         currentTab={currentTabMode || tab}
+        disabledAccountIds={disabledAccountIds}
+        disabledBadgeText={disabledBadgeText}
       />
     );
   };
@@ -20411,6 +20475,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
 
     const resolvedType = (tab === 'template' ? 'expense' : tab);
+    if (resolvedType === 'transfer' && selectedAccountId && toAccountId && selectedAccountId === toAccountId) {
+      alert('⚠️ 轉出與轉入不可為同一個帳戶，請選擇不同帳戶！');
+      return;
+    }
+
     const catName = subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'));
     const cat = (Array.isArray(categories) ? categories : []).find(c => c.name === catName || c?.sub?.includes(catName));
 
@@ -20451,6 +20520,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       if (tab === 'expense') resolvedType = 'expense';
       else if (tab === 'income') resolvedType = 'income';
       else if (tab === 'transfer') resolvedType = 'transfer';
+    }
+
+    if (resolvedType === 'transfer' && selectedAccountId && toAccountId && selectedAccountId === toAccountId) {
+      alert('⚠️ 轉出與轉入不可為同一個帳戶，請選擇不同帳戶！');
+      return;
     }
 
     const finalAmount = (resolvedType === 'expense' || resolvedType === 'transfer') ? -Math.abs(rawAmt) : Math.abs(rawAmt);
@@ -20530,6 +20604,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         if (tab === 'expense') resolvedType = 'expense';
         else if (tab === 'income') resolvedType = 'income';
         else if (tab === 'transfer') resolvedType = 'transfer';
+      }
+
+      if (resolvedType === 'transfer' && selectedAccountId && toAccountId && selectedAccountId === toAccountId) {
+        alert('⚠️ 轉出與轉入不可為同一個帳戶，請選擇不同帳戶！');
+        return;
       }
 
       const finalAmount = (resolvedType === 'expense' || resolvedType === 'transfer') ? -Math.abs(rawAmt) : Math.abs(rawAmt);
@@ -20637,6 +20716,11 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   const handleSaveTemplateEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTemplate) return;
+
+    if (editingTemplate.type === 'transfer' && editingTemplate.fromAccountId && editingTemplate.toAccountId && editingTemplate.fromAccountId === editingTemplate.toAccountId) {
+      alert('⚠️ 轉出與轉入不可為同一個帳戶，請選擇不同帳戶！');
+      return;
+    }
     
     const finalTemplate = {
       ...editingTemplate,
@@ -21135,6 +21219,13 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 {/* Step 1: Account Selection */}
                 {tab === 'transfer' ? (
                   <div className="space-y-4">
+                    {selectedAccountId && toAccountId && selectedAccountId === toAccountId && (
+                      <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-2xl flex items-center gap-2 text-amber-900 text-xs font-black shadow-sm mx-1">
+                        <span className="text-base shrink-0">⚠️</span>
+                        <span>轉出與轉入不可為同一個帳戶，請選擇不同帳戶</span>
+                      </div>
+                    )}
+
                     <div className="space-y-2">
                       <div className="flex items-center justify-between px-2">
                         <span className="text-[18px] font-bold text-[#000000] uppercase">1. 來源帳戶 (錢從哪裡出)</span>
@@ -21142,7 +21233,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           {currentAccount?.currency}
                         </span>
                       </div>
-                      {renderAccountSelector(selectedAccountId, setSelectedAccountId, expandedSourceBanks, setExpandedSourceBanks, 'source')}
+                      {renderAccountSelector(
+                        selectedAccountId, 
+                        setSelectedAccountId, 
+                        expandedSourceBanks, 
+                        setExpandedSourceBanks, 
+                        'source', 
+                        undefined, 
+                        toAccountId ? [toAccountId] : [], 
+                        '(已選為轉入帳戶)'
+                      )}
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between px-2">
@@ -21151,7 +21251,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                           {currentToAccount?.currency}
                         </span>
                       </div>
-                      {renderAccountSelector(toAccountId, setToAccountId, expandedDestBanks, setExpandedDestBanks, 'dest')}
+                      {renderAccountSelector(
+                        toAccountId, 
+                        setToAccountId, 
+                        expandedDestBanks, 
+                        setExpandedDestBanks, 
+                        'dest', 
+                        undefined, 
+                        selectedAccountId ? [selectedAccountId] : [], 
+                        '(已選為轉出帳戶)'
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -21624,6 +21733,12 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 </div>
 
                 {/* Account Selection */}
+                {editingTemplate.type === 'transfer' && editingTemplate.fromAccountId && editingTemplate.toAccountId && editingTemplate.fromAccountId === editingTemplate.toAccountId && (
+                  <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-2xl flex items-center gap-2 text-amber-900 text-xs font-black shadow-sm mx-1">
+                    <span className="text-base shrink-0">⚠️</span>
+                    <span>轉出與轉入不可為同一個帳戶，請選擇不同帳戶</span>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <label className="text-[14px] font-bold text-stone-600 uppercase px-2">
                     {editingTemplate.type === 'transfer' ? '來源帳戶' : '預設帳戶'}
@@ -21634,7 +21749,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                     expandedTemplateFromBanks,
                     setExpandedTemplateFromBanks,
                     'template-from',
-                    editingTemplate.type
+                    editingTemplate.type,
+                    editingTemplate.type === 'transfer' && editingTemplate.toAccountId ? [editingTemplate.toAccountId] : [],
+                    '(已選為轉入帳戶)'
                   )}
                 </div>
 
@@ -21648,7 +21765,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                       expandedTemplateToBanks,
                       setExpandedTemplateToBanks,
                       'template-to',
-                      editingTemplate.type
+                      editingTemplate.type,
+                      editingTemplate.fromAccountId ? [editingTemplate.fromAccountId] : [],
+                      '(已選為轉出帳戶)'
                     )}
                   </div>
                 )}
