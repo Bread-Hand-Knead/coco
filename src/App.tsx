@@ -301,6 +301,8 @@ export interface Stock {
   linkedAccount: string;  // 綁定之證券/基金交割銀行帳戶 ID
   purchaseDate?: string;  // 購買日期
   notes?: string;         // 備註說明
+  fee?: number;           // 手續費 (元)
+  totalCost?: number;     // 投入總成本 (元)
 }
 
 interface Account {
@@ -5478,6 +5480,8 @@ function InvestmentSection({
   const [stockCurrentPrice, setStockCurrentPrice] = useState('');
   const [stockCurrentMarketValue, setStockCurrentMarketValue] = useState('');
   const [stockTotalCost, setStockTotalCost] = useState('');
+  const [stockFee, setStockFee] = useState('0');
+  const [isStockCostManualOverride, setIsStockCostManualOverride] = useState(false);
   const [stockLinkedAccount, setStockLinkedAccount] = useState('');
   const [stockNotes, setStockNotes] = useState('');
   const [stockPurchaseDate, setStockPurchaseDate] = useState(() => {
@@ -5495,6 +5499,8 @@ function InvestmentSection({
   const [buyShares, setBuyShares] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [buyTotalCost, setBuyTotalCost] = useState('');
+  const [buyFee, setBuyFee] = useState('0');
+  const [isBuyCostManualOverride, setIsBuyCostManualOverride] = useState(false);
   const [buyDate, setBuyDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
@@ -5507,10 +5513,20 @@ function InvestmentSection({
     setStockShares(val);
     const sh = parseFloat(val) || 0;
     const price = parseFloat(stockAvgPrice) || 0;
-    if (sh > 0 && price > 0) {
-      setStockTotalCost((sh * price).toFixed(2).replace(/\.00$/, ''));
+    const fee = parseFloat(stockFee) || 0;
+
+    if (!isStockCostManualOverride) {
+      if (sh > 0 && price > 0) {
+        setStockTotalCost((Math.round(sh * price) + fee).toString());
+      } else {
+        setStockTotalCost(fee > 0 ? fee.toString() : '');
+      }
     } else {
-      setStockTotalCost('');
+      const cost = parseFloat(stockTotalCost) || 0;
+      if (sh > 0 && cost > 0) {
+        const netCost = Math.max(0, cost - fee);
+        setStockAvgPrice(parseFloat((netCost / sh).toFixed(4)).toString());
+      }
     }
 
     const cp = parseFloat(stockCurrentPrice) || 0;
@@ -5523,21 +5539,47 @@ function InvestmentSection({
 
   const handleStockAvgPriceChange = (val: string) => {
     setStockAvgPrice(val);
+    setIsStockCostManualOverride(false);
     const price = parseFloat(val) || 0;
     const sh = parseFloat(stockShares) || 0;
+    const fee = parseFloat(stockFee) || 0;
     if (sh > 0 && price > 0) {
-      setStockTotalCost((sh * price).toFixed(2).replace(/\.00$/, ''));
+      setStockTotalCost((Math.round(sh * price) + fee).toString());
     } else {
-      setStockTotalCost('');
+      setStockTotalCost(fee > 0 ? fee.toString() : '');
+    }
+  };
+
+  const handleStockFeeChange = (val: string) => {
+    setStockFee(val);
+    const fee = parseFloat(val) || 0;
+    const sh = parseFloat(stockShares) || 0;
+    const price = parseFloat(stockAvgPrice) || 0;
+
+    if (!isStockCostManualOverride) {
+      if (sh > 0 && price > 0) {
+        setStockTotalCost((Math.round(sh * price) + fee).toString());
+      } else {
+        setStockTotalCost(fee > 0 ? fee.toString() : '');
+      }
+    } else {
+      const cost = parseFloat(stockTotalCost) || 0;
+      if (sh > 0 && cost > 0) {
+        const netCost = Math.max(0, cost - fee);
+        setStockAvgPrice(parseFloat((netCost / sh).toFixed(4)).toString());
+      }
     }
   };
 
   const handleStockTotalCostChange = (val: string) => {
     setStockTotalCost(val);
+    setIsStockCostManualOverride(true);
     const cost = parseFloat(val) || 0;
     const sh = parseFloat(stockShares) || 0;
+    const fee = parseFloat(stockFee) || 0;
     if (sh > 0 && cost > 0) {
-      setStockAvgPrice(parseFloat((cost / sh).toFixed(4)).toString());
+      const netCost = Math.max(0, cost - fee);
+      setStockAvgPrice(parseFloat((netCost / sh).toFixed(4)).toString());
     }
   };
 
@@ -5566,30 +5608,66 @@ function InvestmentSection({
     setBuyShares(val);
     const sh = parseFloat(val) || 0;
     const price = parseFloat(buyPrice) || 0;
-    if (sh > 0 && price > 0) {
-      setBuyTotalCost((sh * price).toFixed(2).replace(/\.00$/, ''));
+    const fee = parseFloat(buyFee) || 0;
+
+    if (!isBuyCostManualOverride) {
+      if (sh > 0 && price > 0) {
+        setBuyTotalCost((Math.round(sh * price) + fee).toString());
+      } else {
+        setBuyTotalCost(fee > 0 ? fee.toString() : '');
+      }
     } else {
-      setBuyTotalCost('');
+      const cost = parseFloat(buyTotalCost) || 0;
+      if (sh > 0 && cost > 0) {
+        const netCost = Math.max(0, cost - fee);
+        setBuyPrice(parseFloat((netCost / sh).toFixed(4)).toString());
+      }
     }
   };
 
   const handleBuyPriceChange = (val: string) => {
     setBuyPrice(val);
+    setIsBuyCostManualOverride(false);
     const price = parseFloat(val) || 0;
     const sh = parseFloat(buyShares) || 0;
+    const fee = parseFloat(buyFee) || 0;
     if (sh > 0 && price > 0) {
-      setBuyTotalCost((sh * price).toFixed(2).replace(/\.00$/, ''));
+      setBuyTotalCost((Math.round(sh * price) + fee).toString());
     } else {
-      setBuyTotalCost('');
+      setBuyTotalCost(fee > 0 ? fee.toString() : '');
+    }
+  };
+
+  const handleBuyFeeChange = (val: string) => {
+    setBuyFee(val);
+    const fee = parseFloat(val) || 0;
+    const sh = parseFloat(buyShares) || 0;
+    const price = parseFloat(buyPrice) || 0;
+
+    if (!isBuyCostManualOverride) {
+      if (sh > 0 && price > 0) {
+        setBuyTotalCost((Math.round(sh * price) + fee).toString());
+      } else {
+        setBuyTotalCost(fee > 0 ? fee.toString() : '');
+      }
+    } else {
+      const cost = parseFloat(buyTotalCost) || 0;
+      if (sh > 0 && cost > 0) {
+        const netCost = Math.max(0, cost - fee);
+        setBuyPrice(parseFloat((netCost / sh).toFixed(4)).toString());
+      }
     }
   };
 
   const handleBuyTotalCostChange = (val: string) => {
     setBuyTotalCost(val);
+    setIsBuyCostManualOverride(true);
     const cost = parseFloat(val) || 0;
     const sh = parseFloat(buyShares) || 0;
+    const fee = parseFloat(buyFee) || 0;
     if (sh > 0 && cost > 0) {
-      setBuyPrice(parseFloat((cost / sh).toFixed(4)).toString());
+      const netCost = Math.max(0, cost - fee);
+      setBuyPrice(parseFloat((netCost / sh).toFixed(4)).toString());
     }
   };
 
@@ -5714,6 +5792,8 @@ function InvestmentSection({
     setStockCurrentPrice('');
     setStockCurrentMarketValue('');
     setStockTotalCost('');
+    setStockFee('0');
+    setIsStockCostManualOverride(false);
     const bankAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.type === 'bank' || a.type === 'investment') || accounts[0];
     setStockLinkedAccount(bankAcc ? bankAcc.id : '');
     setStockPurchaseDate(new Date().toISOString().split('T')[0]);
@@ -5730,7 +5810,12 @@ function InvestmentSection({
     setStockAvgPrice(stock.avgPrice.toString());
     setStockCurrentPrice(stock.currentPrice !== undefined ? stock.currentPrice.toString() : '');
     setStockCurrentMarketValue((stock.currentPrice !== undefined && stock.shares > 0) ? Math.round(stock.shares * stock.currentPrice).toString() : '');
-    setStockTotalCost((stock.shares * stock.avgPrice).toFixed(2).replace(/\.00$/, ''));
+    setStockFee(stock.fee !== undefined ? stock.fee.toString() : '0');
+    setIsStockCostManualOverride(stock.totalCost !== undefined);
+    const calculatedTotal = stock.totalCost !== undefined 
+      ? stock.totalCost 
+      : (Math.round(stock.shares * stock.avgPrice) + (stock.fee || 0));
+    setStockTotalCost(calculatedTotal.toString());
     setStockLinkedAccount(stock.linkedAccount);
     setStockPurchaseDate(stock.purchaseDate || new Date().toISOString().split('T')[0]);
     setStockEvaluationDate(stock.evaluationDate || new Date().toISOString().split('T')[0]);
@@ -5745,6 +5830,7 @@ function InvestmentSection({
     }
     const sharesNum = parseFloat(stockShares) || 0;
     const priceNum = parseFloat(stockAvgPrice) || 0;
+    const feeNum = parseFloat(stockFee) || 0;
     const currentPriceNum = stockCurrentPrice.trim() !== '' ? (parseFloat(stockCurrentPrice) || undefined) : undefined;
 
     if (sharesNum < 0 || priceNum < 0) {
@@ -5757,7 +5843,8 @@ function InvestmentSection({
     }
 
     const isNew = !editingStock;
-    const inputCost = parseFloat(stockTotalCost) || (sharesNum * priceNum);
+    const calculatedDefaultCost = Math.round(sharesNum * priceNum) + feeNum;
+    const inputCost = parseFloat(stockTotalCost) || calculatedDefaultCost;
     const cleanCode = stockCode.trim();
 
     // 檢查同證券交割帳戶下是否已存在相同股票/基金代碼（同標的自動加權平均合併）
@@ -5770,12 +5857,12 @@ function InvestmentSection({
       // 執行同標的加權平均合併
       const existing = stocks[existingIndex];
       const oldShares = existing.shares;
-      const oldAvgPrice = existing.avgPrice;
-      const oldTotalCost = oldShares * oldAvgPrice;
+      const oldTotalCost = existing.totalCost !== undefined ? existing.totalCost : (oldShares * existing.avgPrice);
 
       const newTotalShares = parseFloat((oldShares + sharesNum).toFixed(4));
       const newTotalCost = oldTotalCost + inputCost;
-      const newAvgPrice = newTotalShares > 0 ? parseFloat((newTotalCost / newTotalShares).toFixed(4)) : 0;
+      const netNewTotalCost = Math.max(0, newTotalCost - ((existing.fee || 0) + feeNum));
+      const newAvgPrice = newTotalShares > 0 ? parseFloat((netNewTotalCost / newTotalShares).toFixed(4)) : 0;
 
       const dateStr = stockPurchaseDate || new Date().toISOString().split('T')[0];
       const buyLog = `[加購 ${dateStr}] +${sharesNum} @ $${priceNum}`;
@@ -5788,6 +5875,8 @@ function InvestmentSection({
         avgPrice: newAvgPrice,
         currentPrice: currentPriceNum !== undefined ? currentPriceNum : existing.currentPrice,
         evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : existing.evaluationDate,
+        fee: (existing.fee || 0) + feeNum,
+        totalCost: newTotalCost,
         notes: stockNotes.trim() ? stockNotes.trim() : mergedNotes
       };
 
@@ -5797,7 +5886,7 @@ function InvestmentSection({
         onAddRecord({
           amount: -inputCost,
           category: '投資',
-          note: `[買入] ${cleanCode} ${sharesNum}${stockCategory === 'fund' ? '單位' : '股'} @ $${priceNum} (加購合併)`,
+          note: `[買入] ${cleanCode} ${sharesNum}${stockCategory === 'fund' ? '單位' : '股'} @ $${priceNum}${feeNum > 0 ? ` (含手續費 $${feeNum})` : ''}`,
           date: stockPurchaseDate || new Date().toISOString().split('T')[0],
           postingDate: stockPurchaseDate || new Date().toISOString().split('T')[0],
           type: 'expense',
@@ -5815,6 +5904,8 @@ function InvestmentSection({
         evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : undefined,
         linkedAccount: stockLinkedAccount,
         purchaseDate: stockPurchaseDate,
+        fee: feeNum,
+        totalCost: inputCost,
         notes: stockNotes.trim() || undefined
       };
 
@@ -5824,7 +5915,7 @@ function InvestmentSection({
         onAddRecord({
           amount: -inputCost,
           category: '投資',
-          note: `[買入] ${cleanCode} ${sharesNum}${stockCategory === 'fund' ? '單位' : '股'} @ $${priceNum} (初始持股)`,
+          note: `[買入] ${cleanCode} ${sharesNum}${stockCategory === 'fund' ? '單位' : '股'} @ $${priceNum}${feeNum > 0 ? ` (含手續費 $${feeNum})` : ''}`,
           date: stockPurchaseDate || new Date().toISOString().split('T')[0],
           postingDate: stockPurchaseDate || new Date().toISOString().split('T')[0],
           type: 'expense',
@@ -5841,6 +5932,8 @@ function InvestmentSection({
     setBuyShares('');
     setBuyPrice(stock.avgPrice.toString());
     setBuyTotalCost('');
+    setBuyFee('0');
+    setIsBuyCostManualOverride(false);
     setBuyDate(new Date().toISOString().split('T')[0]);
     setBuyAccount(stock.linkedAccount);
     setBuyNotes('');
@@ -5850,6 +5943,7 @@ function InvestmentSection({
     if (!buyingStock) return;
     const bShares = parseFloat(buyShares) || 0;
     const bPrice = parseFloat(buyPrice) || 0;
+    const bFee = parseFloat(buyFee) || 0;
     if (bShares <= 0 || bPrice <= 0) {
       alert('請輸入有效的股數與單價！');
       return;
@@ -5859,13 +5953,14 @@ function InvestmentSection({
       return;
     }
 
-    const totalCost = parseFloat(buyTotalCost) || Math.round(bShares * bPrice);
+    const calculatedDefaultCost = Math.round(bShares * bPrice) + bFee;
+    const totalCost = parseFloat(buyTotalCost) || calculatedDefaultCost;
     
     // Add transaction (expense)
     onAddRecord({
       amount: -totalCost,
       category: '投資',
-      note: `[買入] ${buyingStock.code} ${bShares}股 @ ${bPrice}${buyNotes.trim() ? ' (' + buyNotes.trim() + ')' : ''}`,
+      note: `[買入] ${buyingStock.code} ${bShares}股 @ $${bPrice}${bFee > 0 ? ` (含手續費 $${bFee})` : ''}${buyNotes.trim() ? ' (' + buyNotes.trim() + ')' : ''}`,
       date: buyDate,
       postingDate: buyDate,
       type: 'expense',
@@ -5876,12 +5971,17 @@ function InvestmentSection({
     const oldShares = buyingStock.shares;
     const oldAvgPrice = buyingStock.avgPrice;
     const newShares = oldShares + bShares;
-    const newAvgPrice = newShares > 0 ? ((oldShares * oldAvgPrice) + totalCost) / newShares : 0;
+    const oldTotalCost = buyingStock.totalCost !== undefined ? buyingStock.totalCost : (oldShares * oldAvgPrice);
+    const newTotalCost = oldTotalCost + totalCost;
+    const netNewTotalCost = Math.max(0, newTotalCost - ((buyingStock.fee || 0) + bFee));
+    const newAvgPrice = newShares > 0 ? parseFloat((netNewTotalCost / newShares).toFixed(4)) : 0;
 
     const updatedStock: Stock = {
       ...buyingStock,
       shares: newShares,
-      avgPrice: parseFloat(newAvgPrice.toFixed(4)),
+      avgPrice: newAvgPrice,
+      fee: (buyingStock.fee || 0) + bFee,
+      totalCost: newTotalCost,
       linkedAccount: buyAccount
     };
 
@@ -6348,16 +6448,56 @@ function InvestmentSection({
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">投入總成本 (元)</label>
-                <input 
-                  type="number"
-                  step="any"
-                  value={stockTotalCost}
-                  onChange={e => handleStockTotalCostChange(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#E91E63] outline-none shadow-sm focus:border-[#FFD54F]"
-                  placeholder="可在此直接填入總投入金額，系統自動換算單價"
-                />
+              {/* 投入總成本 (含手續費) 與手續費選填 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-xs font-black text-stone-500">投入總成本 (元)</label>
+                    {isStockCostManualOverride ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsStockCostManualOverride(false);
+                          const sh = parseFloat(stockShares) || 0;
+                          const price = parseFloat(stockAvgPrice) || 0;
+                          const fee = parseFloat(stockFee) || 0;
+                          if (sh > 0 && price > 0) {
+                            setStockTotalCost((Math.round(sh * price) + fee).toString());
+                          }
+                        }}
+                        className="text-[10px] font-black text-amber-800 bg-amber-100 hover:bg-amber-200 px-1.5 py-0.5 rounded transition-all"
+                        title="點擊重置為自動計算"
+                      >
+                        自訂總價 ✕
+                      </button>
+                    ) : (
+                      <span className="text-[10px] font-black text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+                        自動試算
+                      </span>
+                    )}
+                  </div>
+                  <input 
+                    type="number"
+                    step="any"
+                    value={stockTotalCost}
+                    onChange={e => handleStockTotalCostChange(e.target.value)}
+                    className={`w-full p-4 bg-white border-2 rounded-2xl font-black text-sm outline-none shadow-sm focus:border-[#FFD54F] ${
+                      isStockCostManualOverride ? 'border-amber-400 text-amber-900 bg-amber-50/30' : 'border-stone-50 text-[#E91E63]'
+                    }`}
+                    placeholder="可直接填對帳單交割總額"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">手續費 (元)</label>
+                  <input 
+                    type="number"
+                    step="any"
+                    value={stockFee}
+                    onChange={e => handleStockFeeChange(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    placeholder="預設 0"
+                  />
+                </div>
               </div>
 
               {/* 目前市價 / 目前市值 防呆雙向連動 (用於損益與報酬率試算) */}
@@ -6536,15 +6676,55 @@ function InvestmentSection({
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">買入總金額 (元)</label>
-                <input 
-                  type="number"
-                  value={buyTotalCost}
-                  onChange={e => handleBuyTotalCostChange(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#E91E63] outline-none shadow-sm focus:border-[#FFD54F]"
-                  placeholder="可在此直接填入實付總金額，系統會自動換算單價"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-xs font-black text-stone-500">買入總金額 (元)</label>
+                    {isBuyCostManualOverride ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsBuyCostManualOverride(false);
+                          const sh = parseFloat(buyShares) || 0;
+                          const price = parseFloat(buyPrice) || 0;
+                          const fee = parseFloat(buyFee) || 0;
+                          if (sh > 0 && price > 0) {
+                            setBuyTotalCost((Math.round(sh * price) + fee).toString());
+                          }
+                        }}
+                        className="text-[10px] font-black text-amber-800 bg-amber-100 hover:bg-amber-200 px-1.5 py-0.5 rounded transition-all"
+                        title="點擊重置為自動計算"
+                      >
+                        自訂總價 ✕
+                      </button>
+                    ) : (
+                      <span className="text-[10px] font-black text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+                        自動試算
+                      </span>
+                    )}
+                  </div>
+                  <input 
+                    type="number"
+                    step="any"
+                    value={buyTotalCost}
+                    onChange={e => handleBuyTotalCostChange(e.target.value)}
+                    className={`w-full p-4 bg-white border-2 rounded-2xl font-black text-sm outline-none shadow-sm focus:border-[#FFD54F] ${
+                      isBuyCostManualOverride ? 'border-amber-400 text-amber-900 bg-amber-50/30' : 'border-stone-50 text-[#E91E63]'
+                    }`}
+                    placeholder="可直接填對帳單交割總額"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-stone-500 px-1">手續費 (元)</label>
+                  <input 
+                    type="number"
+                    step="any"
+                    value={buyFee}
+                    onChange={e => handleBuyFeeChange(e.target.value)}
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
+                    placeholder="預設 0"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">

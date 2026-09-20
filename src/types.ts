@@ -119,11 +119,16 @@ export interface FixedRecord {
 export interface Stock {
   id: string;
   code: string;           // 股票代號/名稱 (例如: 006208 富邦台50)
+  category?: 'stock' | 'fund'; // 投資類別：'stock' (股票/ETF) 或 'fund' (基金)
   shares: number;         // 持有股數
   avgPrice: number;       // 平均買入單價
+  currentPrice?: number;  // 目前市價 / 最新淨值
+  evaluationDate?: string; // 市值評估日期
   linkedAccount: string;  // 綁定之證券交割銀行帳戶 ID
   purchaseDate?: string;  // 購買日期
   notes?: string;         // 備註說明
+  fee?: number;           // 手續費 (元)
+  totalCost?: number;     // 投入總成本 (元)
 }
 
 export interface Project {
