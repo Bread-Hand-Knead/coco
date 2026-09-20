@@ -16094,6 +16094,7 @@ export function parseCategoryHierarchy(
 function CategoryDetailModal({
   categoryName,
   initialSubFilter = 'all',
+  reportType = 'expense',
   dateInterval,
   records,
   categories,
@@ -16104,6 +16105,7 @@ function CategoryDetailModal({
 }: {
   categoryName: string,
   initialSubFilter?: string,
+  reportType?: 'expense' | 'income',
   dateInterval: { start: Date, end: Date },
   records: Transaction[],
   categories: Category[],
@@ -16129,8 +16131,9 @@ function CategoryDetailModal({
   // Valid period records matching category/subcategory rules
   const matchingRecords = useMemo(() => {
     return records.filter(r => {
-      if (r.type === 'transfer' || r.isPrepay || r.parentId || (r as any).isMergedChild) return false;
-      if (r.type !== 'expense') return false;
+      if (r.isMergedChild || r.parentId || r.parentTransactionId || (r as any).isChildTransaction) return false;
+      if (r.category === '初始資金' || r.category === '餘額校正' || r.isPrepay) return false;
+      if (r.type !== reportType) return false;
 
       const d = parseISO(r.postingDate || r.date);
       if (d < dateInterval.start || d > dateInterval.end) return false;
@@ -16144,7 +16147,7 @@ function CategoryDetailModal({
         return parentName === categoryName || subName === categoryName || r.category.includes(categoryName);
       }
     });
-  }, [records, dateInterval, categoryName, isParentCat, categories]);
+  }, [records, dateInterval, categoryName, isParentCat, categories, reportType]);
 
   // Subcategories present in actual records
   const presentSubCategories = useMemo(() => {
@@ -16360,20 +16363,21 @@ function ReportsView({
   onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [dateRange, setDateRange] = useState<'thisMonth' | 'last3Months' | 'last6Months' | 'lastYear'>('thisMonth');
+  const [reportType, setReportType] = useState<'expense' | 'income'>('expense');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeSector, setActiveSector] = useState<any>(null);
 
   // Category Detail Modal & Editing Record State
-  const [detailCategoryInfo, setDetailCategoryInfo] = useState<{ categoryName: string; subFilter?: string } | null>(null);
+  const [detailCategoryInfo, setDetailCategoryInfo] = useState<{ categoryName: string; subFilter?: string; type?: 'expense' | 'income' } | null>(null);
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
   const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
   
   const COLORS = ['#FFD54F', '#FFAB91', '#81C784', '#90CAF9', '#CE93D8', '#BCAAA4', '#B0BEC5', '#FFCCBC', '#C5E1A5', '#FFF59D'];
 
-  // List of main categories for the category filter row
+  // List of main categories for the category filter row (expense / income)
   const mainExpenseCategories = useMemo(() => {
     const list: { id: string; name: string; icon?: string }[] = [];
-    categories
+    (Array.isArray(categories) ? categories : [])
       .filter(c => c.type === 'expense' || !c.type)
       .forEach(cat => {
         if (!list.some(item => item.name === cat.name)) {
@@ -16382,6 +16386,20 @@ function ReportsView({
       });
     return list;
   }, [categories]);
+
+  const mainIncomeCategories = useMemo(() => {
+    const list: { id: string; name: string; icon?: string }[] = [];
+    (Array.isArray(categories) ? categories : [])
+      .filter(c => c.type === 'income')
+      .forEach(cat => {
+        if (!list.some(item => item.name === cat.name)) {
+          list.push({ id: cat.id, name: cat.name, icon: cat.icon });
+        }
+      });
+    return list;
+  }, [categories]);
+
+  const activeMainCategories = reportType === 'expense' ? mainExpenseCategories : mainIncomeCategories;
 
   const dateInterval = useMemo(() => {
     const now = new Date();
@@ -16396,12 +16414,12 @@ function ReportsView({
   }, [dateRange]);
 
   const stats = useMemo(() => {
-    // 1. Safety check & filter by date interval
-    // Exclude transfers, prepay, merged child transactions
+    // 1. Strict filtering matching Homepage calculation rules
+    // Exclude merged child transactions, prepayments, initial balance setup
     const validRecords = records.filter(r => {
-      if (r.type === 'transfer') return false;
+      if (r.isMergedChild || r.parentId || r.parentTransactionId || (r as any).isChildTransaction) return false;
+      if (r.category === '初始資金' || r.category === '餘額校正') return false;
       if (r.isPrepay) return false;
-      if (r.parentId || (r as any).isMergedChild) return false;
 
       const d = parseISO(r.postingDate || r.date);
       return d >= dateInterval.start && d <= dateInterval.end;
@@ -16413,19 +16431,25 @@ function ReportsView({
       .reduce((s, r) => s + Math.abs(r.amount), 0);
 
     const totalPeriodExpense = validRecords
-      .filter(r => r.type === 'expense')
-      .reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
+      .reduce((s, r) => {
+        if (r.type === 'expense') return s + (Math.abs(r.amount) + (r.fee || 0));
+        if (r.type === 'transfer') return s + (r.fee || 0);
+        return s;
+      }, 0);
 
-    // 2. Filter records according to selectedCategory
-    let expenseRecords = validRecords.filter(r => r.type === 'expense');
+    const activeTotalAmount = reportType === 'expense' ? totalPeriodExpense : income;
+
+    // 2. Filter records according to active reportType (expense / income) and selectedCategory
+    let targetRecords = validRecords.filter(r => r.type === reportType);
+
     if (selectedCategory !== 'all') {
-      expenseRecords = expenseRecords.filter(r => {
+      targetRecords = targetRecords.filter(r => {
         const { parentName, subName } = parseCategoryHierarchy(r.category, categories);
         return parentName === selectedCategory || subName === selectedCategory || (r.category && r.category.includes(selectedCategory));
       });
     }
 
-    const currentExpenseTotal = expenseRecords.reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
+    const currentFilteredTotal = targetRecords.reduce((s, r) => s + Math.abs(r.amount) + (r.type === 'expense' ? (r.fee || 0) : 0), 0);
 
     // 3. Parent Category Aggregates Map Calculation
     const parentMap: Record<string, {
@@ -16435,8 +16459,8 @@ function ReportsView({
       subMap: Record<string, number>;
     }> = {};
 
-    expenseRecords.forEach(r => {
-      const amt = Math.abs(r.amount) + (r.fee || 0);
+    targetRecords.forEach(r => {
+      const amt = Math.abs(r.amount) + (r.type === 'expense' ? (r.fee || 0) : 0);
       const { parentName, subName } = parseCategoryHierarchy(r.category, categories);
 
       const targetParentName = selectedCategory === 'all' ? parentName : selectedCategory;
@@ -16445,7 +16469,17 @@ function ReportsView({
         const catObj = (Array.isArray(categories) ? categories : []).find(c => c.name === targetParentName);
         parentMap[targetParentName] = {
           name: targetParentName,
-          icon: catObj?.icon || (targetParentName === '飲食' ? '🍱' : targetParentName === '交通' ? '✈️' : targetParentName === '醫療&健康' ? '💊' : targetParentName === '娛樂' ? '✨' : targetParentName === '家庭' || targetParentName === '居住' ? '🏠' : '📁'),
+          icon: catObj?.icon || (
+            targetParentName === '飲食' ? '🍱' :
+            targetParentName === '交通' ? '✈️' :
+            targetParentName === '醫療&健康' ? '💊' :
+            targetParentName === '娛樂' ? '✨' :
+            targetParentName === '家庭' || targetParentName === '居住' ? '🏠' :
+            targetParentName === '薪資' ? '💼' :
+            targetParentName === '投資' ? '📈' :
+            targetParentName === '副業' || targetParentName === '接案' ? '💻' :
+            targetParentName === '獎金' ? '🎁' : '📁'
+          ),
           totalAmount: 0,
           subMap: {}
         };
@@ -16466,11 +16500,12 @@ function ReportsView({
 
     return {
       income,
-      expense: selectedCategory === 'all' ? totalPeriodExpense : currentExpenseTotal,
+      expense: totalPeriodExpense,
+      activeTotal: selectedCategory === 'all' ? activeTotalAmount : currentFilteredTotal,
       pieData,
       parentList
     };
-  }, [records, dateInterval, selectedCategory, categories]);
+  }, [records, dateInterval, selectedCategory, reportType, categories]);
 
   // Safe Tooltip positioning algorithm with boundary protection & smart flip
   const getTooltipPosition = (sector: any) => {
@@ -16523,28 +16558,60 @@ function ReportsView({
             </button>
           ))}
         </div>
+
+        {/* 頂部【支出 / 收入】雙向分頁切換鈕 */}
+        <div className="flex bg-stone-100/80 p-1 rounded-2xl border border-stone-200/60 shadow-2xs">
+          <button
+            type="button"
+            onClick={() => {
+              setReportType('expense');
+              setSelectedCategory('all');
+            }}
+            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+              reportType === 'expense'
+                ? 'bg-rose-500 text-white shadow-md scale-[1.01]'
+                : 'text-stone-500 hover:text-stone-700'
+            }`}
+          >
+            <span>💸 支出分析</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setReportType('income');
+              setSelectedCategory('all');
+            }}
+            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+              reportType === 'income'
+                ? 'bg-blue-500 text-white shadow-md scale-[1.01]'
+                : 'text-stone-500 hover:text-stone-700'
+            }`}
+          >
+            <span>💰 收入分析</span>
+          </button>
+        </div>
         
-        {/* Category Filter Selector (Defaults to 全部分類) */}
+        {/* Category Filter Selector (Expense / Income) */}
         <div className="flex items-center gap-2 overflow-x-auto py-1 custom-scrollbar">
           <button
             type="button"
             onClick={() => setSelectedCategory('all')}
             className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-1.5 shrink-0 ${
               selectedCategory === 'all' 
-                ? 'bg-[#5D4037] text-[#FFFDF5] border-[#5D4037] shadow-sm' 
+                ? (reportType === 'expense' ? 'bg-[#5D4037] text-[#FFFDF5] border-[#5D4037] shadow-sm' : 'bg-blue-600 text-white border-blue-600 shadow-sm')
                 : 'bg-white text-stone-500 border-stone-100 hover:bg-stone-50'
             }`}
           >
             <span>全部分類</span>
           </button>
 
-          {mainExpenseCategories.map(cat => (
+          {activeMainCategories.map(cat => (
             <button
               key={cat.id || cat.name}
               type="button"
               onClick={() => {
                 setSelectedCategory(cat.name);
-                setDetailCategoryInfo({ categoryName: cat.name, subFilter: 'all' });
+                setDetailCategoryInfo({ categoryName: cat.name, subFilter: 'all', type: reportType });
               }}
               className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-1.5 shrink-0 active:scale-95 ${
                 selectedCategory === cat.name 
@@ -16559,26 +16626,65 @@ function ReportsView({
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards with Interactive Click to Switch */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white rounded-3xl p-5 shadow-sm border border-stone-50 flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-blue-400">
-            <div className="w-5 h-5 rounded-lg bg-blue-50 flex items-center justify-center">
-              <Plus size={12} strokeWidth={3} />
+        {/* Total Income Card */}
+        <button
+          type="button"
+          onClick={() => {
+            setReportType('income');
+            setSelectedCategory('all');
+          }}
+          className={`bg-white rounded-3xl p-5 text-left shadow-sm transition-all border-2 flex flex-col gap-1 cursor-pointer active:scale-[0.98] ${
+            reportType === 'income'
+              ? 'border-blue-500 bg-blue-50/30 shadow-md ring-2 ring-blue-100'
+              : 'border-stone-50 hover:border-blue-200/80 opacity-85 hover:opacity-100'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-blue-500">
+              <div className="w-5 h-5 rounded-lg bg-blue-100/80 flex items-center justify-center">
+                <Plus size={12} strokeWidth={3} />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest">總收入</span>
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest">總收入</span>
+            {reportType === 'income' && (
+              <span className="text-[10px] font-black bg-blue-500 text-white px-2 py-0.5 rounded-full">
+                檢視中
+              </span>
+            )}
           </div>
-          <span className="text-xl font-black text-blue-600">${stats.income.toLocaleString()}</span>
-        </div>
-        <div className="bg-white rounded-3xl p-5 shadow-sm border border-stone-50 flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-rose-400">
-            <div className="w-5 h-5 rounded-lg bg-rose-50 flex items-center justify-center">
-              <div className="w-2.5 h-0.5 bg-rose-400 rounded-full" />
+          <span className="text-xl font-black text-blue-600 mt-1">${stats.income.toLocaleString()}</span>
+        </button>
+
+        {/* Total Expense Card */}
+        <button
+          type="button"
+          onClick={() => {
+            setReportType('expense');
+            setSelectedCategory('all');
+          }}
+          className={`bg-white rounded-3xl p-5 text-left shadow-sm transition-all border-2 flex flex-col gap-1 cursor-pointer active:scale-[0.98] ${
+            reportType === 'expense'
+              ? 'border-rose-500 bg-rose-50/30 shadow-md ring-2 ring-rose-100'
+              : 'border-stone-50 hover:border-rose-200/80 opacity-85 hover:opacity-100'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-rose-500">
+              <div className="w-5 h-5 rounded-lg bg-rose-100/80 flex items-center justify-center">
+                <div className="w-2.5 h-0.5 bg-rose-500 rounded-full" />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest">總支出</span>
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest">總支出</span>
+            {reportType === 'expense' && (
+              <span className="text-[10px] font-black bg-rose-500 text-white px-2 py-0.5 rounded-full">
+                檢視中
+              </span>
+            )}
           </div>
-          <span className="text-xl font-black text-rose-600">${stats.expense.toLocaleString()}</span>
-        </div>
+          <span className="text-xl font-black text-rose-600 mt-1">${stats.expense.toLocaleString()}</span>
+        </button>
       </div>
 
       {/* Chart */}
@@ -16586,10 +16692,14 @@ function ReportsView({
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-base font-black text-[#5D4037]">
-              {selectedCategory === 'all' ? '支出分析 (全部分類彙整)' : `支出分析 (${selectedCategory} 細項拆分)`}
+              {reportType === 'expense'
+                ? (selectedCategory === 'all' ? '支出分析 (全部分類彙整)' : `支出分析 (${selectedCategory} 細項拆分)`)
+                : (selectedCategory === 'all' ? '收入分析 (全部分類彙整)' : `收入分析 (${selectedCategory} 細項拆分)`)}
             </h3>
             <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">
-              {selectedCategory === 'all' ? 'Parent Category Expense Breakdown' : `${selectedCategory} Subcategory Breakdown`}
+              {reportType === 'expense'
+                ? (selectedCategory === 'all' ? 'Parent Category Expense Breakdown' : `${selectedCategory} Subcategory Expense`)
+                : (selectedCategory === 'all' ? 'Parent Category Income Breakdown' : `${selectedCategory} Subcategory Income`)}
             </p>
           </div>
         </div>
@@ -16599,7 +16709,7 @@ function ReportsView({
             <div className="w-12 h-12 rounded-full bg-amber-100/60 flex items-center justify-center text-amber-800 text-xl shadow-xs">
               📊
             </div>
-            <p className="text-sm font-bold text-[#5D4037]/70">此期間無相關支出紀錄</p>
+            <p className="text-sm font-bold text-[#5D4037]/70">此期間無相關{reportType === 'expense' ? '支出' : '收入'}紀錄</p>
           </div>
         ) : (
           <>
@@ -16618,7 +16728,7 @@ function ReportsView({
                     onClick={(data) => {
                       setActiveSector(data);
                       if (data && data.name) {
-                        setDetailCategoryInfo({ categoryName: data.name, subFilter: 'all' });
+                        setDetailCategoryInfo({ categoryName: data.name, subFilter: 'all', type: reportType });
                       }
                     }}
                   >
@@ -16634,21 +16744,25 @@ function ReportsView({
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">
-                  {selectedCategory === 'all' ? '總支出' : '類別花費'}
+                  {selectedCategory === 'all' ? (reportType === 'expense' ? '總支出' : '總收入') : '類別金額'}
                 </span>
-                <span className="text-2xl font-black text-[#5D4037]">${stats.expense.toLocaleString()}</span>
+                <span className={`text-2xl font-black ${reportType === 'expense' ? 'text-[#5D4037]' : 'text-blue-600'}`}>
+                  ${stats.activeTotal.toLocaleString()}
+                </span>
               </div>
             </div>
 
             {/* Hierarchical Accordion List */}
             <div className="flex flex-col gap-3 mt-8">
               <div className="flex items-center justify-between px-1 mb-1">
-                <h4 className="text-sm font-black text-[#5D4037]">母分類彙整排行榜與子項目</h4>
+                <h4 className="text-sm font-black text-[#5D4037]">
+                  {reportType === 'expense' ? '支出母分類彙整排行榜與子項目' : '收入母分類彙整排行榜與子項目'}
+                </h4>
                 <span className="text-[11px] font-bold text-stone-400">點擊卡片查看明細 / 點擊箭頭展開子分類</span>
               </div>
 
               {stats.parentList.map((parent, index) => {
-                const parentPercentage = stats.expense > 0 ? ((parent.totalAmount / stats.expense) * 100).toFixed(1) : '0.0';
+                const parentPercentage = stats.activeTotal > 0 ? ((parent.totalAmount / stats.activeTotal) * 100).toFixed(1) : '0.0';
                 const color = COLORS[index % COLORS.length];
 
                 const subEntries = Object.entries(parent.subMap)
@@ -16668,7 +16782,7 @@ function ReportsView({
                       {/* Left: Color dot, Icon, Parent Name */}
                       <button
                         type="button"
-                        onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: 'all' })}
+                        onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: 'all', type: reportType })}
                         className="flex items-center gap-2.5 min-w-0 flex-1 text-left group"
                       >
                         <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
@@ -16681,7 +16795,7 @@ function ReportsView({
                       {/* Right: Total Amount, Percentage Badge, Subcount badge & Expand Toggle */}
                       <div className="flex items-center gap-2 shrink-0">
                         <div className="text-right">
-                          <div className="text-sm font-black text-[#5D4037]">
+                          <div className={`text-sm font-black ${reportType === 'expense' ? 'text-[#5D4037]' : 'text-blue-600'}`}>
                             ${parent.totalAmount.toLocaleString()}
                           </div>
                           <div className="text-[10px] font-bold text-stone-400">
@@ -16692,7 +16806,7 @@ function ReportsView({
                         {/* View Detail Button */}
                         <button
                           type="button"
-                          onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: 'all' })}
+                          onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: 'all', type: reportType })}
                           className="p-1.5 bg-white hover:bg-amber-50 rounded-xl text-stone-500 hover:text-amber-900 transition-all text-xs font-bold border border-stone-100 shadow-2xs"
                           title="查看該母分類完整交易明細"
                         >
@@ -16734,7 +16848,7 @@ function ReportsView({
                             <button
                               key={sub.name}
                               type="button"
-                              onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: sub.name })}
+                              onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: sub.name, type: reportType })}
                               className="flex items-center justify-between p-2.5 bg-white hover:bg-amber-50/80 rounded-2xl border border-stone-100 text-left transition-all group shadow-2xs"
                             >
                               <div className="flex items-center gap-2 min-w-0">
@@ -16744,7 +16858,7 @@ function ReportsView({
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-xs font-black text-stone-700">
+                                <span className={`text-xs font-black ${reportType === 'expense' ? 'text-stone-700' : 'text-blue-600'}`}>
                                   ${sub.value.toLocaleString()}
                                 </span>
                                 <span className="text-[10px] font-bold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded-md">
@@ -16773,11 +16887,12 @@ function ReportsView({
           <CategoryDetailModal
             categoryName={detailCategoryInfo.categoryName}
             initialSubFilter={detailCategoryInfo.subFilter}
+            reportType={detailCategoryInfo.type || reportType}
             dateInterval={dateInterval}
             records={records}
             categories={categories}
             accounts={accounts}
-            totalPeriodExpense={stats.expense}
+            totalPeriodExpense={stats.activeTotal}
             onClose={() => setDetailCategoryInfo(null)}
             onSelectRecord={(r) => setEditingRecord(r)}
           />
