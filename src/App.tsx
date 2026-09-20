@@ -16600,38 +16600,6 @@ function ReportsView({
             </button>
           ))}
         </div>
-
-        {/* 頂部【支出 / 收入】雙向分頁切換鈕 */}
-        <div className="flex bg-stone-100/80 p-1 rounded-2xl border border-stone-200/60 shadow-2xs">
-          <button
-            type="button"
-            onClick={() => {
-              setReportType('expense');
-              setSelectedCategory('all');
-            }}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
-              reportType === 'expense'
-                ? 'bg-rose-500 text-white shadow-md scale-[1.01]'
-                : 'text-stone-500 hover:text-stone-700'
-            }`}
-          >
-            <span>💸 支出分析</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setReportType('income');
-              setSelectedCategory('all');
-            }}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
-              reportType === 'income'
-                ? 'bg-blue-500 text-white shadow-md scale-[1.01]'
-                : 'text-stone-500 hover:text-stone-700'
-            }`}
-          >
-            <span>💰 收入分析</span>
-          </button>
-        </div>
         
         {/* Category Filter Selector (Expense / Income) */}
         <div className="flex items-center gap-2 overflow-x-auto py-1 custom-scrollbar">
@@ -16670,35 +16638,6 @@ function ReportsView({
 
       {/* Summary Cards with Interactive Click to Switch */}
       <div className="grid grid-cols-2 gap-4">
-        {/* Total Income Card */}
-        <button
-          type="button"
-          onClick={() => {
-            setReportType('income');
-            setSelectedCategory('all');
-          }}
-          className={`bg-white rounded-3xl p-5 text-left shadow-sm transition-all border-2 flex flex-col gap-1 cursor-pointer active:scale-[0.98] ${
-            reportType === 'income'
-              ? 'border-blue-500 bg-blue-50/30 shadow-md ring-2 ring-blue-100'
-              : 'border-stone-50 hover:border-blue-200/80 opacity-85 hover:opacity-100'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-blue-500">
-              <div className="w-5 h-5 rounded-lg bg-blue-100/80 flex items-center justify-center">
-                <Plus size={12} strokeWidth={3} />
-              </div>
-              <span className="text-[10px] font-black uppercase tracking-widest">總收入</span>
-            </div>
-            {reportType === 'income' && (
-              <span className="text-[10px] font-black bg-blue-500 text-white px-2 py-0.5 rounded-full">
-                檢視中
-              </span>
-            )}
-          </div>
-          <span className="text-xl font-black text-blue-600 mt-1">${stats.income.toLocaleString()}</span>
-        </button>
-
         {/* Total Expense Card */}
         <button
           type="button"
@@ -16726,6 +16665,35 @@ function ReportsView({
             )}
           </div>
           <span className="text-xl font-black text-rose-600 mt-1">${stats.expense.toLocaleString()}</span>
+        </button>
+
+        {/* Total Income Card */}
+        <button
+          type="button"
+          onClick={() => {
+            setReportType('income');
+            setSelectedCategory('all');
+          }}
+          className={`bg-white rounded-3xl p-5 text-left shadow-sm transition-all border-2 flex flex-col gap-1 cursor-pointer active:scale-[0.98] ${
+            reportType === 'income'
+              ? 'border-blue-500 bg-blue-50/30 shadow-md ring-2 ring-blue-100'
+              : 'border-stone-50 hover:border-blue-200/80 opacity-85 hover:opacity-100'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-blue-500">
+              <div className="w-5 h-5 rounded-lg bg-blue-100/80 flex items-center justify-center">
+                <Plus size={12} strokeWidth={3} />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest">總收入</span>
+            </div>
+            {reportType === 'income' && (
+              <span className="text-[10px] font-black bg-blue-500 text-white px-2 py-0.5 rounded-full">
+                檢視中
+              </span>
+            )}
+          </div>
+          <span className="text-xl font-black text-blue-600 mt-1">${stats.income.toLocaleString()}</span>
         </button>
       </div>
 
