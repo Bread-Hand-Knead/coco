@@ -16,6 +16,8 @@ export interface SubItem {
   isPrepay?: boolean; // false: 個人支出 (我的), true: 家裡代墊 (家裡的)
   toAccountId?: string; // 轉入帳戶/卡別 (用於合併轉帳/信用卡繳款)
   originalRecordId?: string; // 原始紀錄 ID
+  projectId?: string; // 所屬專案 ID (未設定時繼承主交易專案)
+  projectName?: string; // 所屬專案名稱
 }
 
 export interface Transaction {

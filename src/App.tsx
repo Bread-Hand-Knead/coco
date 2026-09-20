@@ -1022,6 +1022,15 @@ export const getRecordPrepayAmount = (r: Transaction): number => {
 };
 
 const getTransactionTitle = (record: Transaction): string => {
+  if (record.subItems && record.subItems.length > 1) {
+    const firstSubName = (record.subItems[0].name || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim() || '明細 1';
+    return `【${firstSubName}】等 ${record.subItems.length} 類明細`;
+  }
+  if (record.subTransactions && record.subTransactions.length > 1) {
+    const firstSubName = (record.subTransactions[0].note || record.subTransactions[0].category || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim() || '明細 1';
+    return `【${firstSubName}】等 ${record.subTransactions.length} 類明細`;
+  }
+
   const cleanRemark = (record.remark || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   const cleanNote = (record.note || '').replace(/\[固定收支\] /g, '').replace(/\[固定收支\]/g, '').trim();
   
@@ -8019,12 +8028,22 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                 <span className="text-[#5D4037] font-black">小計: ${personalSum.toLocaleString()}</span>
                               </div>
                               <div className="space-y-1.5 pt-0.5">
-                                {personalItems.map((item, idx) => (
-                                  <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-stone-700">
-                                    <span className="truncate max-w-[200px] text-stone-800">{item.name} {item.category ? `(${item.category})` : ''}</span>
-                                    <span className="font-black text-[#5D4037]">${Math.abs(item.amount).toLocaleString()}</span>
-                                  </div>
-                                ))}
+                                {personalItems.map((item, idx) => {
+                                  const subProjectName = item.projectName || (item.projectId && (Array.isArray(projects) ? projects : []).find(p => p.id === item.projectId)?.name);
+                                  return (
+                                    <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-stone-700">
+                                      <span className="truncate max-w-[240px] text-stone-800 flex items-center gap-1">
+                                        <span>• {item.name} {item.category ? `(${item.category})` : ''}</span>
+                                        {subProjectName && (
+                                          <span className="text-[10px] text-amber-800 bg-amber-100/90 px-1.5 py-0.2 rounded font-black border border-amber-300/40">
+                                            📁 {subProjectName}
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="font-black text-[#5D4037]">${Math.abs(item.amount).toLocaleString()}</span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           );
@@ -8046,12 +8065,22 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                 <span className="text-amber-950 font-black">小計: ${prepaySum.toLocaleString()}</span>
                               </div>
                               <div className="space-y-1.5 pt-0.5">
-                                {prepayItems.map((item, idx) => (
-                                  <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-amber-900/90">
-                                    <span className="truncate max-w-[200px]">{item.name} {item.category ? `(${item.category})` : ''}</span>
-                                    <span className="font-black text-amber-950">${Math.abs(item.amount).toLocaleString()}</span>
-                                  </div>
-                                ))}
+                                {prepayItems.map((item, idx) => {
+                                  const subProjectName = item.projectName || (item.projectId && (Array.isArray(projects) ? projects : []).find(p => p.id === item.projectId)?.name);
+                                  return (
+                                    <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-amber-900/90">
+                                      <span className="truncate max-w-[240px] flex items-center gap-1">
+                                        <span>• {item.name} {item.category ? `(${item.category})` : ''}</span>
+                                        {subProjectName && (
+                                          <span className="text-[10px] text-amber-900 bg-amber-200/80 px-1.5 py-0.2 rounded font-black border border-amber-300/60">
+                                            📁 {subProjectName}
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="font-black text-amber-950">${Math.abs(item.amount).toLocaleString()}</span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           );
@@ -8790,6 +8819,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   const editTimeInputRef = useRef<HTMLInputElement>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
+  const [subItemProjectPickerIdx, setSubItemProjectPickerIdx] = useState<number | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
   const [selectedMainCat, setSelectedMainCat] = useState<string | null>(null);
@@ -9664,22 +9694,47 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                                 </div>
                               </div>
 
-                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100">
-                                <span className="text-[10px] font-bold text-stone-400">歸屬標籤：</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, isPrepay: !s.isPrepay } : s);
-                                    setEdited({ ...edited, subItems: updatedSubs });
-                                  }}
-                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border flex items-center gap-1 active:scale-95 ${
-                                    subItem.isPrepay
-                                      ? 'bg-amber-100/90 border-amber-300 text-amber-900 shadow-xs'
-                                      : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
-                                  }`}
-                                >
-                                  <span>{subItem.isPrepay ? '🏠 家裡代墊 (家裡的)' : '🛒 個人支出 (我的)'}</span>
-                                </button>
+                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100 flex-wrap">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[10px] font-bold text-stone-400">歸屬標籤：</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, isPrepay: !s.isPrepay } : s);
+                                      setEdited({ ...edited, subItems: updatedSubs });
+                                    }}
+                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border flex items-center gap-1 active:scale-95 ${
+                                      subItem.isPrepay
+                                        ? 'bg-amber-100/90 border-amber-300 text-amber-900 shadow-xs'
+                                        : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
+                                    }`}
+                                  >
+                                    <span>{subItem.isPrepay ? '🏠 家裡代墊 (家裡的)' : '🛒 個人支出 (我的)'}</span>
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] font-bold text-stone-400">專案：</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      setSubItemProjectPickerIdx(idx);
+                                    }}
+                                    className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 rounded-lg text-[10px] font-black flex items-center gap-1 active:scale-95 transition-all shadow-2xs"
+                                    title="變更子項目所屬專案"
+                                  >
+                                    <span>📁</span>
+                                    <span>
+                                      {(() => {
+                                        const effectivePid = subItem.projectId || edited.projectId || 'p1';
+                                        const foundProj = (Array.isArray(projects) ? projects : []).find(p => p.id === effectivePid);
+                                        return subItem.projectName || foundProj?.name || (effectivePid === 'p1' ? '預設專案' : '專案');
+                                      })()}
+                                    </span>
+                                  </button>
+                                </div>
                               </div>
                             </>
                           )}
@@ -9693,13 +9748,16 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                         onClick={() => {
                           const isTransfer = edited.type === 'transfer';
                           const otherAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id !== edited.accountId);
+                          const mainProj = (Array.isArray(projects) ? projects : []).find(p => p.id === (edited.projectId || 'p1'));
                           const newSub: SubItem = {
                             id: `sub_${Date.now()}_${(edited.subItems?.length || 0) + 1}`,
                             name: isTransfer ? `繳 ${otherAcc?.name || '信用卡'}` : `項目 ${(edited.subItems?.length || 0) + 1}`,
                             amount: 0,
                             category: edited.category,
                             isPrepay: false,
-                            toAccountId: isTransfer ? otherAcc?.id : undefined
+                            toAccountId: isTransfer ? otherAcc?.id : undefined,
+                            projectId: edited.projectId || 'p1',
+                            projectName: mainProj?.name || '預設專案'
                           };
                           setEdited({ ...edited, subItems: [...(edited.subItems || []), newSub] });
                         }}
@@ -9716,6 +9774,119 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                 )}
               </div>
             )}
+
+            {/* Sub-Item Project Selection Modal */}
+            <AnimatePresence>
+              {subItemProjectPickerIdx !== null && (
+                <div 
+                  className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-[120] p-4"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setSubItemProjectPickerIdx(null);
+                  }}
+                >
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
+                    className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-xl border border-stone-100"
+                    style={getFontFamily()}
+                  >
+                    <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+                      <span className="text-sm font-black text-[#5D4037]">選擇子項目專案歸屬</span>
+                      <button 
+                        type="button" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setSubItemProjectPickerIdx(null);
+                        }} 
+                        className="p-1 text-stone-400 hover:text-stone-600 rounded-full"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {/* Inherit from main transaction option */}
+                      {(() => {
+                        const mainProj = (Array.isArray(projects) ? projects : []).find(p => p.id === (edited.projectId || 'p1'));
+                        const currentSubProjId = edited.subItems?.[subItemProjectPickerIdx]?.projectId;
+                        const isInherited = !currentSubProjId || currentSubProjId === (edited.projectId || 'p1');
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              const targetIdx = subItemProjectPickerIdx;
+                              const updatedSubs = edited.subItems?.map((s, i) => i === targetIdx ? {
+                                ...s,
+                                projectId: edited.projectId || 'p1',
+                                projectName: mainProj?.name || '預設專案'
+                              } : s);
+                              setEdited({ ...edited, subItems: updatedSubs });
+                              setSubItemProjectPickerIdx(null);
+                            }}
+                            className={`w-full p-3 rounded-2xl flex items-center justify-between text-xs font-black transition-all border ${
+                              isInherited
+                                ? 'bg-[#FFEDAE] border-[#FFD54F] text-[#5D4037]'
+                                : 'bg-stone-50 border-stone-100 text-stone-700 hover:bg-stone-100'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span>📁</span>
+                              <span>主交易專案 ({ mainProj?.name || '預設專案' })</span>
+                            </span>
+                            {isInherited && <Check size={16} className="text-[#5D4037]" />}
+                          </button>
+                        );
+                      })()}
+
+                      {/* Other projects list */}
+                      {projects.map(p => {
+                        const currentSubProjId = edited.subItems?.[subItemProjectPickerIdx]?.projectId;
+                        const isSelected = currentSubProjId === p.id;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              const targetIdx = subItemProjectPickerIdx;
+                              const updatedSubs = edited.subItems?.map((s, i) => i === targetIdx ? {
+                                ...s,
+                                projectId: p.id,
+                                projectName: p.name
+                              } : s);
+                              setEdited({ ...edited, subItems: updatedSubs });
+                              setSubItemProjectPickerIdx(null);
+                            }}
+                            className={`w-full p-3 rounded-2xl flex items-center justify-between text-xs font-bold transition-all border ${
+                              isSelected
+                                ? 'bg-[#FFEDAE] border-[#FFD54F] text-[#5D4037] font-black'
+                                : 'bg-white border-stone-100 text-stone-700 hover:bg-stone-50'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span>{p.icon || '📁'}</span>
+                              <span>{p.name}</span>
+                            </span>
+                            {isSelected && <Check size={16} className="text-[#5D4037]" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
 
             {/* Prepayment / Receivable (代墊 / 代收款) Section */}
             {(edited.type === 'expense' || edited.type === 'income') && (
@@ -13804,27 +13975,50 @@ function ProjectsView({ projects, records, onProjectClick, onEditProject, onBack
   const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set());
 
   const getProjectStats = (projectId: string): { expense: number, income: number } => {
-    // 支援母子階層即時加總
+    // 支援母子階層與拆分子項目獨立專案即時加總
     const childProjectIds = projects
       .filter(p => (p.parentProjectId || p.parentId) === projectId)
       .map(p => p.id);
     const allIds = [projectId, ...childProjectIds];
 
-    const targetRecords = records.filter(r => {
-      if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return false;
-      const rPid = r.projectId || 'p1';
-      if (projectId === 'p1') {
-        return !r.projectId || allIds.includes(r.projectId);
+    let expense = 0;
+    let income = 0;
+
+    records.forEach(r => {
+      if (r.isMergedChild || r.parentId || r.parentTransactionId || r.isChildTransaction) return;
+
+      if (r.subItems && r.subItems.length > 0) {
+        r.subItems.forEach(s => {
+          const sPid = s.projectId || r.projectId || 'p1';
+          const matches = projectId === 'p1' ? (!s.projectId && !r.projectId) || allIds.includes(sPid) : allIds.includes(sPid);
+          if (matches) {
+            if (r.type === 'expense' && !s.isPrepay) {
+              expense += Math.abs(s.amount);
+            } else if (r.type === 'income' && !s.isPrepay) {
+              income += Math.abs(s.amount);
+            }
+          }
+        });
+        if (r.fee && r.fee > 0) {
+          const rPid = r.projectId || 'p1';
+          const matches = projectId === 'p1' ? (!r.projectId || allIds.includes(r.projectId)) : allIds.includes(rPid);
+          if (matches && r.type === 'expense' && !r.isPrepay) {
+            expense += r.fee;
+          }
+        }
+      } else {
+        const rPid = r.projectId || 'p1';
+        const matches = projectId === 'p1' ? (!r.projectId || allIds.includes(r.projectId)) : allIds.includes(rPid);
+        if (matches) {
+          if (r.type === 'expense' && !r.isPrepay) {
+            expense += Math.abs(r.amount) + (r.fee || 0);
+          } else if (r.type === 'income' && !r.isPrepay) {
+            income += Math.abs(r.amount);
+          }
+        }
       }
-      return allIds.includes(rPid);
     });
 
-    const expense = targetRecords
-      .filter(r => r.type === 'expense' && !r.isPrepay)
-      .reduce((sum, r) => sum + (Math.abs(r.amount) + (r.fee || 0)), 0);
-    const income = targetRecords
-      .filter(r => r.type === 'income' && !r.isPrepay)
-      .reduce((sum, r) => sum + Math.abs(r.amount), 0);
     return { expense, income };
   };
 
@@ -14219,11 +14413,19 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   const filteredRecords = useMemo(() => {
     const [y, m] = currentMonth.split('/').map(Number);
     const raw = records.filter(r => {
-      const rPid = r.projectId || 'p1';
-      const isProject = project.id === 'p1' 
-        ? (!r.projectId || targetProjectIds.includes(r.projectId)) 
-        : targetProjectIds.includes(rPid);
-      if (!isProject) return false;
+      let matchesProject = false;
+      if (r.subItems && r.subItems.length > 0) {
+        matchesProject = r.subItems.some(s => {
+          const sPid = s.projectId || r.projectId || 'p1';
+          return project.id === 'p1' ? (!s.projectId && !r.projectId) || targetProjectIds.includes(sPid) : targetProjectIds.includes(sPid);
+        });
+      } else {
+        const rPid = r.projectId || 'p1';
+        matchesProject = project.id === 'p1' 
+          ? (!r.projectId || targetProjectIds.includes(r.projectId)) 
+          : targetProjectIds.includes(rPid);
+      }
+      if (!matchesProject) return false;
       const pDate = r.postingDate || r.date;
       const d = new Date(pDate);
       return d.getFullYear() === y && (d.getMonth() + 1) === m;
@@ -14238,10 +14440,36 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   }, [records, project, currentMonth, accounts, targetProjectIds]);
 
   const balance = useMemo(() => {
-    const expense = filteredRecords.filter(r => r.type === 'expense' && r.postingDate && !r.isPrepay).reduce((sum, r) => sum + Math.abs(r.amount), 0);
-    const income = filteredRecords.filter(r => r.type === 'income' && r.postingDate && !r.isPrepay).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+    let expense = 0;
+    let income = 0;
+    filteredRecords.forEach(r => {
+      if (r.isPrepay) return;
+      if (r.subItems && r.subItems.length > 0) {
+        r.subItems.forEach(s => {
+          if (s.isPrepay) return;
+          const sPid = s.projectId || r.projectId || 'p1';
+          const matches = project.id === 'p1' ? (!s.projectId && !r.projectId) || targetProjectIds.includes(sPid) : targetProjectIds.includes(sPid);
+          if (matches) {
+            if (r.type === 'expense') expense += Math.abs(s.amount);
+            else if (r.type === 'income') income += Math.abs(s.amount);
+          }
+        });
+        if (r.fee && r.fee > 0) {
+          const rPid = r.projectId || 'p1';
+          const matches = project.id === 'p1' ? (!r.projectId || targetProjectIds.includes(r.projectId)) : targetProjectIds.includes(rPid);
+          if (matches && r.type === 'expense') expense += r.fee;
+        }
+      } else {
+        const rPid = r.projectId || 'p1';
+        const matches = project.id === 'p1' ? (!r.projectId || targetProjectIds.includes(r.projectId)) : targetProjectIds.includes(rPid);
+        if (matches) {
+          if (r.type === 'expense') expense += Math.abs(r.amount) + (r.fee || 0);
+          else if (r.type === 'income') income += Math.abs(r.amount);
+        }
+      }
+    });
     return income - expense;
-  }, [filteredRecords]);
+  }, [filteredRecords, project.id, targetProjectIds]);
 
   // Group by date (using consumption date for daily view rhythm)
   const groupedRecords = useMemo(() => {
