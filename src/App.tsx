@@ -16204,141 +16204,183 @@ function CategoryDetailModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end md:items-center justify-center p-0 md:p-6"
-      onClick={onClose}
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onClose();
+      }}
     >
       <motion.div
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 250 }}
-        className="bg-[#FFFDF5] w-full max-w-xl rounded-t-[32px] md:rounded-[32px] p-6 flex flex-col gap-4 max-h-[85vh] md:max-h-[80vh] overflow-hidden shadow-2xl border border-stone-100"
-        onClick={e => e.stopPropagation()}
+        className="bg-[#FFFDF5] w-full max-w-4xl rounded-t-[32px] md:rounded-[36px] p-6 flex flex-col gap-4 max-h-[90vh] md:max-h-[85vh] overflow-hidden shadow-2xl border border-stone-100"
+        onClick={e => {
+          e.stopPropagation();
+        }}
         style={getFontFamily()}
       >
         {/* Header */}
-        <div className="flex items-start justify-between border-b border-stone-200/60 pb-3 shrink-0">
+        <div className="flex items-center justify-between border-b border-stone-200/60 pb-3 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-[#FFD54F]/20 border border-[#FFD54F]/40 flex items-center justify-center text-xl shrink-0">
+            <div className="w-11 h-11 rounded-2xl bg-[#FFD54F]/20 border border-[#FFD54F]/40 flex items-center justify-center text-xl shrink-0">
               <AccountIcon icon={catObj?.icon || '📁'} sizeClassName="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-xl font-black text-[#5D4037]">{categoryName}</h3>
-                <span className="text-xs font-black bg-[#FFD54F] text-[#5D4037] px-2.5 py-0.5 rounded-full shadow-xs">
+                <h3 className="text-lg md:text-xl font-black text-[#5D4037]">{categoryName}</h3>
+                <span className="text-xs font-black bg-[#FFD54F] text-[#5D4037] px-2.5 py-0.5 rounded-full shadow-2xs">
                   {percentage}% 佔比
                 </span>
               </div>
               <p className="text-xs font-bold text-stone-400 mt-0.5">
-                {isParentCat ? '母分類 (含旗下所有子分類加總)' : '單一分類明細'}
+                {isParentCat ? '母分類 (含旗下所有子分類加總)' : '單一分類交易明細'}
               </p>
             </div>
           </div>
 
           <button
-            onClick={onClose}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onClose();
+            }}
             className="p-2 hover:bg-stone-100 rounded-full transition-colors text-stone-400 hover:text-stone-600"
           >
             <X size={20} />
           </button>
         </div>
 
-        {/* Top Summary Banner */}
-        <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs flex items-center justify-between shrink-0">
-          <div>
-            <span className="text-xs font-bold text-stone-400 block">此期間總花費</span>
-            <span className="text-2xl font-black text-rose-600">${catTotal.toLocaleString()}</span>
-          </div>
-          <div className="text-right">
-            <span className="text-xs font-bold text-stone-400 block">交易筆數</span>
-            <span className="text-base font-black text-[#5D4037]">{matchingRecords.length} 筆交易</span>
-          </div>
-        </div>
-
-        {/* Sub-category Filter Tabs (If Parent Category) */}
-        {isParentCat && presentSubCategories.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1 custom-scrollbar shrink-0">
-            <button
-              onClick={() => setSubFilter('all')}
-              className={`px-3 py-1.5 rounded-full text-xs font-black transition-all shrink-0 ${
-                subFilter === 'all'
-                  ? 'bg-[#5D4037] text-white shadow-xs'
-                  : 'bg-white text-stone-500 border border-stone-200 hover:bg-stone-50'
-              }`}
-            >
-              全部 ({matchingRecords.length})
-            </button>
-            {presentSubCategories.map(subName => {
-              const count = matchingRecords.filter(r => {
-                const cleanCat = (r.category || '').trim();
-                const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
-                if (subName === '主要 / 直屬') return parts[0] === categoryName && parts.length === 1;
-                return parts.includes(subName) || cleanCat === subName;
-              }).length;
-
-              return (
-                <button
-                  key={subName}
-                  onClick={() => setSubFilter(subName)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-black transition-all shrink-0 ${
-                    subFilter === subName
-                      ? 'bg-[#FFD54F] text-[#5D4037] shadow-xs'
-                      : 'bg-white text-stone-500 border border-stone-200 hover:bg-stone-50'
-                  }`}
-                >
-                  {subName} ({count})
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Transaction List */}
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-0">
-          {sortedRecords.length === 0 ? (
-            <div className="py-12 text-center text-stone-400 text-sm font-bold bg-stone-50/50 rounded-2xl border border-dashed border-stone-200">
-              無相關交易明細紀錄
+        {/* Responsive Body Layout: Mobile 1 column stack, Desktop 2 columns split */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 flex-1 min-h-0 overflow-hidden">
+          
+          {/* Left Column: Overview & Subcategory Filters */}
+          <div className="flex flex-col gap-4 overflow-y-auto pr-1 custom-scrollbar shrink-0 md:shrink">
+            {/* Top Summary Banner */}
+            <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-2xs grid grid-cols-2 gap-3 items-center">
+              <div>
+                <span className="text-xs font-bold text-stone-400 block">此期間總花費</span>
+                <span className={`text-xl md:text-2xl font-black ${reportType === 'expense' ? 'text-rose-600' : 'text-blue-600'}`}>
+                  ${catTotal.toLocaleString()}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-bold text-stone-400 block">交易筆數</span>
+                <span className="text-base font-black text-[#5D4037]">{matchingRecords.length} 筆交易</span>
+              </div>
             </div>
-          ) : (
-            sortedRecords.map((r) => {
-              const accName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name || '未指定帳戶';
-              const amt = Math.abs(r.amount) + (r.fee || 0);
 
-              return (
-                <div
-                  key={r.id}
-                  onClick={() => onSelectRecord(r)}
-                  className="p-3.5 bg-white hover:bg-amber-50/40 active:scale-[0.99] transition-all rounded-2xl border border-stone-200/80 shadow-xs flex items-center justify-between cursor-pointer group"
-                >
-                  <div className="flex flex-col gap-1 min-w-0 pr-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-black text-[#5D4037] text-sm truncate group-hover:text-amber-900">
-                        {r.note || r.category || '消費明細'}
-                      </span>
-                      {r.category && r.category !== categoryName && (
-                        <span className="text-[10px] font-bold bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full shrink-0">
-                          {r.category}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] font-bold text-stone-400">
-                      <span>📅 {r.date} {r.time || ''}</span>
-                      <span>•</span>
-                      <span className="text-stone-500">💳 {accName}</span>
-                    </div>
-                  </div>
+            {/* Sub-category Filter Section (If Parent Category) */}
+            {isParentCat && presentSubCategories.length > 0 && (
+              <div className="bg-white/80 p-4 rounded-2xl border border-stone-200/60 shadow-2xs flex flex-col gap-2.5">
+                <span className="text-xs font-black text-[#5D4037]">子分類快速導航與過濾</span>
+                <div className="flex md:flex-wrap items-center gap-2 overflow-x-auto md:overflow-visible py-1 custom-scrollbar">
+                  <button
+                    type="button"
+                    onClick={() => setSubFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all shrink-0 ${
+                      subFilter === 'all'
+                        ? 'bg-[#5D4037] text-white shadow-xs'
+                        : 'bg-stone-50 text-stone-600 border border-stone-200/80 hover:bg-stone-100'
+                    }`}
+                  >
+                    全部 ({matchingRecords.length})
+                  </button>
+                  {presentSubCategories.map(subName => {
+                    const count = matchingRecords.filter(r => {
+                      const cleanCat = (r.category || '').trim();
+                      const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+                      if (subName === '主要 / 直屬') return parts[0] === categoryName && parts.length === 1;
+                      return parts.includes(subName) || cleanCat === subName;
+                    }).length;
 
-                  <div className="text-right shrink-0">
-                    <span className="text-base font-black text-rose-600">
-                      -${amt.toLocaleString()}
-                    </span>
-                    {r.fee ? (
-                      <span className="block text-[10px] font-bold text-stone-400">含手續費 ${r.fee}</span>
-                    ) : null}
-                  </div>
+                    return (
+                      <button
+                        key={subName}
+                        type="button"
+                        onClick={() => setSubFilter(subName)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all shrink-0 active:scale-95 ${
+                          subFilter === subName
+                            ? 'bg-[#FFD54F] text-[#5D4037] shadow-xs'
+                            : 'bg-stone-50 text-stone-600 border border-stone-200/80 hover:bg-stone-100'
+                        }`}
+                      >
+                        {subName} ({count})
+                      </button>
+                    );
+                  })}
                 </div>
-              );
-            })
-          )}
+              </div>
+            )}
+          </div>
+
+          {/* Right Column: Scrollable Transaction Detail List */}
+          <div className="bg-white/80 p-4 rounded-3xl border border-stone-200/80 shadow-2xs flex flex-col gap-3 min-h-0 overflow-hidden">
+            <div className="flex items-center justify-between pb-2 border-b border-stone-100 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-[#5D4037]">交易明細清單</span>
+                {subFilter !== 'all' && (
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">
+                    {subFilter}
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] font-bold text-stone-400">
+                共 {sortedRecords.length} 筆紀錄
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-0">
+              {sortedRecords.length === 0 ? (
+                <div className="py-12 text-center text-stone-400 text-sm font-bold bg-stone-50/50 rounded-2xl border border-dashed border-stone-200">
+                  無相關交易明細紀錄
+                </div>
+              ) : (
+                sortedRecords.map((r) => {
+                  const accName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name || '未指定帳戶';
+                  const amt = Math.abs(r.amount) + (r.fee || 0);
+
+                  return (
+                    <div
+                      key={r.id}
+                      onClick={() => onSelectRecord(r)}
+                      className="p-3.5 bg-white hover:bg-amber-50/40 active:scale-[0.99] transition-all rounded-2xl border border-stone-200/80 shadow-2xs flex items-center justify-between cursor-pointer group"
+                    >
+                      <div className="flex flex-col gap-1 min-w-0 pr-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-[#5D4037] text-sm truncate group-hover:text-amber-900">
+                            {r.note || r.category || '消費明細'}
+                          </span>
+                          {r.category && r.category !== categoryName && (
+                            <span className="text-[10px] font-bold bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full shrink-0">
+                              {r.category}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] font-bold text-stone-400">
+                          <span>📅 {r.date} {r.time || ''}</span>
+                          <span>•</span>
+                          <span className="text-stone-500">💳 {accName}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className={`text-base font-black ${reportType === 'expense' ? 'text-rose-600' : 'text-blue-600'}`}>
+                          {reportType === 'expense' ? '-' : '+'}${amt.toLocaleString()}
+                        </span>
+                        {r.fee ? (
+                          <span className="block text-[10px] font-bold text-stone-400">含手續費 ${r.fee}</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
         </div>
       </motion.div>
     </motion.div>
