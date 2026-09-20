@@ -118,7 +118,7 @@ export function AccountsView({ accounts, netAssets, totalAssets, totalLiabilitie
     setExpandedGroups(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  const accountTypeLabels: Record<Account['type'], string> = {
+  const accountTypeLabels: Partial<Record<Account['type'], string>> = {
     cash: '現金',
     bank: '銀行',
     investment: '投資',

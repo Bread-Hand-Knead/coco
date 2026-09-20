@@ -61,7 +61,6 @@ import {
   Cloud,
   CloudUpload,
   CloudDownload,
-  Loader2,
   GripVertical,
   RefreshCw,
   Clock,
@@ -4491,16 +4490,18 @@ function renderAccountMemoAndInterest(acc: Account, accounts: Account[], records
 
 function ExchangeRateModal({
   account,
-  accounts,
+  accounts = [],
   records,
+  isOpen,
   onClose,
   onSaveAccount
 }: {
   account: Account;
-  accounts: Account[];
+  accounts?: Account[];
   records: Transaction[];
+  isOpen?: boolean;
   onClose: () => void;
-  onSaveAccount: (updatedAccount: Account) => void;
+  onSaveAccount: (updatedAccount: Account, initialAmount?: number) => void;
 }) {
   const currentBalance = useMemo(() => {
     return calculateAccountBalance(account, accounts, records);
@@ -4840,7 +4841,7 @@ function AccountsView({
   onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
   categories: Category[],
   projects: Project[],
-  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, ...args: any[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void,
   onOpenRateModal?: (acc: Account) => void
@@ -5461,7 +5462,7 @@ function InvestmentSection({
   onAddRecord: (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => void,
   categories: Category[],
   projects: Project[],
-  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, ...args: any[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
@@ -6841,8 +6842,8 @@ function InvestmentSection({
             projects={projects}
             categories={categories}
             onClose={() => setEditingRecord(null)}
-            onSave={(updated, childUpdates) => {
-              onUpdateRecord(updated, childUpdates);
+            onSave={(updated, mergedIdsToDelete, restoredIds) => {
+              if (editingRecord) onUpdateRecord(editingRecord, updated, mergedIdsToDelete, restoredIds);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -6974,7 +6975,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   selectedDate: string,
   onBack: () => void,
   onEdit: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
+  onUpdateRecord: (oldRecord: Transaction, updatedRecord: Transaction, ...args: any[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   accounts: Account[],
   projects: Project[],
@@ -8808,7 +8809,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   projects: Project[],
   categories?: Category[],
   onClose: () => void,
-  onSave: (updated: Transaction, childUpdates?: Transaction[]) => void,
+  onSave: (updated: Transaction, mergedIdsToDelete?: any, restoredIds?: any) => void,
   onDelete: () => void,
   onDuplicate?: (record: Transaction) => void
 }) {
@@ -10975,7 +10976,7 @@ function SearchView({
   categories: Category[], 
   projects: Project[],
   onBack: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, ...args: any[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onReorder: (records: Transaction[]) => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -14390,7 +14391,7 @@ function ProjectDetailView({ project, records, accounts, categories, projects, o
   categories: Category[],
   projects: Project[],
   onBack: () => void,
-  onUpdateRecord: (oldRec: Transaction, newRec: Transaction, childUpdates?: Transaction[]) => void,
+  onUpdateRecord: (oldRec: Transaction, newRec: Transaction, ...args: any[]) => void,
   onDeleteRecord: (rec: Transaction) => void,
   onAddRecord: () => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -15356,7 +15357,7 @@ function HistoryView({ records, accounts, categories, projects, filter, currency
   filter: { type: 'day' | 'week' | 'month' | 'year', date: string },
   currencyMode: CurrencyMode,
   onBack: () => void,
-  onUpdateRecord: (old: Transaction, updated: Transaction, childUpdates?: Transaction[]) => void,
+  onUpdateRecord: (old: Transaction, updated: Transaction, ...args: any[]) => void,
   onDeleteRecord: (record: Transaction) => void,
   onReorder: (records: Transaction[]) => void,
   onDuplicateRecord?: (record: Transaction) => void
@@ -21308,7 +21309,7 @@ function PrepaymentsView({
   projects: Project[],
   categories: Category[], 
   onBack: () => void, 
-  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction, childUpdates?: Transaction[]) => void,
+  onUpdateRecord: (oldRecord: Transaction, newRecord: Transaction, ...args: any[]) => void,
   onDeleteRecord?: (record: Transaction) => void,
   onDuplicateRecord?: (record: Transaction) => void
 }) {
@@ -21504,7 +21505,7 @@ function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categ
   };
 
   const getApiKey = () => {
-    return import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
+    return (import.meta as any).env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
   };
 
   const handleParseText = async () => {
@@ -21909,7 +21910,7 @@ ${categoriesString}
               </div>
 
               {/* API Key Setup */}
-              {!import.meta.env.VITE_GEMINI_API_KEY && (
+              {!(import.meta as any).env.VITE_GEMINI_API_KEY && (
                 <div className="bg-[#5D4037]/5 p-4 rounded-3xl space-y-2 border border-[#5D4037]/10">
                   <label className="text-[11px] font-bold text-[#5D4037]/70 uppercase tracking-wide block ml-1">Gemini API 金鑰設定</label>
                   <div className="flex gap-2">

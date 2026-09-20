@@ -50,6 +50,7 @@ export interface Transaction {
   merchant?: string;
   installmentId?: string;
   isInstallment?: boolean;
+  totalInstallments?: number;
   totalAmount?: number;
   projectId?: string;
   projectName?: string;
