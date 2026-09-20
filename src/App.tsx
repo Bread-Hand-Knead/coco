@@ -6829,7 +6829,7 @@ function InvestmentSection({
             categories={categories}
             onClose={() => setEditingRecord(null)}
             onSave={(updated, childUpdates) => {
-              handleUpdateRecord(editingRecord, updated, childUpdates);
+              onUpdateRecord(updated, childUpdates);
               setEditingRecord(null);
             }}
             onDelete={() => {
@@ -19801,9 +19801,9 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       return;
     }
 
+    const resolvedType = (tab === 'template' ? 'expense' : tab);
     const catName = subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他'));
     const cat = (Array.isArray(categories) ? categories : []).find(c => c.name === catName || c?.sub?.includes(catName));
-    const resolvedType = (tab === 'template' ? 'expense' : tab);
 
     const newTemplate = {
       id: `template_${Date.now()}`,

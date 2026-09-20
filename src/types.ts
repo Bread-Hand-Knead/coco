@@ -47,13 +47,12 @@ export interface Transaction {
   subItemIds?: string[];
   parentTransactionId?: string;
   isChildTransaction?: boolean;
-  parentId?: string | null;
-  subItemIds?: string[];
-  baseAmount?: number;
-  parentTransactionId?: string;
-  isChildTransaction?: boolean;
-  parentTransactionId?: string;
-  isChildTransaction?: boolean;
+  merchant?: string;
+  installmentId?: string;
+  isInstallment?: boolean;
+  totalAmount?: number;
+  projectId?: string;
+  projectName?: string;
 }
 
 export interface RateHistoryItem {
@@ -82,6 +81,8 @@ export interface Account {
   interestLimit?: number; // 銀行高利活存計息上限金額
   excludeFromNetWorth?: boolean; // 是否不計入個人總資產與淨資產
   rateHistory?: RateHistoryItem[]; // 每日匯率歷史與自訂匯率紀錄
+  isBrandGroup?: boolean; // 是否為品牌帳戶群組
+  childAccounts?: Account[]; // 子帳戶列表
 }
 
 export interface Template {
