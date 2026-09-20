@@ -5548,7 +5548,7 @@ function InvestmentSection({
   const [buyAccount, setBuyAccount] = useState('');
   const [buyNotes, setBuyNotes] = useState('');
 
-  // Bidirectional change handlers for stock modal
+  // Change handlers for stock modal (cost decoupling)
   const handleStockSharesChange = (val: string) => {
     setStockShares(val);
     const sh = parseFloat(val) || 0;
@@ -5560,12 +5560,6 @@ function InvestmentSection({
         setStockTotalCost((Math.round(sh * price) + fee).toString());
       } else {
         setStockTotalCost(fee > 0 ? fee.toString() : '');
-      }
-    } else {
-      const cost = parseFloat(stockTotalCost) || 0;
-      if (sh > 0 && cost > 0) {
-        const netCost = Math.max(0, cost - fee);
-        setStockAvgPrice(parseFloat((netCost / sh).toFixed(4)).toString());
       }
     }
 
@@ -5602,25 +5596,12 @@ function InvestmentSection({
       } else {
         setStockTotalCost(fee > 0 ? fee.toString() : '');
       }
-    } else {
-      const cost = parseFloat(stockTotalCost) || 0;
-      if (sh > 0 && cost > 0) {
-        const netCost = Math.max(0, cost - fee);
-        setStockAvgPrice(parseFloat((netCost / sh).toFixed(4)).toString());
-      }
     }
   };
 
   const handleStockTotalCostChange = (val: string) => {
     setStockTotalCost(val);
     setIsStockCostManualOverride(true);
-    const cost = parseFloat(val) || 0;
-    const sh = parseFloat(stockShares) || 0;
-    const fee = parseFloat(stockFee) || 0;
-    if (sh > 0 && cost > 0) {
-      const netCost = Math.max(0, cost - fee);
-      setStockAvgPrice(parseFloat((netCost / sh).toFixed(4)).toString());
-    }
   };
 
   const handleStockCurrentPriceChange = (val: string) => {
@@ -5643,7 +5624,7 @@ function InvestmentSection({
     }
   };
 
-  // Bidirectional change handlers for buy modal
+  // Change handlers for buy modal (cost decoupling)
   const handleBuySharesChange = (val: string) => {
     setBuyShares(val);
     const sh = parseFloat(val) || 0;
@@ -5655,12 +5636,6 @@ function InvestmentSection({
         setBuyTotalCost((Math.round(sh * price) + fee).toString());
       } else {
         setBuyTotalCost(fee > 0 ? fee.toString() : '');
-      }
-    } else {
-      const cost = parseFloat(buyTotalCost) || 0;
-      if (sh > 0 && cost > 0) {
-        const netCost = Math.max(0, cost - fee);
-        setBuyPrice(parseFloat((netCost / sh).toFixed(4)).toString());
       }
     }
   };
@@ -5690,25 +5665,12 @@ function InvestmentSection({
       } else {
         setBuyTotalCost(fee > 0 ? fee.toString() : '');
       }
-    } else {
-      const cost = parseFloat(buyTotalCost) || 0;
-      if (sh > 0 && cost > 0) {
-        const netCost = Math.max(0, cost - fee);
-        setBuyPrice(parseFloat((netCost / sh).toFixed(4)).toString());
-      }
     }
   };
 
   const handleBuyTotalCostChange = (val: string) => {
     setBuyTotalCost(val);
     setIsBuyCostManualOverride(true);
-    const cost = parseFloat(val) || 0;
-    const sh = parseFloat(buyShares) || 0;
-    const fee = parseFloat(buyFee) || 0;
-    if (sh > 0 && cost > 0) {
-      const netCost = Math.max(0, cost - fee);
-      setBuyPrice(parseFloat((netCost / sh).toFixed(4)).toString());
-    }
   };
 
   // states for dividend operation
