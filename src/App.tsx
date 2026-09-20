@@ -215,13 +215,24 @@ interface Category {
   subBudgets?: Record<string, number>;
 }
 
+export interface RateHistoryItem {
+  id: string;
+  date: string;
+  time?: string;
+  rate: number;
+  note?: string;
+}
+
 interface SubItem {
   id: string;
   name: string;
   amount: number;
   category?: string;
   projectId?: string;
+  projectName?: string;
   isPrepay?: boolean; // false: 個人支出 (我的), true: 家裡代墊 (家裡的)
+  toAccountId?: string;
+  originalRecordId?: string;
 }
 
 interface Transaction {
@@ -243,11 +254,15 @@ interface Transaction {
   totalInstallments?: number;
   currentInstallment?: number;
   installmentGroupId?: string;
+  installmentId?: string;
+  totalAmount?: number;
   projectId?: string;
+  projectName?: string;
   fee?: number;
   transferredDate?: string;
   isPrepay?: boolean;
   isCompleted?: boolean;
+  isSettled?: boolean;
   status?: 'active' | 'settled';
   paidCount?: number;
   paidTerms?: number;
@@ -263,13 +278,7 @@ interface Transaction {
   subItemIds?: string[];
   parentTransactionId?: string;
   isChildTransaction?: boolean;
-  parentId?: string | null;
-  subItemIds?: string[];
-  baseAmount?: number;
-  parentTransactionId?: string;
-  isChildTransaction?: boolean;
-  parentTransactionId?: string;
-  isChildTransaction?: boolean;
+  merchant?: string;
   _importSourceAccountName?: string;
   _importDestAccountName?: string;
   _importProjectName?: string;
@@ -314,6 +323,9 @@ interface Account {
   interestLimit?: number;
   benefits?: string;
   excludeFromNetWorth?: boolean; // 是否不計入個人總資產與淨資產
+  isBrandGroup?: boolean;
+  childAccounts?: Account[];
+  rateHistory?: RateHistoryItem[];
 }
 
 interface Template {
@@ -327,6 +339,7 @@ interface Template {
   icon: string;
   color: string;
   note?: string;
+  order?: number;
 }
 
 export interface FixedRecord {
