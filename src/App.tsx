@@ -16017,8 +16017,83 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
+export const SEMANTIC_CATEGORY_MAP: Record<string, string[]> = {
+  '飲食': ['午餐', '晚餐', '早餐', '宵夜', '飲料', '食材', '奶類', '點心', '水果', '咖啡', '外食', '外送', '下午茶', '甜點', '便當'],
+  '醫療&健康': ['中醫', '西醫', '診所', '藥局', '保健', '牙醫', '眼科', '體檢', '健保', '復健'],
+  '醫療健康': ['中醫', '西醫', '診所', '藥局', '保健', '牙醫', '眼科', '體檢', '健保', '復健'],
+  '交通': ['捷運', '公車', '高鐵', '台鐵', '計程車', '加油', '停車', '悠遊卡', '加油費', '車資', '過路費', '定期票', '火車'],
+  '居住': ['房租', '水費', '電費', '瓦斯', '管理費', '網路費', '傢俱', '家電', '日常用品', '居家'],
+  '家庭': ['房租', '水費', '電費', '瓦斯', '管理費', '網路費', '傢俱', '家電', '日常用品', '居家', '家用'],
+  '娛樂': ['電影', '遊戲', '追星', '展覽', 'KTV', '演唱會', '吉伊卡哇', '玩具', '動漫', '訂閱'],
+  '購物': ['服飾', '鞋款', '美妝', '3C', '雜貨', '蝦皮', '淘寶']
+};
+
+export function parseCategoryHierarchy(
+  rawCategory: string | undefined | null,
+  categories: Category[]
+): { parentName: string; subName: string } {
+  if (!rawCategory || !rawCategory.trim()) {
+    return { parentName: '其他', subName: '未分類' };
+  }
+
+  const cleanCat = rawCategory.trim();
+  const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+  const safeCats = Array.isArray(categories) ? categories : [];
+
+  const mainPart = parts[0];
+  const subPart = parts.length > 1 ? parts[1] : undefined;
+
+  // 1. Direct parent match
+  const directParent = safeCats.find(c => c.name === mainPart);
+  if (directParent) {
+    return {
+      parentName: directParent.name,
+      subName: subPart || '主要 / 直屬'
+    };
+  }
+
+  // 2. Check subcategories in defined categories list
+  for (const cat of safeCats) {
+    if (cat.sub && Array.isArray(cat.sub) && cat.sub.includes(mainPart)) {
+      return {
+        parentName: cat.name,
+        subName: mainPart
+      };
+    }
+  }
+
+  // 3. Check semantic fallback dictionary
+  for (const [parentName, subs] of Object.entries(SEMANTIC_CATEGORY_MAP)) {
+    if (subs.includes(mainPart)) {
+      const parentInCats = safeCats.find(c => c.name === parentName || (parentName.includes('&') && c.name.includes(parentName.split('&')[0])));
+      return {
+        parentName: parentInCats ? parentInCats.name : parentName,
+        subName: mainPart
+      };
+    }
+  }
+
+  // 4. Fallback if subPart matches a parent or subcategory
+  if (subPart) {
+    const parentBySub = safeCats.find(c => c.sub && Array.isArray(c.sub) && c.sub.includes(subPart));
+    if (parentBySub) {
+      return {
+        parentName: parentBySub.name,
+        subName: subPart
+      };
+    }
+  }
+
+  // 5. Default fallback
+  return {
+    parentName: parts.length > 1 ? parts[0] : (safeCats.some(c => c.name === cleanCat) ? cleanCat : '其他'),
+    subName: parts.length > 1 ? parts[1] : (safeCats.some(c => c.name === cleanCat) ? '主要 / 直屬' : cleanCat)
+  };
+}
+
 function CategoryDetailModal({
   categoryName,
+  initialSubFilter = 'all',
   dateInterval,
   records,
   categories,
@@ -16028,6 +16103,7 @@ function CategoryDetailModal({
   onSelectRecord
 }: {
   categoryName: string,
+  initialSubFilter?: string,
   dateInterval: { start: Date, end: Date },
   records: Transaction[],
   categories: Category[],
@@ -16036,19 +16112,7 @@ function CategoryDetailModal({
   onClose: () => void,
   onSelectRecord: (r: Transaction) => void
 }) {
-  const [subFilter, setSubFilter] = useState<string>('all');
-
-  // Semantic fallback dictionary for un-categorized or legacy records
-  const SEMANTIC_FALLBACKS: Record<string, string[]> = useMemo(() => ({
-    '飲食': ['午餐', '晚餐', '早餐', '宵夜', '飲料', '食材', '奶類', '點心', '水果', '咖啡', '外食', '外送', '下午茶', '甜點', '便當'],
-    '醫療&健康': ['中醫', '西醫', '診所', '藥局', '保健', '牙醫', '眼科', '體檢', '健保', '復健'],
-    '醫療健康': ['中醫', '西醫', '診所', '藥局', '保健', '牙醫', '眼科', '體檢', '健保', '復健'],
-    '交通': ['捷運', '公車', '高鐵', '台鐵', '計程車', '加油', '停車', '悠遊卡', '加油費', '車資', '過路費', '定期票'],
-    '居住': ['房租', '水費', '電費', '瓦斯', '管理費', '網路費', '傢俱', '家電', '日常用品', '居家'],
-    '家庭': ['房租', '水費', '電費', '瓦斯', '管理費', '網路費', '傢俱', '家電', '日常用品', '居家', '家用'],
-    '娛樂': ['電影', '遊戲', '追星', '展覽', 'KTV', '演唱會', '吉伊卡哇', '玩具', '動漫', '訂閱'],
-    '購物': ['服飾', '鞋款', '美妝', '3C', '雜貨', '蝦皮', '淘寶']
-  }), []);
+  const [subFilter, setSubFilter] = useState<string>(initialSubFilter);
 
   const catObj = useMemo(() => (Array.isArray(categories) ? categories : []).find(c => c.name === categoryName), [categories, categoryName]);
   const isParentCat = useMemo(() => !!catObj && Array.isArray(catObj.sub) && catObj.sub.length > 0, [catObj]);
@@ -16056,11 +16120,11 @@ function CategoryDetailModal({
   const childSubNames = useMemo(() => {
     if (isParentCat && catObj) {
       const definedSubs = catObj.sub || [];
-      const fallbacks = SEMANTIC_FALLBACKS[categoryName] || [];
+      const fallbacks = SEMANTIC_CATEGORY_MAP[categoryName] || [];
       return Array.from(new Set([...definedSubs, ...fallbacks]));
     }
     return [];
-  }, [isParentCat, catObj, categoryName, SEMANTIC_FALLBACKS]);
+  }, [isParentCat, catObj, categoryName]);
 
   // Valid period records matching category/subcategory rules
   const matchingRecords = useMemo(() => {
@@ -16072,22 +16136,15 @@ function CategoryDetailModal({
       if (d < dateInterval.start || d > dateInterval.end) return false;
 
       if (!r.category) return false;
-      const cleanCat = r.category.trim();
-      const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
-      const mainPart = parts[0];
-      const subPart = parts[1];
+      const { parentName, subName } = parseCategoryHierarchy(r.category, categories);
 
-      if (isParentCat) {
-        if (mainPart === categoryName || cleanCat === categoryName) return true;
-        if (subPart && childSubNames.includes(subPart)) return true;
-        if (childSubNames.includes(cleanCat) || childSubNames.includes(mainPart)) return true;
-        return false;
+      if (isParentCat || categoryName === '其他') {
+        return parentName === categoryName || r.category.includes(categoryName);
       } else {
-        if (cleanCat === categoryName || subPart === categoryName || parts.includes(categoryName)) return true;
-        return false;
+        return parentName === categoryName || subName === categoryName || r.category.includes(categoryName);
       }
     });
-  }, [records, dateInterval, categoryName, isParentCat, childSubNames]);
+  }, [records, dateInterval, categoryName, isParentCat, categories]);
 
   // Subcategories present in actual records
   const presentSubCategories = useMemo(() => {
@@ -16307,8 +16364,9 @@ function ReportsView({
   const [activeSector, setActiveSector] = useState<any>(null);
 
   // Category Detail Modal & Editing Record State
-  const [detailCategory, setDetailCategory] = useState<string | null>(null);
+  const [detailCategoryInfo, setDetailCategoryInfo] = useState<{ categoryName: string; subFilter?: string } | null>(null);
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
+  const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
   
   const COLORS = ['#FFD54F', '#FFAB91', '#81C784', '#90CAF9', '#CE93D8', '#BCAAA4', '#B0BEC5', '#FFCCBC', '#C5E1A5', '#FFF59D'];
 
@@ -16337,28 +16395,9 @@ function ReportsView({
     return { start, end };
   }, [dateRange]);
 
-  // Check if a transaction category belongs to a target main category or its subcategories
-  const isCategoryMatch = useCallback((recCategory: string | undefined | null, targetMainCat: string): boolean => {
-    if (!recCategory) return false;
-    const cleanCat = recCategory.trim();
-    const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
-    const main = parts[0];
-    const sub = parts[1];
-
-    if (main === targetMainCat) return true;
-
-    // Check against categories list definition
-    const parentCatObj = (Array.isArray(categories) ? categories : []).find(c => c.name === targetMainCat);
-    if (parentCatObj && parentCatObj.sub) {
-      if (parentCatObj.sub.includes(cleanCat)) return true;
-      if (sub && parentCatObj.sub.includes(sub)) return true;
-    }
-    return false;
-  }, [categories]);
-
   const stats = useMemo(() => {
     // 1. Safety check & filter by date interval
-    // Exclude transfers (type === 'transfer'), prepay (isPrepay === true), merged child transactions (parentId exists)
+    // Exclude transfers, prepay, merged child transactions
     const validRecords = records.filter(r => {
       if (r.type === 'transfer') return false;
       if (r.isPrepay) return false;
@@ -16380,47 +16419,58 @@ function ReportsView({
     // 2. Filter records according to selectedCategory
     let expenseRecords = validRecords.filter(r => r.type === 'expense');
     if (selectedCategory !== 'all') {
-      expenseRecords = expenseRecords.filter(r => isCategoryMatch(r.category, selectedCategory));
+      expenseRecords = expenseRecords.filter(r => {
+        const { parentName, subName } = parseCategoryHierarchy(r.category, categories);
+        return parentName === selectedCategory || subName === selectedCategory || (r.category && r.category.includes(selectedCategory));
+      });
     }
 
     const currentExpenseTotal = expenseRecords.reduce((s, r) => s + (Math.abs(r.amount) + (r.fee || 0)), 0);
 
-    // 3. Category / Subcategory Pie Data Calculation
-    const catMap: Record<string, number> = {};
+    // 3. Parent Category Aggregates Map Calculation
+    const parentMap: Record<string, {
+      name: string;
+      icon?: string;
+      totalAmount: number;
+      subMap: Record<string, number>;
+    }> = {};
 
     expenseRecords.forEach(r => {
       const amt = Math.abs(r.amount) + (r.fee || 0);
-      const cleanCat = (r.category || '其他').trim();
-      const parts = cleanCat.split(/\s*(?:＞|>)\s*/).map(p => p.trim());
+      const { parentName, subName } = parseCategoryHierarchy(r.category, categories);
 
-      if (selectedCategory === 'all') {
-        // Group by Main Category
-        const mainCat = parts[0] || '其他';
-        catMap[mainCat] = (catMap[mainCat] || 0) + amt;
-      } else {
-        // Group by Subcategory under selectedCategory
-        let subName = '';
-        if (parts.length > 1 && parts[1]) {
-          subName = parts[1];
-        } else if (parts[0] !== selectedCategory) {
-          subName = parts[0];
-        } else {
-          subName = '主要 / 未細分';
-        }
-        catMap[subName] = (catMap[subName] || 0) + amt;
+      const targetParentName = selectedCategory === 'all' ? parentName : selectedCategory;
+
+      if (!parentMap[targetParentName]) {
+        const catObj = (Array.isArray(categories) ? categories : []).find(c => c.name === targetParentName);
+        parentMap[targetParentName] = {
+          name: targetParentName,
+          icon: catObj?.icon || (targetParentName === '飲食' ? '🍱' : targetParentName === '交通' ? '✈️' : targetParentName === '醫療&健康' ? '💊' : targetParentName === '娛樂' ? '✨' : targetParentName === '家庭' || targetParentName === '居住' ? '🏠' : '📁'),
+          totalAmount: 0,
+          subMap: {}
+        };
       }
+
+      parentMap[targetParentName].totalAmount += amt;
+      const actualSubName = (subName && subName !== '主要 / 直屬') ? subName : '主要 / 未細分';
+      parentMap[targetParentName].subMap[actualSubName] = (parentMap[targetParentName].subMap[actualSubName] || 0) + amt;
     });
 
-    const pieData = Object.entries(catMap)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
+    const parentList = Object.values(parentMap).sort((a, b) => b.totalAmount - a.totalAmount);
+
+    const pieData = parentList.map(p => ({
+      name: p.name,
+      value: p.totalAmount,
+      icon: p.icon
+    }));
 
     return {
       income,
       expense: selectedCategory === 'all' ? totalPeriodExpense : currentExpenseTotal,
-      pieData
+      pieData,
+      parentList
     };
-  }, [records, dateInterval, selectedCategory, isCategoryMatch]);
+  }, [records, dateInterval, selectedCategory, categories]);
 
   // Safe Tooltip positioning algorithm with boundary protection & smart flip
   const getTooltipPosition = (sector: any) => {
@@ -16494,7 +16544,7 @@ function ReportsView({
               type="button"
               onClick={() => {
                 setSelectedCategory(cat.name);
-                setDetailCategory(cat.name);
+                setDetailCategoryInfo({ categoryName: cat.name, subFilter: 'all' });
               }}
               className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black transition-all border flex items-center gap-1.5 shrink-0 active:scale-95 ${
                 selectedCategory === cat.name 
@@ -16536,10 +16586,10 @@ function ReportsView({
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-base font-black text-[#5D4037]">
-              {selectedCategory === 'all' ? '支出分析 (全部分類)' : `支出分析 (${selectedCategory} 細項拆分)`}
+              {selectedCategory === 'all' ? '支出分析 (全部分類彙整)' : `支出分析 (${selectedCategory} 細項拆分)`}
             </h3>
             <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">
-              {selectedCategory === 'all' ? 'Expense Breakdown' : `${selectedCategory} Subcategory Breakdown`}
+              {selectedCategory === 'all' ? 'Parent Category Expense Breakdown' : `${selectedCategory} Subcategory Breakdown`}
             </p>
           </div>
         </div>
@@ -16568,7 +16618,7 @@ function ReportsView({
                     onClick={(data) => {
                       setActiveSector(data);
                       if (data && data.name) {
-                        setDetailCategory(data.name);
+                        setDetailCategoryInfo({ categoryName: data.name, subFilter: 'all' });
                       }
                     }}
                   >
@@ -16590,23 +16640,126 @@ function ReportsView({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mt-8">
-              {stats.pieData.map((entry, index) => (
-                <button
-                  key={entry.name}
-                  type="button"
-                  onClick={() => setDetailCategory(entry.name)}
-                  className="flex items-center justify-between p-3 bg-stone-50 hover:bg-amber-50/60 active:scale-[0.98] transition-all rounded-2xl cursor-pointer text-left border border-stone-100 hover:border-amber-200/80 shadow-xs"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-                    <span className="text-xs font-bold text-[#5D4037] truncate">{entry.name}</span>
+            {/* Hierarchical Accordion List */}
+            <div className="flex flex-col gap-3 mt-8">
+              <div className="flex items-center justify-between px-1 mb-1">
+                <h4 className="text-sm font-black text-[#5D4037]">母分類彙整排行榜與子項目</h4>
+                <span className="text-[11px] font-bold text-stone-400">點擊卡片查看明細 / 點擊箭頭展開子分類</span>
+              </div>
+
+              {stats.parentList.map((parent, index) => {
+                const parentPercentage = stats.expense > 0 ? ((parent.totalAmount / stats.expense) * 100).toFixed(1) : '0.0';
+                const color = COLORS[index % COLORS.length];
+
+                const subEntries = Object.entries(parent.subMap)
+                  .map(([subName, subAmt]) => ({ name: subName, value: Number(subAmt) }))
+                  .sort((a, b) => b.value - a.value);
+
+                const hasSubItems = subEntries.length > 0;
+                const isExpanded = !!expandedParents[parent.name];
+
+                return (
+                  <div 
+                    key={parent.name} 
+                    className="bg-stone-50/70 hover:bg-stone-50 rounded-3xl p-4 shadow-2xs border border-stone-100 flex flex-col gap-2.5 transition-all"
+                  >
+                    {/* Parent Category Card Header */}
+                    <div className="flex items-center justify-between gap-3">
+                      {/* Left: Color dot, Icon, Parent Name */}
+                      <button
+                        type="button"
+                        onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: 'all' })}
+                        className="flex items-center gap-2.5 min-w-0 flex-1 text-left group"
+                      >
+                        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                        <AccountIcon icon={parent.icon} sizeClassName="w-5 h-5" />
+                        <span className="text-sm font-black text-[#5D4037] truncate group-hover:text-amber-800 transition-colors">
+                          {parent.name}
+                        </span>
+                      </button>
+
+                      {/* Right: Total Amount, Percentage Badge, Subcount badge & Expand Toggle */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="text-right">
+                          <div className="text-sm font-black text-[#5D4037]">
+                            ${parent.totalAmount.toLocaleString()}
+                          </div>
+                          <div className="text-[10px] font-bold text-stone-400">
+                            {parentPercentage}% 佔比
+                          </div>
+                        </div>
+
+                        {/* View Detail Button */}
+                        <button
+                          type="button"
+                          onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: 'all' })}
+                          className="p-1.5 bg-white hover:bg-amber-50 rounded-xl text-stone-500 hover:text-amber-900 transition-all text-xs font-bold border border-stone-100 shadow-2xs"
+                          title="查看該母分類完整交易明細"
+                        >
+                          🔍
+                        </button>
+
+                        {/* Expand / Collapse Button if children exist */}
+                        {hasSubItems && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedParents(prev => ({ ...prev, [parent.name]: !prev[parent.name] }));
+                            }}
+                            className="p-1.5 bg-amber-100/60 hover:bg-amber-100 rounded-xl text-amber-900 transition-all flex items-center gap-1 text-xs font-bold"
+                            title={isExpanded ? '收合子分類' : '展開子分類'}
+                          >
+                            <span className="text-[10px] bg-white/90 px-1.5 py-0.2 rounded-md border border-amber-200/60">
+                              {subEntries.length}
+                            </span>
+                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Subcategories Drawer (Expanded Accordion) */}
+                    {hasSubItems && isExpanded && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="pt-2 border-t border-stone-200/60 flex flex-col gap-1.5 pl-4 pr-1"
+                      >
+                        {subEntries.map((sub) => {
+                          const subShareInParent = parent.totalAmount > 0 ? ((Number(sub.value) / parent.totalAmount) * 100).toFixed(1) : '0.0';
+
+                          return (
+                            <button
+                              key={sub.name}
+                              type="button"
+                              onClick={() => setDetailCategoryInfo({ categoryName: parent.name, subFilter: sub.name })}
+                              className="flex items-center justify-between p-2.5 bg-white hover:bg-amber-50/80 rounded-2xl border border-stone-100 text-left transition-all group shadow-2xs"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-stone-300 group-hover:text-amber-500 font-bold text-xs">└</span>
+                                <span className="text-xs font-bold text-[#5D4037] truncate">
+                                  {sub.name}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-xs font-black text-stone-700">
+                                  ${sub.value.toLocaleString()}
+                                </span>
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded-md">
+                                  {subShareInParent}% (在{parent.name}內)
+                                </span>
+                                <span className="text-[10px] text-stone-400 group-hover:text-[#5D4037]">🔍</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </motion.div>
+                    )}
                   </div>
-                  <span className="text-[10px] font-black text-stone-400 shrink-0 ml-1">
-                    {stats.expense > 0 ? ((entry.value / stats.expense) * 100).toFixed(1) : 0}% 🔍
-                  </span>
-                </button>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -16616,15 +16769,16 @@ function ReportsView({
 
       {/* Category Detail Modal */}
       <AnimatePresence>
-        {detailCategory && (
+        {detailCategoryInfo && (
           <CategoryDetailModal
-            categoryName={detailCategory}
+            categoryName={detailCategoryInfo.categoryName}
+            initialSubFilter={detailCategoryInfo.subFilter}
             dateInterval={dateInterval}
             records={records}
             categories={categories}
             accounts={accounts}
             totalPeriodExpense={stats.expense}
-            onClose={() => setDetailCategory(null)}
+            onClose={() => setDetailCategoryInfo(null)}
             onSelectRecord={(r) => setEditingRecord(r)}
           />
         )}
