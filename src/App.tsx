@@ -3583,15 +3583,15 @@ export default function App() {
   );
 }
 
-function AccountIcon({ icon, className = "", sizeClassName = "w-6 h-6" }: { icon: string, className?: string, sizeClassName?: string }) {
+function AccountIcon({ icon, className = "", sizeClassName = "w-6 h-6" }: { icon?: string, className?: string, sizeClassName?: string }) {
   if (!icon) return null;
-  const isImage = icon.startsWith('http') || icon.startsWith('data:image/') || icon.startsWith('/');
+  const isImage = icon.startsWith('http') || icon.startsWith('data:') || icon.startsWith('/') || icon.includes(';base64,');
   if (isImage) {
     return (
       <img 
         src={icon} 
         className={`${sizeClassName} object-contain rounded-md select-none pointer-events-none ${className}`} 
-        alt="icon" 
+        alt="" 
       />
     );
   }
@@ -9014,6 +9014,8 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [subItemProjectPickerIdx, setSubItemProjectPickerIdx] = useState<number | null>(null);
+  const [subItemProjectSearch, setSubItemProjectSearch] = useState('');
+  const [subItemExpandedParents, setSubItemExpandedParents] = useState<Record<string, boolean>>({});
   const [projectSearch, setProjectSearch] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
   const [selectedMainCat, setSelectedMainCat] = useState<string | null>(null);
@@ -9978,6 +9980,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                     e.stopPropagation();
                     e.preventDefault();
                     setSubItemProjectPickerIdx(null);
+                    setSubItemProjectSearch('');
                   }}
                 >
                   <motion.div 
@@ -9988,10 +9991,10 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                       e.stopPropagation();
                       e.preventDefault();
                     }}
-                    className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-xl border border-stone-100"
+                    className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-3 shadow-xl border border-stone-100 max-h-[85vh] flex flex-col"
                     style={getFontFamily()}
                   >
-                    <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+                    <div className="flex items-center justify-between border-b border-stone-100 pb-3 shrink-0">
                       <span className="text-sm font-black text-[#5D4037]">選擇子項目專案歸屬</span>
                       <button 
                         type="button" 
@@ -9999,19 +10002,54 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                           e.stopPropagation();
                           e.preventDefault();
                           setSubItemProjectPickerIdx(null);
+                          setSubItemProjectSearch('');
                         }} 
-                        className="p-1 text-stone-400 hover:text-stone-600 rounded-full"
+                        className="p-1 text-stone-400 hover:text-stone-600 rounded-full transition-colors"
                       >
                         <X size={18} />
                       </button>
                     </div>
 
-                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {/* 專案即時搜尋欄 (Project Search Bar) */}
+                    <div className="relative shrink-0">
+                      <input 
+                        type="text"
+                        value={subItemProjectSearch}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setSubItemProjectSearch(e.target.value);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        placeholder="🔍 搜尋專案名稱..."
+                        className="w-full pl-3 pr-8 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs font-bold text-[#5D4037] outline-none shadow-2xs focus:border-[#FFD54F] focus:bg-white transition-all"
+                      />
+                      {subItemProjectSearch && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setSubItemProjectSearch('');
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 p-1 text-xs font-bold"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar">
                       {/* Inherit from main transaction option */}
                       {(() => {
-                        const mainProj = (Array.isArray(projects) ? projects : []).find(p => p.id === (edited.projectId || 'p1'));
+                        const safeProjList = Array.isArray(projects) ? projects : [];
+                        const mainProj = safeProjList.find(p => p.id === (edited.projectId || 'p1'));
                         const currentSubProjId = edited.subItems?.[subItemProjectPickerIdx]?.projectId;
                         const isInherited = !currentSubProjId || currentSubProjId === (edited.projectId || 'p1');
+                        const searchLower = subItemProjectSearch.trim().toLowerCase();
+                        const matchesSearch = !searchLower || (mainProj?.name || '預設專案').toLowerCase().includes(searchLower) || '主交易專案'.includes(searchLower);
+
+                        if (!matchesSearch) return null;
+
                         return (
                           <button
                             type="button"
@@ -10026,6 +10064,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                               } : s);
                               setEdited({ ...edited, subItems: updatedSubs });
                               setSubItemProjectPickerIdx(null);
+                              setSubItemProjectSearch('');
                             }}
                             className={`w-full p-3 rounded-2xl flex items-center justify-between text-xs font-black transition-all border ${
                               isInherited
@@ -10034,7 +10073,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                             }`}
                           >
                             <span className="flex items-center gap-2">
-                              <span>📁</span>
+                              <AccountIcon icon={mainProj?.icon || '📁'} sizeClassName="w-4 h-4" />
                               <span>主交易專案 ({ mainProj?.name || '預設專案' })</span>
                             </span>
                             {isInherited && <Check size={16} className="text-[#5D4037]" />}
@@ -10042,40 +10081,137 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                         );
                       })()}
 
-                      {/* Other projects list */}
-                      {projects.map(p => {
+                      {/* Parent / Child Accordion Projects */}
+                      {(() => {
+                        const safeProjList = Array.isArray(projects) ? projects : [];
+                        const searchLower = subItemProjectSearch.trim().toLowerCase();
+                        const isSearching = searchLower.length > 0;
                         const currentSubProjId = edited.subItems?.[subItemProjectPickerIdx]?.projectId;
-                        const isSelected = currentSubProjId === p.id;
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              const targetIdx = subItemProjectPickerIdx;
-                              const updatedSubs = edited.subItems?.map((s, i) => i === targetIdx ? {
-                                ...s,
-                                projectId: p.id,
-                                projectName: p.name
-                              } : s);
-                              setEdited({ ...edited, subItems: updatedSubs });
-                              setSubItemProjectPickerIdx(null);
-                            }}
-                            className={`w-full p-3 rounded-2xl flex items-center justify-between text-xs font-bold transition-all border ${
-                              isSelected
-                                ? 'bg-[#FFEDAE] border-[#FFD54F] text-[#5D4037] font-black'
-                                : 'bg-white border-stone-100 text-stone-700 hover:bg-stone-50'
-                            }`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <span>{p.icon || '📁'}</span>
-                              <span>{p.name}</span>
-                            </span>
-                            {isSelected && <Check size={16} className="text-[#5D4037]" />}
-                          </button>
-                        );
-                      })}
+
+                        const topParents = safeProjList.filter(p => !(p.parentProjectId || p.parentId));
+
+                        let totalMatchedCount = 0;
+
+                        const renderedList = topParents.map(p => {
+                          const children = safeProjList.filter(c => (c.parentProjectId || c.parentId) === p.id);
+                          const pMatch = !isSearching || p.name.toLowerCase().includes(searchLower);
+                          const matchingChildren = children.filter(c => !isSearching || c.name.toLowerCase().includes(searchLower));
+                          const shouldShowParent = pMatch || matchingChildren.length > 0;
+
+                          if (!shouldShowParent) return null;
+
+                          totalMatchedCount++;
+
+                          const isParentSelected = currentSubProjId === p.id;
+                          const hasChildren = children.length > 0;
+                          const isExpanded = isSearching ? true : !!subItemExpandedParents[p.id];
+
+                          return (
+                            <div key={p.id} className="space-y-1 bg-stone-50/60 p-1.5 rounded-2xl border border-stone-100/80">
+                              {/* Parent Card Header */}
+                              <div className={`w-full p-2.5 rounded-xl flex items-center justify-between text-xs transition-all border ${
+                                isParentSelected
+                                  ? 'bg-[#FFEDAE] border-[#FFD54F] text-[#5D4037] font-black shadow-2xs'
+                                  : 'bg-white border-stone-100 text-stone-800 hover:bg-stone-100/70 font-bold'
+                              }`}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    const targetIdx = subItemProjectPickerIdx;
+                                    const updatedSubs = edited.subItems?.map((s, i) => i === targetIdx ? {
+                                      ...s,
+                                      projectId: p.id,
+                                      projectName: p.name
+                                    } : s);
+                                    setEdited({ ...edited, subItems: updatedSubs });
+                                    setSubItemProjectPickerIdx(null);
+                                    setSubItemProjectSearch('');
+                                  }}
+                                  className="flex items-center gap-2 flex-1 text-left min-w-0"
+                                >
+                                  <AccountIcon icon={p.icon || '📁'} sizeClassName="w-4 h-4" />
+                                  <span className="truncate">{p.name}</span>
+                                  {isParentSelected && <Check size={16} className="text-[#5D4037] shrink-0" />}
+                                </button>
+
+                                {hasChildren && (
+                                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                                    <span className="text-[10px] font-bold text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">
+                                      {children.length}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        setSubItemExpandedParents(prev => ({ ...prev, [p.id]: !prev[p.id] }));
+                                      }}
+                                      className="p-1 hover:bg-stone-200/60 rounded-lg text-stone-400 hover:text-[#5D4037] transition-all"
+                                      title={isExpanded ? '收合子專案' : '展開子專案'}
+                                    >
+                                      {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Child Projects List */}
+                              {hasChildren && isExpanded && (
+                                <div className="space-y-1 pl-3 pr-1 pt-0.5">
+                                  {matchingChildren.map(c => {
+                                    const isChildSelected = currentSubProjId === c.id;
+                                    return (
+                                      <button
+                                        key={c.id}
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          e.preventDefault();
+                                          const targetIdx = subItemProjectPickerIdx;
+                                          const updatedSubs = edited.subItems?.map((s, i) => i === targetIdx ? {
+                                            ...s,
+                                            projectId: c.id,
+                                            projectName: c.name
+                                          } : s);
+                                          setEdited({ ...edited, subItems: updatedSubs });
+                                          setSubItemProjectPickerIdx(null);
+                                          setSubItemProjectSearch('');
+                                        }}
+                                        className={`w-full p-2 rounded-xl flex items-center justify-between text-xs transition-all border ${
+                                          isChildSelected
+                                            ? 'bg-[#FFEDAE] border-[#FFD54F] text-[#5D4037] font-black shadow-2xs'
+                                            : 'bg-white/80 border-stone-100 text-stone-700 hover:bg-stone-100/90 font-bold'
+                                        }`}
+                                      >
+                                        <span className="flex items-center gap-2 min-w-0">
+                                          <AccountIcon icon={c.icon || '📄'} sizeClassName="w-3.5 h-3.5" />
+                                          <span className="truncate">{c.name}</span>
+                                        </span>
+                                        {isChildSelected && <Check size={14} className="text-[#5D4037] shrink-0" />}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        });
+
+                        const mainProj = safeProjList.find(p => p.id === (edited.projectId || 'p1'));
+                        const mainMatches = !searchLower || (mainProj?.name || '預設專案').toLowerCase().includes(searchLower) || '主交易專案'.includes(searchLower);
+
+                        if (totalMatchedCount === 0 && !mainMatches) {
+                          return (
+                            <div className="py-8 text-center text-xs font-bold text-stone-400">
+                              找不到相符的專案
+                            </div>
+                          );
+                        }
+
+                        return renderedList;
+                      })()}
                     </div>
                   </motion.div>
                 </div>
