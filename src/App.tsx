@@ -305,6 +305,19 @@ export interface Stock {
   totalCost?: number;     // 投入總成本 (元)
 }
 
+export interface AggregatedStockGroup {
+  isAggregated: boolean;
+  code: string;
+  category?: 'stock' | 'fund';
+  totalShares: number;
+  totalCost: number;
+  avgPrice: number;
+  currentPrice?: number;
+  evaluationDate?: string;
+  subStocks: Stock[];
+  brokerAccountIds: string[];
+}
+
 interface Account {
   id: string;
   name: string;
@@ -5519,6 +5532,7 @@ function InvestmentSection({
     return today.toISOString().split('T')[0];
   });
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('all');
+  const [expandedStockCodes, setExpandedStockCodes] = useState<Record<string, boolean>>({});
 
   // states for buy operation
   const [buyingStock, setBuyingStock] = useState<Stock | null>(null);
@@ -5718,17 +5732,92 @@ function InvestmentSection({
     return stocks.filter(s => s.linkedAccount === selectedBrokerFilter);
   }, [stocks, selectedBrokerFilter]);
 
+  // aggregated / filtered stock groups by broker filter
+  const displayStockGroups = useMemo<AggregatedStockGroup[]>(() => {
+    if (selectedBrokerFilter !== 'all') {
+      const singleBrokerStocks = stocks.filter(s => s.linkedAccount === selectedBrokerFilter);
+      return singleBrokerStocks.map(s => {
+        const cost = s.totalCost !== undefined && s.totalCost > 0 ? s.totalCost : Math.round(s.shares * s.avgPrice);
+        return {
+          isAggregated: false,
+          code: s.code,
+          category: s.category,
+          totalShares: s.shares,
+          totalCost: cost,
+          avgPrice: s.avgPrice,
+          currentPrice: s.currentPrice,
+          evaluationDate: s.evaluationDate,
+          subStocks: [s],
+          brokerAccountIds: s.linkedAccount ? [s.linkedAccount] : []
+        };
+      });
+    }
+
+    // "全部券商" mode: aggregate by stock code
+    const groupsMap: Record<string, Stock[]> = {};
+    const orderList: string[] = [];
+
+    stocks.forEach(s => {
+      const key = (s.code || '').trim().toUpperCase();
+      if (!groupsMap[key]) {
+        groupsMap[key] = [];
+        orderList.push(key);
+      }
+      groupsMap[key].push(s);
+    });
+
+    return orderList.map(key => {
+      const groupStocks = groupsMap[key];
+      const first = groupStocks[0];
+      const isAggregated = groupStocks.length > 1;
+
+      let totalShares = 0;
+      let totalCost = 0;
+      let latestCurrentPrice: number | undefined = undefined;
+      let latestEvalDate: string | undefined = undefined;
+
+      const brokerAccountIds = Array.from(new Set(groupStocks.map(s => s.linkedAccount).filter(Boolean)));
+
+      groupStocks.forEach(s => {
+        totalShares += s.shares;
+        const cost = s.totalCost !== undefined && s.totalCost > 0 ? s.totalCost : Math.round(s.shares * s.avgPrice);
+        totalCost += cost;
+        if (s.currentPrice !== undefined && s.currentPrice > 0) {
+          latestCurrentPrice = s.currentPrice;
+        }
+        if (s.evaluationDate && (!latestEvalDate || s.evaluationDate > latestEvalDate)) {
+          latestEvalDate = s.evaluationDate;
+        }
+      });
+
+      const avgPrice = totalShares > 0 ? parseFloat((totalCost / totalShares).toFixed(2)) : 0;
+
+      return {
+        isAggregated,
+        code: first.code,
+        category: first.category,
+        totalShares,
+        totalCost,
+        avgPrice,
+        currentPrice: latestCurrentPrice,
+        evaluationDate: latestEvalDate,
+        subStocks: groupStocks,
+        brokerAccountIds
+      };
+    });
+  }, [stocks, selectedBrokerFilter]);
+
   // overview stats
   const totalPrincipal = useMemo(() => {
-    return filteredStocks.reduce((sum, s) => sum + (s.shares * s.avgPrice), 0);
-  }, [filteredStocks]);
+    return displayStockGroups.reduce((sum, g) => sum + g.totalCost, 0);
+  }, [displayStockGroups]);
 
   const totalMarketValue = useMemo(() => {
-    return filteredStocks.reduce((sum, s) => {
-      const price = (s.currentPrice !== undefined && s.currentPrice > 0) ? s.currentPrice : s.avgPrice;
-      return sum + (s.shares * price);
+    return displayStockGroups.reduce((sum, g) => {
+      const price = (g.currentPrice !== undefined && g.currentPrice > 0) ? g.currentPrice : g.avgPrice;
+      return sum + (g.totalShares * price);
     }, 0);
-  }, [filteredStocks]);
+  }, [displayStockGroups]);
 
   const totalUnrealizedPL = useMemo(() => {
     return totalMarketValue - totalPrincipal;
@@ -6214,7 +6303,7 @@ function InvestmentSection({
                 : 'bg-white/80 text-stone-500 border border-stone-200/60 hover:bg-stone-100'
             }`}
           >
-            全部券商 ({stocks.length})
+            全部券商 ({selectedBrokerFilter === 'all' && displayStockGroups.length !== stocks.length ? `${displayStockGroups.length} 檔 / ` : ''}${stocks.length} 筆)
           </button>
           {accounts
             .filter(a => stocks.some(s => s.linkedAccount === a.id) || a.type === 'investment')
@@ -6241,7 +6330,7 @@ function InvestmentSection({
 
       {/* Holdings List */}
       <div className="space-y-4">
-        {filteredStocks.length === 0 ? (
+        {displayStockGroups.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-4 bg-white/30 rounded-[30px] border-2 border-dashed border-stone-200/55 p-6">
             <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-stone-300 shadow-sm">
               <Coins size={30} />
@@ -6251,73 +6340,133 @@ function InvestmentSection({
             </p>
           </div>
         ) : (
-          filteredStocks.map(s => {
-            const cost = s.shares * s.avgPrice;
-            const hasCurrentPrice = s.currentPrice !== undefined && s.currentPrice > 0;
-            const currentPrice = hasCurrentPrice ? s.currentPrice! : s.avgPrice;
-            const marketValue = s.shares * currentPrice;
-            const unrealizedPL = hasCurrentPrice ? (marketValue - cost) : 0;
-            const roi = (hasCurrentPrice && cost > 0) ? (unrealizedPL / cost) * 100 : 0;
-            const isFund = s.category === 'fund';
+          displayStockGroups.map(group => {
+            const hasCurrentPrice = group.currentPrice !== undefined && group.currentPrice > 0;
+            const currentPrice = hasCurrentPrice ? group.currentPrice! : group.avgPrice;
+            const marketValue = group.totalShares * currentPrice;
+            const unrealizedPL = hasCurrentPrice ? (marketValue - group.totalCost) : 0;
+            const roi = (hasCurrentPrice && group.totalCost > 0) ? (unrealizedPL / group.totalCost) * 100 : 0;
+            const isFund = group.category === 'fund';
             const unitLabel = isFund ? '單位' : '股';
-            const linkedAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === s.linkedAccount);
-            
+            const isExpanded = !!expandedStockCodes[group.code];
+            const firstSub = group.subStocks[0];
+            const linkedAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === firstSub?.linkedAccount);
+
             return (
               <div 
-                key={s.id} 
+                key={group.code + (group.isAggregated ? '-aggregated' : `-${firstSub?.id}`)} 
                 onClick={() => {
-                  setStockDetailFilter('all');
-                  setSelectedStockForDetail(s);
+                  if (!group.isAggregated && firstSub) {
+                    setStockDetailFilter('all');
+                    setSelectedStockForDetail(firstSub);
+                  }
                 }}
-                className="bg-white p-5 rounded-[30px] border-2 border-white shadow-sm flex flex-col gap-4 relative cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md transition-all active:scale-[0.99]"
+                className={`bg-white p-5 rounded-[30px] border-2 border-white shadow-sm flex flex-col gap-4 relative transition-all ${
+                  !group.isAggregated ? 'cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md active:scale-[0.99]' : ''
+                }`}
               >
                 {/* Header */}
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg font-black text-[#5D4037] tracking-tight">{s.code}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-lg font-black text-[#5D4037] tracking-tight">{group.code}</span>
                     <span className="bg-[#FFF9E3] text-[#8D6E63] border border-[#FFD54F]/30 text-[10px] font-black px-2 py-0.5 rounded-full">
                       {isFund ? '📊 基金' : '📈 股票/ETF'}
                     </span>
+                    {group.isAggregated && (
+                      <span className="bg-[#FFD54F]/20 text-[#5D4037] text-[10px] font-black px-2.5 py-0.5 rounded-full border border-[#FFD54F]/40 flex items-center gap-1">
+                        <span>跨券商彙總</span>
+                        <span className="bg-[#5D4037] text-white px-1.5 py-0.2 rounded-full text-[9px]">
+                          {group.subStocks.length} 家券商
+                        </span>
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); handleOpenStockEdit(s); }}
-                      className="p-2 text-stone-300 hover:text-[#FFD54F] transition-colors"
-                      title="編輯持股"
-                    >
-                      <Pencil size={18} />
-                    </button>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`確定要刪除 ${s.code} 嗎？此操作僅刪除項目記錄，已建立的交易明細將被保留。`)) {
-                          onDeleteStock(s.id);
-                        }
-                      }}
-                      className="p-2 text-stone-300 hover:text-rose-500 transition-colors"
-                      title="刪除持股"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    {group.isAggregated ? (
+                      <button 
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedStockCodes(prev => ({
+                            ...prev,
+                            [group.code]: !prev[group.code]
+                          }));
+                        }}
+                        className="px-3 py-1.5 bg-[#FFF9E3] hover:bg-[#FFD54F]/20 text-[#5D4037] border border-[#FFD54F]/40 rounded-xl text-xs font-black transition-all flex items-center gap-1 active:scale-95 shadow-2xs"
+                      >
+                        <span>券商細項</span>
+                        <ChevronDown size={14} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                    ) : (
+                      <>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); if (firstSub) handleOpenStockEdit(firstSub); }}
+                          className="p-2 text-stone-300 hover:text-[#FFD54F] transition-colors"
+                          title="編輯持股"
+                        >
+                          <Pencil size={18} />
+                        </button>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (firstSub && window.confirm(`確定要刪除 ${group.code} 嗎？此操作僅刪除項目記錄，已建立的交易明細將被保留。`)) {
+                              onDeleteStock(firstSub.id);
+                            }
+                          }}
+                          className="p-2 text-stone-300 hover:text-rose-500 transition-colors"
+                          title="刪除持股"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
+
+                {/* Broker Badges Row (If aggregated) */}
+                {group.isAggregated && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-stone-500 bg-stone-50/80 p-2.5 rounded-2xl border border-stone-200/40">
+                    <span className="text-[10px] font-black text-stone-400">🏛️ 分屬券商：</span>
+                    {group.brokerAccountIds.map(accId => {
+                      const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === accId);
+                      const subCount = group.subStocks.filter(s => s.linkedAccount === accId).length;
+                      return (
+                        <span key={accId} className="bg-white text-[#5D4037] px-2.5 py-1 rounded-xl text-[11px] font-black border border-stone-200 shadow-2xs flex items-center gap-1">
+                          <span>{acc?.icon || '🏦'}</span>
+                          <span>{acc?.name || '未知帳戶'}</span>
+                          {subCount > 1 && <span className="text-[9px] text-stone-400">({subCount}筆)</span>}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* Details Grid */}
                 <div className="grid grid-cols-3 gap-2 bg-[#FFFDF5]/60 p-3.5 rounded-2xl border border-stone-100/50">
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">持有數量</span>
+                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">
+                      {group.isAggregated ? '總持股數量' : '持有數量'}
+                    </span>
                     <span className="text-sm font-black text-[#5D4037]">
-                      {s.shares.toLocaleString()} {unitLabel}
-                      {!isFund && s.shares >= 1000 && <span className="text-[10px] text-stone-400 font-medium block">({(s.shares / 1000).toFixed(2)} 張)</span>}
+                      {group.totalShares.toLocaleString()} {unitLabel}
+                      {!isFund && group.totalShares >= 1000 && (
+                        <span className="text-[10px] text-stone-400 font-medium block">({(group.totalShares / 1000).toFixed(2)} 張)</span>
+                      )}
                     </span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">{isFund ? '申購淨值' : '平均買價'}</span>
-                    <span className="text-sm font-black text-[#5D4037]">${s.avgPrice.toLocaleString()}</span>
+                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">
+                      {group.isAggregated ? '綜合平均買價' : (isFund ? '申購淨值' : '平均買價')}
+                    </span>
+                    <span className="text-sm font-black text-[#5D4037]">
+                      ${group.avgPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    </span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">投入成本</span>
-                    <span className="text-sm font-black text-[#E91E63]">${Math.round(cost).toLocaleString()}</span>
+                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">
+                      {group.isAggregated ? '總投入成本' : '投入成本'}
+                    </span>
+                    <span className="text-sm font-black text-[#E91E63]">${Math.round(group.totalCost).toLocaleString()}</span>
                   </div>
                 </div>
 
@@ -6326,13 +6475,13 @@ function InvestmentSection({
                   <div className="grid grid-cols-3 gap-2 bg-stone-50/80 p-3 rounded-2xl border border-stone-200/40">
                     <div className="flex flex-col">
                       <span className="text-[10px] font-bold text-stone-400 mb-0.5">{isFund ? '最新淨值' : '目前市價'}</span>
-                      <span className="text-xs font-black text-[#5D4037]">${s.currentPrice!.toLocaleString()}</span>
+                      <span className="text-xs font-black text-[#5D4037]">${group.currentPrice!.toLocaleString()}</span>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[10px] font-bold text-stone-400 mb-0.5 flex flex-wrap items-center gap-0.5">
-                        <span>目前市值</span>
-                        {s.evaluationDate && (
-                          <span className="text-[9px] text-stone-400 font-normal">({s.evaluationDate.replace(/-/g, '/')})</span>
+                        <span>{group.isAggregated ? '當前總市值' : '目前市值'}</span>
+                        {group.evaluationDate && (
+                          <span className="text-[9px] text-stone-400 font-normal">({group.evaluationDate.replace(/-/g, '/')})</span>
                         )}
                       </span>
                       <span className="text-xs font-black text-[#5D4037]">${Math.round(marketValue).toLocaleString()}</span>
@@ -6351,42 +6500,137 @@ function InvestmentSection({
                   </div>
                 )}
 
-                {/* Bottom Row (Linked Account & Note) */}
-                <div className="flex flex-col gap-1 px-1">
-                  <div className="flex flex-wrap items-center justify-between gap-y-1 text-[11px] font-bold text-stone-400">
-                    <div className="flex items-center">
-                      <span>💳 交割帳戶：</span>
-                      <span className="text-[#5D4037]/80">{linkedAcc ? `${linkedAcc.icon} ${linkedAcc.name}` : '未指定'}</span>
+                {/* Expanded Broker Sub-List Drawer */}
+                {group.isAggregated && isExpanded && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="bg-[#FFFDF5] p-4 rounded-2xl border-2 border-[#FFD54F]/40 space-y-3 shadow-inner"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between text-xs font-black text-[#5D4037] border-b border-stone-200/60 pb-2">
+                      <span>🏛️ 各券商獨立持股明細 ({group.subStocks.length} 筆)</span>
+                      <span className="text-[10px] text-stone-400 font-bold">可獨立編輯與管理交易</span>
                     </div>
-                    {s.purchaseDate && (
-                      <div className="flex items-center">
-                        <span>📅 購買日期：</span>
-                        <span className="text-[#5D4037]/80">{s.purchaseDate.replace(/-/g, '/')}</span>
-                      </div>
-                    )}
-                  </div>
-                  {s.notes && (
-                    <div className="text-[11px] font-medium text-stone-400 italic">
-                      💡 {s.notes}
-                    </div>
-                  )}
-                </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-2 border-t border-stone-100/60 pt-3">
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); handleOpenBuy(s); }}
-                    className="flex-1 py-2.5 bg-stone-50 hover:bg-[#FFD54F]/10 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
-                  >
-                    <Plus size={12} /> 新增買入
-                  </button>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); handleOpenDividend(s); }}
-                    className="flex-1 py-2.5 bg-stone-50 hover:bg-emerald-50 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
-                  >
-                    <Coins size={12} className="text-emerald-500" /> 股利/配息入帳
-                  </button>
-                </div>
+                    <div className="space-y-2.5">
+                      {group.subStocks.map(sub => {
+                        const subCost = sub.totalCost !== undefined && sub.totalCost > 0 ? sub.totalCost : Math.round(sub.shares * sub.avgPrice);
+                        const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === sub.linkedAccount);
+                        return (
+                          <div 
+                            key={sub.id}
+                            className="bg-white p-3.5 rounded-xl border border-stone-200/60 flex flex-col gap-2 shadow-2xs hover:border-[#FFD54F] transition-all"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-base">{acc?.icon || '🏦'}</span>
+                                <span className="text-xs font-black text-[#5D4037]">{acc?.name || '未知券商'}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button 
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleOpenStockEdit(sub); }}
+                                  className="p-1.5 text-stone-400 hover:text-[#5D4037] hover:bg-stone-100 rounded-lg transition-colors text-xs font-bold flex items-center gap-0.5"
+                                  title="編輯此券商持股"
+                                >
+                                  <Pencil size={13} />
+                                  <span>編輯</span>
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (window.confirm(`確定要刪除 ${acc?.name || ''} 的 ${sub.code} 持股紀錄嗎？`)) {
+                                      onDeleteStock(sub.id);
+                                    }
+                                  }}
+                                  className="p-1.5 text-stone-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors text-xs font-bold flex items-center gap-0.5"
+                                  title="刪除此券商持股"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 text-xs font-bold text-stone-600 bg-stone-50/70 p-2.5 rounded-lg border border-stone-100">
+                              <div>
+                                <span className="text-[10px] text-stone-400 font-bold block">持股數量</span>
+                                <span className="text-[#5D4037]">{sub.shares.toLocaleString()} {unitLabel}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-stone-400 font-bold block">平均買價</span>
+                                <span className="text-[#5D4037]">${sub.avgPrice.toLocaleString()}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-stone-400 font-bold block">投入成本</span>
+                                <span className="text-[#E91E63]">${Math.round(subCost).toLocaleString()}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2 pt-1">
+                              <button 
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleOpenBuy(sub); }}
+                                className="flex-1 py-1.5 bg-stone-50 hover:bg-[#FFD54F]/10 text-[#5D4037] rounded-lg font-bold text-[11px] border border-stone-200/50 flex items-center justify-center gap-1 active:scale-95"
+                              >
+                                <Plus size={12} /> 新增買入
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleOpenDividend(sub); }}
+                                className="flex-1 py-1.5 bg-stone-50 hover:bg-emerald-50 text-[#5D4037] rounded-lg font-bold text-[11px] border border-stone-200/50 flex items-center justify-center gap-1 active:scale-95"
+                              >
+                                <Coins size={12} className="text-emerald-500" /> 股利/配息
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Bottom Row (For non-aggregated single stock) */}
+                {!group.isAggregated && (
+                  <>
+                    <div className="flex flex-col gap-1 px-1">
+                      <div className="flex flex-wrap items-center justify-between gap-y-1 text-[11px] font-bold text-stone-400">
+                        <div className="flex items-center">
+                          <span>💳 交割帳戶：</span>
+                          <span className="text-[#5D4037]/80">{linkedAcc ? `${linkedAcc.icon} ${linkedAcc.name}` : '未指定'}</span>
+                        </div>
+                        {firstSub?.purchaseDate && (
+                          <div className="flex items-center">
+                            <span>📅 購買日期：</span>
+                            <span className="text-[#5D4037]/80">{firstSub.purchaseDate.replace(/-/g, '/')}</span>
+                          </div>
+                        )}
+                      </div>
+                      {firstSub?.notes && (
+                        <div className="text-[11px] font-medium text-stone-400 italic">
+                          💡 {firstSub.notes}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 border-t border-stone-100/60 pt-3">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); if (firstSub) handleOpenBuy(firstSub); }}
+                        className="flex-1 py-2.5 bg-stone-50 hover:bg-[#FFD54F]/10 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
+                      >
+                        <Plus size={12} /> 新增買入
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); if (firstSub) handleOpenDividend(firstSub); }}
+                        className="flex-1 py-2.5 bg-stone-50 hover:bg-emerald-50 active:scale-97 text-[#5D4037] rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 border border-stone-200/30"
+                      >
+                        <Coins size={12} className="text-emerald-500" /> 股利/配息入帳
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             );
           })

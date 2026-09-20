@@ -131,6 +131,19 @@ export interface Stock {
   totalCost?: number;     // 投入總成本 (元)
 }
 
+export interface AggregatedStockGroup {
+  isAggregated: boolean;
+  code: string;
+  category?: 'stock' | 'fund';
+  totalShares: number;
+  totalCost: number;
+  avgPrice: number;
+  currentPrice?: number;
+  evaluationDate?: string;
+  subStocks: Stock[];
+  brokerAccountIds: string[];
+}
+
 export interface Project {
   id: string;
   name: string;
