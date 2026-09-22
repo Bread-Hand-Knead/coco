@@ -6602,16 +6602,16 @@ function InvestmentSection({
 
                 {/* Broker Badges Row (If aggregated) */}
                 {group.isAggregated && (
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-stone-500 bg-stone-50/80 p-2.5 rounded-2xl border border-stone-200/40">
-                    <span className="text-[10px] font-black text-stone-400">🏛️ 分屬券商：</span>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-stone-600 bg-stone-50/80 p-2.5 rounded-2xl border border-stone-200/40">
+                    <span className="text-sm font-medium text-stone-600">🏛️ 分屬券商：</span>
                     {group.brokerAccountIds.map(accId => {
                       const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === accId);
                       const subCount = group.subStocks.filter(s => s.linkedAccount === accId).length;
                       return (
-                        <span key={accId} className="bg-white text-[#5D4037] px-2.5 py-1 rounded-xl text-[11px] font-black border border-stone-200 shadow-2xs flex items-center gap-1">
+                        <span key={accId} className="bg-white text-[#5D4037] px-2.5 py-1 rounded-xl text-xs font-bold border border-stone-200 shadow-2xs flex items-center gap-1">
                           <span>{acc?.icon || '🏦'}</span>
                           <span>{acc?.name || '未知帳戶'}</span>
-                          {subCount > 1 && <span className="text-[9px] text-stone-400">({subCount}筆)</span>}
+                          {subCount > 1 && <span className="text-xs text-stone-400">({subCount}筆)</span>}
                         </span>
                       );
                     })}
@@ -6621,18 +6621,18 @@ function InvestmentSection({
                 {/* Details Grid */}
                 <div className="grid grid-cols-3 gap-2 bg-[#FFFDF5]/60 p-3.5 rounded-2xl border border-stone-100/50">
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">
+                    <span className="text-sm font-medium text-stone-600 mb-0.5">
                       {group.isAggregated ? '總持股數量' : '持有數量'}
                     </span>
                     <span className="text-sm font-black text-[#5D4037]">
                       {group.totalShares.toLocaleString()} {unitLabel}
                       {!isFund && group.totalShares >= 1000 && (
-                        <span className="text-[10px] text-stone-400 font-medium block">({(group.totalShares / 1000).toFixed(2)} 張)</span>
+                        <span className="text-xs text-stone-500 font-medium block mt-0.5">({(group.totalShares / 1000).toFixed(2)} 張)</span>
                       )}
                     </span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">
+                    <span className="text-sm font-medium text-stone-600 mb-0.5">
                       {group.isAggregated ? '綜合平均買價' : (isFund ? '申購淨值' : '平均買價')}
                     </span>
                     <span className="text-sm font-black text-[#5D4037]">
@@ -6640,12 +6640,12 @@ function InvestmentSection({
                     </span>
                   </div>
                   <div className="flex flex-col justify-between">
-                    <span className="text-[10px] font-bold text-stone-400 mb-0.5">
+                    <span className="text-sm font-medium text-stone-600 mb-0.5">
                       {group.isAggregated ? '總投入成本' : '投入成本'}
                     </span>
                     <div>
                       <span className="text-sm font-black text-[#E91E63]">${Math.round(group.totalCost).toLocaleString()}</span>
-                      <span className="text-[10px] font-bold text-stone-400 block leading-tight mt-0.5">
+                      <span className="text-xs font-medium text-stone-500 block leading-tight mt-0.5">
                         (含手續費 ${Math.round(group.totalFee || 0).toLocaleString()})
                       </span>
                     </div>
@@ -6656,28 +6656,28 @@ function InvestmentSection({
                 {hasCurrentPrice ? (
                   <div className="grid grid-cols-3 gap-2 bg-stone-50/80 p-3 rounded-2xl border border-stone-200/40">
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-stone-400 mb-0.5">{isFund ? '最新淨值' : '目前市價'}</span>
-                      <span className="text-xs font-black text-[#5D4037]">${group.currentPrice!.toLocaleString()}</span>
+                      <span className="text-sm font-medium text-stone-600 mb-0.5">{isFund ? '最新淨值' : '目前市價'}</span>
+                      <span className="text-sm font-black text-[#5D4037]">${group.currentPrice!.toLocaleString()}</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-stone-400 mb-0.5 flex flex-wrap items-center gap-0.5">
+                      <span className="text-sm font-medium text-stone-600 mb-0.5 flex flex-wrap items-center gap-0.5">
                         <span>{group.isAggregated ? '當前總市值' : '目前市值'}</span>
                         {group.evaluationDate && (
-                          <span className="text-[9px] text-stone-400 font-normal">({group.evaluationDate.replace(/-/g, '/')})</span>
+                          <span className="text-xs text-stone-400 font-normal">({group.evaluationDate.replace(/-/g, '/')})</span>
                         )}
                       </span>
-                      <span className="text-xs font-black text-[#5D4037]">${Math.round(marketValue).toLocaleString()}</span>
+                      <span className="text-sm font-black text-[#5D4037]">${Math.round(marketValue).toLocaleString()}</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-stone-400 mb-0.5">未實現損益 / 報酬率</span>
-                      <span className={`text-xs font-black ${unrealizedPL > 0 ? 'text-rose-500' : unrealizedPL < 0 ? 'text-emerald-600' : 'text-stone-600'}`}>
+                      <span className="text-sm font-medium text-stone-600 mb-0.5">未實現損益 / 報酬率</span>
+                      <span className={`text-sm font-black ${unrealizedPL > 0 ? 'text-rose-500' : unrealizedPL < 0 ? 'text-emerald-600' : 'text-stone-600'}`}>
                         {unrealizedPL > 0 ? '+' : ''}${Math.round(unrealizedPL).toLocaleString()}
-                        <span className="block text-[10px]">({roi > 0 ? '+' : ''}{roi.toFixed(2)}%)</span>
+                        <span className="block text-xs font-bold">({roi > 0 ? '+' : ''}{roi.toFixed(2)}%)</span>
                       </span>
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[11px] font-bold text-stone-400/80 px-1 italic">
+                  <div className="text-sm font-medium text-stone-500 px-1 italic leading-relaxed my-1">
                     💡 點擊「編輯」填入目前市價/淨值，系統將自動計算未實現損益與報酬率
                   </div>
                 )}
@@ -6693,7 +6693,7 @@ function InvestmentSection({
                   >
                     <div className="flex items-center justify-between text-xs font-black text-[#5D4037] border-b border-stone-200/60 pb-2">
                       <span>🏛️ 各券商獨立持股明細 ({group.subStocks.length} 筆)</span>
-                      <span className="text-[10px] text-stone-400 font-bold">可獨立編輯與管理交易</span>
+                      <span className="text-xs text-stone-500 font-medium">可獨立編輯與管理交易</span>
                     </div>
 
                     <div className="space-y-2.5">
@@ -6738,17 +6738,17 @@ function InvestmentSection({
 
                             <div className="grid grid-cols-3 gap-2 text-xs font-bold text-stone-600 bg-stone-50/70 p-2.5 rounded-lg border border-stone-100">
                               <div>
-                                <span className="text-[10px] text-stone-400 font-bold block">持股數量</span>
-                                <span className="text-[#5D4037]">{sub.shares.toLocaleString()} {unitLabel}</span>
+                                <span className="text-sm font-medium text-stone-600 block mb-0.5">持股數量</span>
+                                <span className="text-sm font-black text-[#5D4037]">{sub.shares.toLocaleString()} {unitLabel}</span>
                               </div>
                               <div>
-                                <span className="text-[10px] text-stone-400 font-bold block">平均買價</span>
-                                <span className="text-[#5D4037]">${sub.avgPrice.toLocaleString()}</span>
+                                <span className="text-sm font-medium text-stone-600 block mb-0.5">平均買價</span>
+                                <span className="text-sm font-black text-[#5D4037]">${sub.avgPrice.toLocaleString()}</span>
                               </div>
                               <div>
-                                <span className="text-[10px] text-stone-400 font-bold block">投入成本</span>
-                                <span className="text-[#E91E63]">${Math.round(subCost).toLocaleString()}</span>
-                                <span className="text-[9px] font-bold text-stone-400 block mt-0.5">
+                                <span className="text-sm font-medium text-stone-600 block mb-0.5">投入成本</span>
+                                <span className="text-sm font-black text-[#E91E63]">${Math.round(subCost).toLocaleString()}</span>
+                                <span className="text-xs font-medium text-stone-500 block mt-0.5">
                                   (手續費 ${Math.round(sub.fee || 0).toLocaleString()})
                                 </span>
                               </div>
@@ -6780,21 +6780,21 @@ function InvestmentSection({
                 {/* Bottom Row (For non-aggregated single stock) */}
                 {!group.isAggregated && (
                   <>
-                    <div className="flex flex-col gap-1 px-1">
-                      <div className="flex flex-wrap items-center justify-between gap-y-1 text-[11px] font-bold text-stone-400">
-                        <div className="flex items-center">
-                          <span>💳 交割帳戶：</span>
-                          <span className="text-[#5D4037]/80">{linkedAcc ? `${linkedAcc.icon} ${linkedAcc.name}` : '未指定'}</span>
+                    <div className="flex flex-col gap-2 px-1 py-1">
+                      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-sm font-medium leading-relaxed">
+                        <div className="flex items-center gap-1">
+                          <span className="text-stone-500 font-medium">💳 交割帳戶：</span>
+                          <span className="text-[#5D4037] font-semibold">{linkedAcc ? `${linkedAcc.icon} ${linkedAcc.name}` : '未指定'}</span>
                         </div>
                         {firstSub?.purchaseDate && (
-                          <div className="flex items-center">
-                            <span>📅 購買日期：</span>
-                            <span className="text-[#5D4037]/80">{firstSub.purchaseDate.replace(/-/g, '/')}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-stone-500 font-medium">📅 購買日期：</span>
+                            <span className="text-[#5D4037] font-semibold">{firstSub.purchaseDate.replace(/-/g, '/')}</span>
                           </div>
                         )}
                       </div>
                       {firstSub?.notes && (
-                        <div className="text-[11px] font-medium text-stone-400 italic">
+                        <div className="text-sm font-medium text-stone-600 italic leading-relaxed pt-1.5 border-t border-stone-100">
                           💡 {firstSub.notes}
                         </div>
                       )}
@@ -7393,19 +7393,19 @@ function InvestmentSection({
                   
                   <div className="grid grid-cols-3 md:grid-cols-1 gap-3 bg-[#FFFDF5]/80 p-4 rounded-3xl border border-stone-100/50 text-center md:text-left">
                     <div className="md:p-2 md:border-b md:border-stone-100/60">
-                      <span className="text-[10px] font-bold text-stone-400 block mb-0.5">持股數量</span>
+                      <span className="text-sm font-medium text-stone-600 block mb-0.5">持股數量</span>
                       <span className="text-base font-black text-[#5D4037]">{selectedStockForDetail.shares.toLocaleString()} 股</span>
                     </div>
                     <div className="md:p-2 md:border-b md:border-stone-100/60">
-                      <span className="text-[10px] font-bold text-stone-400 block mb-0.5">平均買價</span>
+                      <span className="text-sm font-medium text-stone-600 block mb-0.5">平均買價</span>
                       <span className="text-base font-black text-[#5D4037]">${selectedStockForDetail.avgPrice.toLocaleString()}</span>
                     </div>
                     <div className="md:p-2">
-                      <span className="text-[10px] font-bold text-stone-400 block mb-0.5">投入成本</span>
+                      <span className="text-sm font-medium text-stone-600 block mb-0.5">投入成本</span>
                       <span className="text-base font-black text-[#E91E63]">
                         ${Math.round(selectedStockForDetail.totalCost !== undefined ? selectedStockForDetail.totalCost : selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}
                       </span>
-                      <span className="text-[10px] font-bold text-stone-400 block mt-0.5">
+                      <span className="text-xs font-medium text-stone-500 block mt-0.5">
                         (含手續費 ${Math.round(selectedStockForDetail.fee || 0).toLocaleString()})
                       </span>
                     </div>
