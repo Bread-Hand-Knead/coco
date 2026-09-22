@@ -6731,6 +6731,51 @@ function InvestmentSection({
             const firstSub = group.subStocks[0];
             const linkedAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === firstSub?.linkedAccount);
 
+            // 抓取最新一筆交易紀錄 (Latest Trade) 及其備註
+            const latestTradeInfo = (() => {
+              if (!firstSub) return null;
+              const stockCode = firstSub.code;
+              const keyword = stockCode.split(' (')[0].trim();
+              
+              const matchedRecords = (Array.isArray(records) ? records : [])
+                .filter(r => !r.isDeleted && r.note && (r.note.includes(stockCode) || r.note.includes(keyword)))
+                .sort((a, b) => {
+                  const dateDiff = (b.date || '').localeCompare(a.date || '');
+                  if (dateDiff !== 0) return dateDiff;
+                  return (b.time || '').localeCompare(a.time || '');
+                });
+
+              const totalTradeCount = matchedRecords.length;
+              const latestRecord = matchedRecords[0];
+
+              let latestDate = latestRecord ? latestRecord.date : firstSub.purchaseDate;
+              if (latestDate) {
+                latestDate = latestDate.replace(/-/g, '/');
+              }
+
+              const dateLabel = totalTradeCount > 1 ? '🗓️ 最後買入：' : '🗓️ 購買日期：';
+
+              let latestNote = '';
+              if (latestRecord && latestRecord.note) {
+                const bracketMatch = latestRecord.note.match(/\(([^)]+)\)$/);
+                if (bracketMatch && bracketMatch[1] && !bracketMatch[1].startsWith('含手續費')) {
+                  latestNote = bracketMatch[1];
+                } else if (!latestRecord.note.startsWith('[買入]') && !latestRecord.note.startsWith('[股利]')) {
+                  latestNote = latestRecord.note;
+                }
+              }
+
+              if (!latestNote && firstSub.notes) {
+                latestNote = firstSub.notes;
+              }
+
+              return {
+                latestDate,
+                dateLabel,
+                latestNote
+              };
+            })();
+
             return (
               <div 
                 key={group.code + (group.isAggregated ? '-aggregated' : `-${firstSub?.id}`)} 
@@ -6988,16 +7033,16 @@ function InvestmentSection({
                           <span className="text-stone-500 font-medium">💳 交割帳戶：</span>
                           <span className="text-[#5D4037] font-semibold">{linkedAcc ? `${linkedAcc.icon} ${linkedAcc.name}` : '未指定'}</span>
                         </div>
-                        {firstSub?.purchaseDate && (
+                        {latestTradeInfo?.latestDate && (
                           <div className="flex items-center gap-1">
-                            <span className="text-stone-500 font-medium">📅 購買日期：</span>
-                            <span className="text-[#5D4037] font-semibold">{firstSub.purchaseDate.replace(/-/g, '/')}</span>
+                            <span className="text-stone-500 font-medium">{latestTradeInfo.dateLabel}</span>
+                            <span className="text-[#5D4037] font-semibold">{latestTradeInfo.latestDate}</span>
                           </div>
                         )}
                       </div>
-                      {firstSub?.notes && (
+                      {latestTradeInfo?.latestNote && (
                         <div className="text-sm font-medium text-stone-600 italic leading-relaxed pt-1.5 border-t border-stone-100">
-                          💡 {firstSub.notes}
+                          💡 {latestTradeInfo.latestNote}
                         </div>
                       )}
                     </div>
@@ -7597,18 +7642,25 @@ function InvestmentSection({
                       e.stopPropagation();
                       setIsOverviewCollapsed(!isOverviewCollapsed);
                     }}
-                    className="flex items-center justify-between cursor-pointer py-1 px-1 group select-none hover:bg-stone-100/50 rounded-xl transition-colors"
+                    className="flex items-center justify-between cursor-pointer py-1.5 px-2 group select-none hover:bg-stone-100/50 rounded-xl transition-colors"
                   >
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <span className="text-xs font-black text-stone-500 uppercase tracking-widest shrink-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="text-sm font-black text-stone-500 uppercase tracking-widest shrink-0">
                         持股數據總覽
                       </span>
                       {isOverviewCollapsed ? (
-                        <span className="text-[10px] font-bold text-[#5D4037] truncate bg-[#FFFDF5] border border-stone-200/60 px-2 py-0.5 rounded-lg shadow-2xs">
-                          {selectedStockForDetail.shares.toLocaleString()} {selectedStockForDetail.category === 'fund' ? '單位' : '股'} ｜ 均價 ${selectedStockForDetail.avgPrice.toLocaleString()} ｜ 成本 ${Math.round(selectedStockForDetail.totalCost !== undefined ? selectedStockForDetail.totalCost : selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}
-                        </span>
+                        <div className="text-[15px] font-medium text-[#5D4037] truncate bg-[#FFFDF5] border border-stone-200/60 px-3 py-1 rounded-xl shadow-2xs flex items-center gap-1.5 shrink-1 min-w-0">
+                          <span className="font-bold">{selectedStockForDetail.shares.toLocaleString()}</span>
+                          <span>{selectedStockForDetail.category === 'fund' ? '單位' : '股'}</span>
+                          <span className="text-stone-300">｜</span>
+                          <span>均價</span>
+                          <span className="font-bold">${selectedStockForDetail.avgPrice.toLocaleString()}</span>
+                          <span className="text-stone-300">｜</span>
+                          <span>成本</span>
+                          <span className="font-bold">${Math.round(selectedStockForDetail.totalCost !== undefined ? selectedStockForDetail.totalCost : selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}</span>
+                        </div>
                       ) : (
-                        <span className="text-[10px] font-bold text-stone-400 group-hover:text-stone-600 transition-colors">
+                        <span className="text-xs font-bold text-stone-400 group-hover:text-stone-600 transition-colors">
                           (點擊收合)
                         </span>
                       )}
@@ -7619,10 +7671,10 @@ function InvestmentSection({
                         e.stopPropagation();
                         setIsOverviewCollapsed(!isOverviewCollapsed);
                       }}
-                      className="p-1 hover:bg-stone-200/60 rounded-lg text-stone-500 transition-colors shrink-0 ml-1"
+                      className="p-1 hover:bg-stone-200/60 rounded-lg text-stone-500 transition-colors shrink-0 ml-1.5"
                       title={isOverviewCollapsed ? "展開數據總覽" : "收合數據總覽"}
                     >
-                      {isOverviewCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                      {isOverviewCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
                     </button>
                   </div>
                   
