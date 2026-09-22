@@ -5562,6 +5562,7 @@ function InvestmentSection({
   });
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('all');
   const [expandedStockCodes, setExpandedStockCodes] = useState<Record<string, boolean>>({});
+  const [isOverviewCollapsed, setIsOverviewCollapsed] = useState(false);
 
   // states for buy operation
   const [buyingStock, setBuyingStock] = useState<Stock | null>(null);
@@ -7388,28 +7389,73 @@ function InvestmentSection({
               {/* Body: Mobile single-column, Desktop 2-column split (Left 250px fixed, Right 1fr) */}
               <div className="grid grid-cols-1 md:grid-cols-[250px_1fr] gap-5 flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar">
                 {/* Left Column: Overview Stats (Locked 250px width on desktop) */}
-                <div className="flex flex-col gap-4 w-full md:w-[250px] md:min-w-[250px] shrink-0">
-                  <span className="text-xs font-black text-stone-500 uppercase tracking-widest px-1 block">持股數據總覽</span>
-                  
-                  <div className="grid grid-cols-3 md:grid-cols-1 gap-3 bg-[#FFFDF5]/80 p-4 rounded-3xl border border-stone-100/50 text-center md:text-left">
-                    <div className="md:p-2 md:border-b md:border-stone-100/60">
-                      <span className="text-sm font-medium text-stone-600 block mb-0.5">持股數量</span>
-                      <span className="text-base font-black text-[#5D4037]">{selectedStockForDetail.shares.toLocaleString()} 股</span>
-                    </div>
-                    <div className="md:p-2 md:border-b md:border-stone-100/60">
-                      <span className="text-sm font-medium text-stone-600 block mb-0.5">平均買價</span>
-                      <span className="text-base font-black text-[#5D4037]">${selectedStockForDetail.avgPrice.toLocaleString()}</span>
-                    </div>
-                    <div className="md:p-2">
-                      <span className="text-sm font-medium text-stone-600 block mb-0.5">投入成本</span>
-                      <span className="text-base font-black text-[#E91E63]">
-                        ${Math.round(selectedStockForDetail.totalCost !== undefined ? selectedStockForDetail.totalCost : selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}
+                <div className="flex flex-col gap-2 w-full md:w-[250px] md:min-w-[250px] shrink-0">
+                  {/* Collapsible Overview Header */}
+                  <div 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsOverviewCollapsed(!isOverviewCollapsed);
+                    }}
+                    className="flex items-center justify-between cursor-pointer py-1 px-1 group select-none hover:bg-stone-100/50 rounded-xl transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <span className="text-xs font-black text-stone-500 uppercase tracking-widest shrink-0">
+                        持股數據總覽
                       </span>
-                      <span className="text-xs font-medium text-stone-500 block mt-0.5">
-                        (含手續費 ${Math.round(selectedStockForDetail.fee || 0).toLocaleString()})
-                      </span>
+                      {isOverviewCollapsed ? (
+                        <span className="text-[10px] font-bold text-[#5D4037] truncate bg-[#FFFDF5] border border-stone-200/60 px-2 py-0.5 rounded-lg shadow-2xs">
+                          {selectedStockForDetail.shares.toLocaleString()} {selectedStockForDetail.category === 'fund' ? '單位' : '股'} ｜ 均價 ${selectedStockForDetail.avgPrice.toLocaleString()} ｜ 成本 ${Math.round(selectedStockForDetail.totalCost !== undefined ? selectedStockForDetail.totalCost : selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-stone-400 group-hover:text-stone-600 transition-colors">
+                          (點擊收合)
+                        </span>
+                      )}
                     </div>
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsOverviewCollapsed(!isOverviewCollapsed);
+                      }}
+                      className="p-1 hover:bg-stone-200/60 rounded-lg text-stone-500 transition-colors shrink-0 ml-1"
+                      title={isOverviewCollapsed ? "展開數據總覽" : "收合數據總覽"}
+                    >
+                      {isOverviewCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                    </button>
                   </div>
+                  
+                  <AnimatePresence initial={false}>
+                    {!isOverviewCollapsed && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="grid grid-cols-3 md:grid-cols-1 gap-3 bg-[#FFFDF5]/80 p-4 rounded-3xl border border-stone-100/50 text-center md:text-left">
+                          <div className="md:p-2 md:border-b md:border-stone-100/60">
+                            <span className="text-sm font-medium text-stone-600 block mb-0.5">持股數量</span>
+                            <span className="text-base font-black text-[#5D4037]">{selectedStockForDetail.shares.toLocaleString()} {selectedStockForDetail.category === 'fund' ? '單位' : '股'}</span>
+                          </div>
+                          <div className="md:p-2 md:border-b md:border-stone-100/60">
+                            <span className="text-sm font-medium text-stone-600 block mb-0.5">平均買價</span>
+                            <span className="text-base font-black text-[#5D4037]">${selectedStockForDetail.avgPrice.toLocaleString()}</span>
+                          </div>
+                          <div className="md:p-2">
+                            <span className="text-sm font-medium text-stone-600 block mb-0.5">投入成本</span>
+                            <span className="text-base font-black text-[#E91E63]">
+                              ${Math.round(selectedStockForDetail.totalCost !== undefined ? selectedStockForDetail.totalCost : selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}
+                            </span>
+                            <span className="text-xs font-medium text-stone-500 block mt-0.5">
+                              (含手續費 ${Math.round(selectedStockForDetail.fee || 0).toLocaleString()})
+                            </span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 {/* Right Column: Transaction History */}
@@ -7441,7 +7487,7 @@ function InvestmentSection({
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1 min-h-[200px] max-h-[380px] custom-scrollbar">
+                  <div className={`flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1 min-h-[200px] transition-all custom-scrollbar ${isOverviewCollapsed ? 'max-h-[560px]' : 'max-h-[380px]'}`}>
                     {(() => {
                       const keyword = selectedStockForDetail.code.split(' (')[0].trim();
                       const allSortedList = records
