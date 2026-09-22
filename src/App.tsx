@@ -6872,7 +6872,9 @@ function InvestmentSection({
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-black text-stone-500 px-1">買入日期 (成交日)</label>
+                  <div className="flex items-center justify-between px-1 min-h-[1.5rem]">
+                    <label className="text-xs font-black text-stone-500 truncate">買入日期 (成交日)</label>
+                  </div>
                   <input 
                     type="date"
                     value={stockPurchaseDate}
@@ -6881,9 +6883,11 @@ function InvestmentSection({
                   />
                 </div>
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between px-1">
-                    <label className="text-xs font-black text-stone-500">交割日期 (扣款日)</label>
-                    <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                  <div className="flex items-center justify-between px-1 min-h-[1.5rem]">
+                    <label className="text-xs font-black text-stone-500 truncate">
+                      交割日期 <span className="text-[10px] text-stone-400 font-bold">(扣款日)</span>
+                    </label>
+                    <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded shrink-0">
                       T+2 扣款
                     </span>
                   </div>
@@ -6995,7 +6999,9 @@ function InvestmentSection({
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-black text-stone-500 px-1">買入日期 (成交日)</label>
+                  <div className="flex items-center justify-between px-1 min-h-[1.5rem]">
+                    <label className="text-xs font-black text-stone-500 truncate">買入日期 (成交日)</label>
+                  </div>
                   <input 
                     type="date"
                     value={buyDate}
@@ -7004,9 +7010,11 @@ function InvestmentSection({
                   />
                 </div>
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between px-1">
-                    <label className="text-xs font-black text-stone-500">交割日期 (扣款日)</label>
-                    <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                  <div className="flex items-center justify-between px-1 min-h-[1.5rem]">
+                    <label className="text-xs font-black text-stone-500 truncate">
+                      交割日期 <span className="text-[10px] text-stone-400 font-bold">(扣款日)</span>
+                    </label>
+                    <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded shrink-0">
                       T+2 扣款
                     </span>
                   </div>
@@ -7024,8 +7032,8 @@ function InvestmentSection({
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between px-1">
-                    <label className="text-xs font-black text-stone-500">買入總金額 (元)</label>
+                  <div className="flex items-center justify-between px-1 min-h-[1.5rem]">
+                    <label className="text-xs font-black text-stone-500 truncate">買入總金額 (元)</label>
                     {isBuyCostManualOverride ? (
                       <button
                         type="button"
@@ -7038,13 +7046,13 @@ function InvestmentSection({
                             setBuyTotalCost((Math.round(sh * price) + fee).toString());
                           }
                         }}
-                        className="text-[10px] font-black text-amber-800 bg-amber-100 hover:bg-amber-200 px-1.5 py-0.5 rounded transition-all"
+                        className="text-[10px] font-black text-amber-800 bg-amber-100 hover:bg-amber-200 px-1.5 py-0.5 rounded transition-all shrink-0"
                         title="點擊重置為自動計算"
                       >
                         自訂總價 ✕
                       </button>
                     ) : (
-                      <span className="text-[10px] font-black text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+                      <span className="text-[10px] font-black text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded shrink-0">
                         自動試算
                       </span>
                     )}
@@ -7061,7 +7069,9 @@ function InvestmentSection({
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-black text-stone-500 px-1">手續費 (元)</label>
+                  <div className="flex items-center justify-between px-1 min-h-[1.5rem]">
+                    <label className="text-xs font-black text-stone-500 truncate">手續費 (元)</label>
+                  </div>
                   <input 
                     type="number"
                     step="any"
