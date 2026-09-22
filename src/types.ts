@@ -54,6 +54,8 @@ export interface Transaction {
   totalAmount?: number;
   projectId?: string;
   projectName?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
 }
 
 export interface RateHistoryItem {
@@ -130,6 +132,8 @@ export interface Stock {
   notes?: string;         // 備註說明
   fee?: number;           // 手續費 (元)
   totalCost?: number;     // 投入總成本 (元)
+  isDeleted?: boolean;    // 是否已被標記為軟刪除
+  deletedAt?: string;     // 軟刪除時間戳記 (ISO 格式)
 }
 
 export interface AggregatedStockGroup {
