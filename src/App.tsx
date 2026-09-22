@@ -5564,6 +5564,7 @@ function InvestmentSection({
 
   // states for buy operation
   const [buyingStock, setBuyingStock] = useState<Stock | null>(null);
+  const [editingBuyRecord, setEditingBuyRecord] = useState<Transaction | null>(null);
   const [buyShares, setBuyShares] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [buyTotalCost, setBuyTotalCost] = useState('');
@@ -5580,6 +5581,49 @@ function InvestmentSection({
   const [isBuySettlementManual, setIsBuySettlementManual] = useState(false);
   const [buyAccount, setBuyAccount] = useState('');
   const [buyNotes, setBuyNotes] = useState('');
+
+  // Helper to parse buy transaction details from record note
+  const parseBuyRecordDetails = (r: Transaction, stock: Stock) => {
+    const note = r.note || '';
+    
+    // Parse shares
+    const sharesMatch = note.match(/(\d+(?:\.\d+)?)\s*(?:股|單位)/);
+    const shares = sharesMatch ? sharesMatch[1] : (stock.shares ? stock.shares.toString() : '');
+
+    // Parse price
+    const priceMatch = note.match(/@\s*\$?(\d+(?:\.\d+)?)/);
+    const price = priceMatch ? priceMatch[1] : (stock.avgPrice ? stock.avgPrice.toString() : '');
+
+    // Parse fee
+    const feeMatch = note.match(/含手續費\s*\$?(\d+(?:\.\d+)?)/);
+    const fee = feeMatch ? feeMatch[1] : '0';
+
+    // Parse trade date if in note
+    const dateMatch = note.match(/\[(?:買入|加購)\s*(\d{4}-\d{2}-\d{2})\]/);
+    const tradeDate = dateMatch ? dateMatch[1] : (r.date || new Date().toISOString().split('T')[0]);
+
+    const settlementDate = r.postingDate || r.date || calculateSettlementDate(tradeDate);
+
+    // Parse extra notes outside tag
+    let extraNotes = '';
+    const noteParenMatch = note.match(/\)\s*\(([^)]+)\)$/);
+    if (noteParenMatch) {
+      extraNotes = noteParenMatch[1];
+    }
+
+    const totalCost = Math.abs(r.amount).toString();
+
+    return {
+      shares,
+      price,
+      fee,
+      totalCost,
+      tradeDate,
+      settlementDate,
+      extraNotes,
+      accountId: r.accountId || stock.linkedAccount
+    };
+  };
 
   const handleStockPurchaseDateChange = (val: string) => {
     setStockPurchaseDate(val);
@@ -6069,6 +6113,7 @@ function InvestmentSection({
   };
 
   const handleOpenBuy = (stock: Stock) => {
+    setEditingBuyRecord(null);
     setBuyingStock(stock);
     setBuyShares('');
     setBuyPrice(stock.avgPrice.toString());
@@ -6086,6 +6131,22 @@ function InvestmentSection({
     }
     setBuyAccount(stock.linkedAccount);
     setBuyNotes('');
+  };
+
+  const handleOpenEditBuyRecord = (r: Transaction, stock: Stock) => {
+    const details = parseBuyRecordDetails(r, stock);
+    setEditingBuyRecord(r);
+    setBuyingStock(stock);
+    setBuyShares(details.shares);
+    setBuyPrice(details.price);
+    setBuyTotalCost(details.totalCost);
+    setBuyFee(details.fee);
+    setIsBuyCostManualOverride(true);
+    setBuyDate(details.tradeDate);
+    setBuySettlementDate(details.settlementDate);
+    setIsBuySettlementManual(true);
+    setBuyAccount(details.accountId);
+    setBuyNotes(details.extraNotes);
   };
 
   const handleBuySubmit = () => {
@@ -6107,12 +6168,80 @@ function InvestmentSection({
     const finalBuySettlementDate = (buySettlementDate && buySettlementDate.trim()) 
       ? buySettlementDate.trim() 
       : calculateSettlementDate(buyDate || new Date().toISOString().split('T')[0]);
-    
+    const unitLabel = buyingStock.category === 'fund' ? '單位' : '股';
+    const noteText = `[買入] ${buyingStock.code} ${bShares}${unitLabel} @ $${bPrice}${bFee > 0 ? ` (含手續費 $${bFee})` : ''}${buyNotes.trim() ? ' (' + buyNotes.trim() + ')' : ''}`;
+
+    if (editingBuyRecord) {
+      const updatedRecord: Transaction = {
+        ...editingBuyRecord,
+        amount: -totalCost,
+        category: '投資',
+        note: noteText,
+        date: finalBuySettlementDate,
+        postingDate: finalBuySettlementDate,
+        type: 'expense',
+        accountId: buyAccount
+      };
+
+      onUpdateRecord(editingBuyRecord, updatedRecord);
+
+      // 重新加總試算該持股明細
+      const keyword = buyingStock.code.split(' (')[0].trim();
+      const nextRecords = records.map(r => r.id === editingBuyRecord.id ? updatedRecord : r);
+      const buyRecordsForStock = nextRecords.filter(r => 
+        r.type === 'expense' && 
+        r.accountId === buyAccount && 
+        r.note && (r.note.includes(buyingStock.code) || r.note.includes(keyword))
+      );
+
+      let totalStockShares = 0;
+      let totalStockCost = 0;
+      let totalStockFee = 0;
+
+      buyRecordsForStock.forEach(r => {
+        const details = parseBuyRecordDetails(r, buyingStock);
+        const sh = parseFloat(details.shares) || 0;
+        const feeNum = parseFloat(details.fee) || 0;
+        const costNum = Math.abs(r.amount) || 0;
+        totalStockShares += sh;
+        totalStockCost += costNum;
+        totalStockFee += feeNum;
+      });
+
+      if (totalStockShares === 0) {
+        totalStockShares = bShares;
+        totalStockCost = totalCost;
+        totalStockFee = bFee;
+      }
+
+      const netCost = Math.max(0, totalStockCost - totalStockFee);
+      const newAvgPrice = totalStockShares > 0 ? parseFloat((netCost / totalStockShares).toFixed(4)) : bPrice;
+
+      const updatedStock: Stock = {
+        ...buyingStock,
+        shares: parseFloat(totalStockShares.toFixed(4)),
+        avgPrice: newAvgPrice,
+        fee: totalStockFee,
+        totalCost: totalStockCost,
+        linkedAccount: buyAccount,
+        settlementDate: finalBuySettlementDate
+      };
+
+      onSaveStock(updatedStock);
+      if (selectedStockForDetail && (selectedStockForDetail.id === updatedStock.id || selectedStockForDetail.code === updatedStock.code)) {
+        setSelectedStockForDetail(updatedStock);
+      }
+
+      setEditingBuyRecord(null);
+      setBuyingStock(null);
+      return;
+    }
+
     // Add transaction (expense) strictly recorded on settlement date
     onAddRecord({
       amount: -totalCost,
       category: '投資',
-      note: `[買入] ${buyingStock.code} ${bShares}股 @ $${bPrice}${bFee > 0 ? ` (含手續費 $${bFee})` : ''}${buyNotes.trim() ? ' (' + buyNotes.trim() + ')' : ''}`,
+      note: noteText,
       date: finalBuySettlementDate,
       postingDate: finalBuySettlementDate,
       type: 'expense',
@@ -6122,7 +6251,7 @@ function InvestmentSection({
     // Update stock details
     const oldShares = buyingStock.shares;
     const oldAvgPrice = buyingStock.avgPrice;
-    const newShares = oldShares + bShares;
+    const newShares = parseFloat((oldShares + bShares).toFixed(4));
     const oldTotalCost = buyingStock.totalCost !== undefined ? buyingStock.totalCost : (oldShares * oldAvgPrice);
     const newTotalCost = oldTotalCost + totalCost;
     const netNewTotalCost = Math.max(0, newTotalCost - ((buyingStock.fee || 0) + bFee));
@@ -6139,6 +6268,10 @@ function InvestmentSection({
     };
 
     onSaveStock(updatedStock);
+    if (selectedStockForDetail && (selectedStockForDetail.id === updatedStock.id || selectedStockForDetail.code === updatedStock.code)) {
+      setSelectedStockForDetail(updatedStock);
+    }
+
     setBuyingStock(null);
   };
 
@@ -6932,14 +7065,14 @@ function InvestmentSection({
         )}
       </AnimatePresence>
 
-      {/* 2. Modal: Buy Stock */}
+      {/* 2. Modal: Buy Stock / Edit Buy Transaction */}
       <AnimatePresence>
         {buyingStock && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[220] flex items-center justify-center p-6">
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-              onClick={() => setBuyingStock(null)}
+              onClick={() => { setBuyingStock(null); setEditingBuyRecord(null); }}
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
@@ -6947,7 +7080,7 @@ function InvestmentSection({
               style={getFontFamily()}
             >
               <h3 className="text-xl font-black text-[#5D4037] text-center">
-                {buyingStock.category === 'fund' ? '買入 / 申購基金' : '買入股票'}
+                {editingBuyRecord ? '編輯買入交易' : (buyingStock.category === 'fund' ? '買入 / 申購基金' : '買入股票')}
               </h3>
               <p className="text-[#5D4037] text-sm font-bold text-center bg-stone-100/50 p-2.5 rounded-xl border border-stone-200/30">
                 投資標的：<span className="font-black text-[#E91E63]">{buyingStock.code}</span>
@@ -7096,7 +7229,7 @@ function InvestmentSection({
 
               <div className="flex w-full gap-3 mt-4">
                 <button 
-                  onClick={() => setBuyingStock(null)}
+                  onClick={() => { setBuyingStock(null); setEditingBuyRecord(null); }}
                   className="flex-1 py-4 bg-stone-100 hover:bg-stone-200 text-[#5D4037] rounded-2xl font-bold transition-all text-sm"
                 >
                   取消
@@ -7105,7 +7238,7 @@ function InvestmentSection({
                   onClick={handleBuySubmit}
                   className="flex-1 py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm"
                 >
-                  確認買入
+                  {editingBuyRecord ? '確認修改' : '確認買入'}
                 </button>
               </div>
             </motion.div>
@@ -7321,12 +7454,19 @@ function InvestmentSection({
                       return sortedList.map(r => {
                         const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
                         const isIncome = r.type === 'income';
+                        const isBuyTransaction = r.type === 'expense' || (r.note && (r.note.includes('[買入]') || r.note.includes('買入')));
                         
                         return (
                           <div 
                             key={r.id}
-                            onClick={() => setEditingRecord(r)}
-                            className="bg-white p-3.5 md:p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-xs cursor-pointer hover:border-[#FFD54F]/50 hover:shadow-md transition-all active:scale-[0.99] gap-3 min-w-0"
+                            onClick={() => {
+                              if (isBuyTransaction) {
+                                handleOpenEditBuyRecord(r, selectedStockForDetail);
+                              } else {
+                                setEditingRecord(r);
+                              }
+                            }}
+                            className="bg-white p-3.5 md:p-4 rounded-2xl border border-stone-100 flex items-center justify-between shadow-xs cursor-pointer hover:border-[#FFD54F]/50 hover:shadow-md transition-all active:scale-[0.99] gap-3 min-w-0 group"
                           >
                             <div className="flex flex-col gap-1 min-w-0 flex-1">
                               <span className="text-sm font-black text-[#5D4037] leading-snug break-words whitespace-normal">{r.note}</span>
@@ -7343,9 +7483,27 @@ function InvestmentSection({
                                 )}
                               </div>
                             </div>
-                            <span className={`text-base font-black flex-shrink-0 ${isIncome ? 'text-emerald-500' : 'text-[#E91E63]'}`}>
-                              {isIncome ? '+' : '-'}${Math.abs(r.amount).toLocaleString()}
-                            </span>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className={`text-base font-black flex-shrink-0 ${isIncome ? 'text-emerald-500' : 'text-[#E91E63]'}`}>
+                                {isIncome ? '+' : '-'}${Math.abs(r.amount).toLocaleString()}
+                              </span>
+                              <button 
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isBuyTransaction) {
+                                    handleOpenEditBuyRecord(r, selectedStockForDetail);
+                                  } else {
+                                    setEditingRecord(r);
+                                  }
+                                }}
+                                className="p-1.5 text-stone-400 hover:text-[#5D4037] hover:bg-stone-100 rounded-lg transition-colors text-xs font-bold flex items-center gap-0.5"
+                                title="編輯此筆交易"
+                              >
+                                <Pencil size={13} />
+                                <span className="hidden sm:inline">編輯</span>
+                              </button>
+                            </div>
                           </div>
                         );
                       });
