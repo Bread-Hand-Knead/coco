@@ -10093,11 +10093,20 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
             {/* Sub-items Ownership & Split (拆分子項目與歸屬) Section */}
             {(edited.type === 'expense' || edited.type === 'transfer') && (
               <div className="space-y-3 bg-amber-50/40 p-4 rounded-2xl border border-amber-200/60 shadow-sm" style={getFontFamily()}>
-                <div className="flex items-center justify-between">
-                  <span className="text-[15px] font-bold text-[#5D4037] flex items-center gap-1.5">
-                    <span>{edited.type === 'transfer' ? '💸' : '🛍️'}</span>
-                    <span>{edited.type === 'transfer' ? '合併多卡繳款 / 轉帳明細' : '拆分子項目與歸屬 (個人 vs 家裡代墊)'}</span>
-                  </span>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-start gap-1.5">
+                    <span className="mt-0.5">{edited.type === 'transfer' ? '💸' : '🛍️'}</span>
+                    <div className="flex flex-col">
+                      <span className="text-[15px] font-black text-[#5D4037] leading-snug">
+                        {edited.type === 'transfer' ? '合併多卡繳款 / 轉帳明細' : '拆分子項目與歸屬'}
+                      </span>
+                      {edited.type !== 'transfer' && (
+                        <span className="text-xs font-bold text-stone-500/90 leading-tight whitespace-nowrap">
+                          (個人 vs 家裡代墊)
+                        </span>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
