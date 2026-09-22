@@ -312,6 +312,7 @@ export interface AggregatedStockGroup {
   category?: 'stock' | 'fund';
   totalShares: number;
   totalCost: number;
+  totalFee: number;
   avgPrice: number;
   currentPrice?: number;
   evaluationDate?: string;
@@ -5791,12 +5792,14 @@ function InvestmentSection({
       const singleBrokerStocks = stocks.filter(s => s.linkedAccount === selectedBrokerFilter);
       return singleBrokerStocks.map(s => {
         const cost = s.totalCost !== undefined && s.totalCost > 0 ? s.totalCost : Math.round(s.shares * s.avgPrice);
+        const fee = s.fee || 0;
         return {
           isAggregated: false,
           code: s.code,
           category: s.category,
           totalShares: s.shares,
           totalCost: cost,
+          totalFee: fee,
           avgPrice: s.avgPrice,
           currentPrice: s.currentPrice,
           evaluationDate: s.evaluationDate,
@@ -5826,6 +5829,7 @@ function InvestmentSection({
 
       let totalShares = 0;
       let totalCost = 0;
+      let totalFee = 0;
       let latestCurrentPrice: number | undefined = undefined;
       let latestEvalDate: string | undefined = undefined;
 
@@ -5835,6 +5839,7 @@ function InvestmentSection({
         totalShares += s.shares;
         const cost = s.totalCost !== undefined && s.totalCost > 0 ? s.totalCost : Math.round(s.shares * s.avgPrice);
         totalCost += cost;
+        totalFee += (s.fee || 0);
         if (s.currentPrice !== undefined && s.currentPrice > 0) {
           latestCurrentPrice = s.currentPrice;
         }
@@ -5851,6 +5856,7 @@ function InvestmentSection({
         category: first.category,
         totalShares,
         totalCost,
+        totalFee,
         avgPrice,
         currentPrice: latestCurrentPrice,
         evaluationDate: latestEvalDate,
@@ -6633,11 +6639,16 @@ function InvestmentSection({
                       ${group.avgPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                     </span>
                   </div>
-                  <div className="flex flex-col">
+                  <div className="flex flex-col justify-between">
                     <span className="text-[10px] font-bold text-stone-400 mb-0.5">
                       {group.isAggregated ? '總投入成本' : '投入成本'}
                     </span>
-                    <span className="text-sm font-black text-[#E91E63]">${Math.round(group.totalCost).toLocaleString()}</span>
+                    <div>
+                      <span className="text-sm font-black text-[#E91E63]">${Math.round(group.totalCost).toLocaleString()}</span>
+                      <span className="text-[10px] font-bold text-stone-400 block leading-tight mt-0.5">
+                        (含手續費 ${Math.round(group.totalFee || 0).toLocaleString()})
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -6737,6 +6748,9 @@ function InvestmentSection({
                               <div>
                                 <span className="text-[10px] text-stone-400 font-bold block">投入成本</span>
                                 <span className="text-[#E91E63]">${Math.round(subCost).toLocaleString()}</span>
+                                <span className="text-[9px] font-bold text-stone-400 block mt-0.5">
+                                  (手續費 ${Math.round(sub.fee || 0).toLocaleString()})
+                                </span>
                               </div>
                             </div>
 
@@ -7388,7 +7402,12 @@ function InvestmentSection({
                     </div>
                     <div className="md:p-2">
                       <span className="text-[10px] font-bold text-stone-400 block mb-0.5">投入成本</span>
-                      <span className="text-base font-black text-[#E91E63]">${Math.round(selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}</span>
+                      <span className="text-base font-black text-[#E91E63]">
+                        ${Math.round(selectedStockForDetail.totalCost !== undefined ? selectedStockForDetail.totalCost : selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}
+                      </span>
+                      <span className="text-[10px] font-bold text-stone-400 block mt-0.5">
+                        (含手續費 ${Math.round(selectedStockForDetail.fee || 0).toLocaleString()})
+                      </span>
                     </div>
                   </div>
                 </div>

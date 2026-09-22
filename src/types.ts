@@ -138,6 +138,7 @@ export interface AggregatedStockGroup {
   category?: 'stock' | 'fund';
   totalShares: number;
   totalCost: number;
+  totalFee: number;
   avgPrice: number;
   currentPrice?: number;
   evaluationDate?: string;
