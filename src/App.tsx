@@ -288,6 +288,8 @@ interface Transaction {
   _isMergedTransfer?: boolean;
   _mergedRecordIds?: string[];
   _mergedDisplayName?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
 }
 
 type CurrencyMode = 'TWD' | 'FOREIGN' | 'INVESTMENT' | null;
@@ -306,6 +308,8 @@ export interface Stock {
   notes?: string;         // 備註說明
   fee?: number;           // 手續費 (元)
   totalCost?: number;     // 投入總成本 (元)
+  isDeleted?: boolean;    // 是否已被標記為軟刪除
+  deletedAt?: string;     // 刪除時間
 }
 
 export interface AggregatedStockGroup {
@@ -6731,37 +6735,45 @@ function InvestmentSection({
             const firstSub = group.subStocks[0];
             const linkedAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === firstSub?.linkedAccount);
 
-            // 抓取最新一筆交易紀錄 (Latest Trade) 及其備註
+            // 抓取最新一筆「買入交易紀錄」 (Latest Buy Trade) 及其備註
             const latestTradeInfo = (() => {
               if (!firstSub) return null;
               const stockCode = firstSub.code;
               const keyword = stockCode.split(' (')[0].trim();
               
-              const matchedRecords = (Array.isArray(records) ? records : [])
-                .filter(r => !r.isDeleted && r.note && (r.note.includes(stockCode) || r.note.includes(keyword)))
+              // 嚴格過濾「買入交易」，排除股利/配息等非買入紀錄
+              const buyRecords = (Array.isArray(records) ? records : [])
+                .filter(r => {
+                  if (r.isDeleted || !r.note) return false;
+                  const matchesStock = r.note.includes(stockCode) || r.note.includes(keyword);
+                  if (!matchesStock) return false;
+                  const isDividend = r.type === 'income' || r.note.includes('[股利]') || r.note.includes('股利') || r.note.includes('配息');
+                  const isBuy = r.type === 'expense' || r.note.includes('[買入]') || r.note.includes('買入') || !isDividend;
+                  return isBuy && !isDividend;
+                })
                 .sort((a, b) => {
                   const dateDiff = (b.date || '').localeCompare(a.date || '');
                   if (dateDiff !== 0) return dateDiff;
                   return (b.time || '').localeCompare(a.time || '');
                 });
 
-              const totalTradeCount = matchedRecords.length;
-              const latestRecord = matchedRecords[0];
+              const totalBuyCount = buyRecords.length;
+              const latestBuyRecord = buyRecords[0];
 
-              let latestDate = latestRecord ? latestRecord.date : firstSub.purchaseDate;
+              let latestDate = latestBuyRecord ? latestBuyRecord.date : firstSub.purchaseDate;
               if (latestDate) {
                 latestDate = latestDate.replace(/-/g, '/');
               }
 
-              const dateLabel = totalTradeCount > 1 ? '🗓️ 最後買入：' : '🗓️ 購買日期：';
+              const dateLabel = totalBuyCount > 1 ? '🗓️ 最後買入：' : '🗓️ 購買日期：';
 
               let latestNote = '';
-              if (latestRecord && latestRecord.note) {
-                const bracketMatch = latestRecord.note.match(/\(([^)]+)\)$/);
+              if (latestBuyRecord && latestBuyRecord.note) {
+                const bracketMatch = latestBuyRecord.note.match(/\(([^)]+)\)$/);
                 if (bracketMatch && bracketMatch[1] && !bracketMatch[1].startsWith('含手續費')) {
                   latestNote = bracketMatch[1];
-                } else if (!latestRecord.note.startsWith('[買入]') && !latestRecord.note.startsWith('[股利]')) {
-                  latestNote = latestRecord.note;
+                } else if (!latestBuyRecord.note.startsWith('[買入]')) {
+                  latestNote = latestBuyRecord.note;
                 }
               }
 
@@ -6916,7 +6928,9 @@ function InvestmentSection({
                       <span className="text-sm font-black text-[#5D4037]">${Math.round(marketValue).toLocaleString()}</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-stone-600 mb-0.5">未實現損益 / 報酬率</span>
+                      <span className="text-sm font-medium text-stone-600 mb-0.5 leading-tight">
+                        未實現損益<br />報酬率
+                      </span>
                       <span className={`text-sm font-black ${unrealizedPL > 0 ? 'text-rose-500' : unrealizedPL < 0 ? 'text-emerald-600' : 'text-stone-600'}`}>
                         {unrealizedPL > 0 ? '+' : ''}${Math.round(unrealizedPL).toLocaleString()}
                         <span className="block text-xs font-bold">({roi > 0 ? '+' : ''}{roi.toFixed(2)}%)</span>
