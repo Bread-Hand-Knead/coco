@@ -830,6 +830,80 @@ export const getGroupedAndUngrouped = (accountsList: Account[]) => {
   return { groupedList: grouped, singleList: single };
 };
 
+export interface AccountGroup {
+  groupName: string;
+  accounts: Account[];
+}
+
+export const groupAccountsByInstitution = (accountsList: Account[]): AccountGroup[] => {
+  if (!Array.isArray(accountsList)) return [];
+
+  const groupsMap: Map<string, Account[]> = new Map();
+
+  accountsList.forEach(acc => {
+    const parentAcc = acc.parentId ? accountsList.find(x => x.id === acc.parentId) : undefined;
+    const parentName = parentAcc?.name;
+
+    let groupName = '💵 現金與其他';
+
+    if (acc.type === 'cash') {
+      groupName = '💵 現金與其他';
+    } else {
+      const bankKey = getBankKeyword(acc.name, parentName);
+      if (bankKey) {
+        if (bankKey.includes('國泰')) groupName = '🏛️ 國泰世華體系';
+        else if (bankKey.includes('元大')) groupName = '🏛️ 元大金控體系';
+        else if (bankKey.includes('富邦')) groupName = '🏛️ 富邦金控體系';
+        else if (bankKey.includes('玉山')) groupName = '🏛️ 玉山金控體系';
+        else if (bankKey.includes('台新')) groupName = '🏛️ 台新金控體系';
+        else if (bankKey.includes('中信') || bankKey.includes('中國信託')) groupName = '🏛️ 中國信託體系';
+        else if (bankKey.includes('永豐')) groupName = '🏛️ 永豐金控體系';
+        else if (bankKey.includes('兆豐')) groupName = '🏛️ 兆豐金控體系';
+        else if (bankKey.includes('合庫') || bankKey.includes('合作金庫')) groupName = '🏛️ 合作金庫體系';
+        else if (bankKey.includes('第一') || bankKey.includes('一銀')) groupName = '🏛️ 第一金控體系';
+        else if (bankKey.includes('華南')) groupName = '🏛️ 華南金控體系';
+        else if (bankKey.includes('彰化') || bankKey.includes('彰銀')) groupName = '🏛️ 彰化銀行體系';
+        else if (bankKey.includes('京城')) groupName = '🏛️ 京城銀行';
+        else if (bankKey.includes('郵局')) groupName = '📮 中華郵政';
+        else groupName = `🏛️ ${bankKey}體系`;
+      } else if (acc.name.includes('京城')) {
+        groupName = '🏛️ 京城銀行';
+      } else if (acc.type === 'points') {
+        groupName = '⭐ 點數與紅利';
+      }
+    }
+
+    if (!groupsMap.has(groupName)) {
+      groupsMap.set(groupName, []);
+    }
+    groupsMap.get(groupName)!.push(acc);
+  });
+
+  const result: AccountGroup[] = [];
+  groupsMap.forEach((accounts, groupName) => {
+    result.push({ groupName, accounts });
+  });
+
+  return result;
+};
+
+export const renderGroupedAccountOptions = (accountsList: Account[]) => {
+  const filtered = (Array.isArray(accountsList) ? accountsList : []).filter(
+    a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment' || a.type === 'points'
+  );
+  const grouped = groupAccountsByInstitution(filtered);
+
+  return grouped.map(g => (
+    <optgroup key={g.groupName} label={g.groupName}>
+      {g.accounts.map(a => (
+        <option key={a.id} value={a.id}>
+          {a.icon} {a.name} ({a.type === 'points' ? '點數' : a.currency})
+        </option>
+      ))}
+    </optgroup>
+  ));
+};
+
 const isAccountExcludedFromNetWorth = (acc: Account, allAccounts: Account[]): boolean => {
   if (acc.excludeFromNetWorth) return true;
   if (acc.parentId) {
@@ -7279,18 +7353,14 @@ function InvestmentSection({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">證券交割帳戶</label>
+                <label className="text-xs font-black text-stone-500 px-1">證券交割帳戶 / 扣款帳戶</label>
                 <select 
                   value={stockLinkedAccount}
                   onChange={e => setStockLinkedAccount(e.target.value)}
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                 >
-                  <option value="">選擇銀行帳戶</option>
-                  {accounts
-                    .filter(a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment')
-                    .map(a => (
-                      <option key={a.id} value={a.id}>{a.icon} {a.name} ({a.currency})</option>
-                    ))}
+                  <option value="">選擇交割帳戶 / 點數戶</option>
+                  {renderGroupedAccountOptions(accounts)}
                 </select>
               </div>
 
@@ -7413,11 +7483,7 @@ function InvestmentSection({
                   onChange={e => setBuyAccount(e.target.value)}
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                 >
-                  {accounts
-                    .filter(a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment')
-                    .map(a => (
-                      <option key={a.id} value={a.id}>{a.icon} {a.name} ({a.currency})</option>
-                    ))}
+                  {renderGroupedAccountOptions(accounts)}
                 </select>
               </div>
 
@@ -7568,17 +7634,13 @@ function InvestmentSection({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-black text-stone-500 px-1">匯入銀行帳戶</label>
+                <label className="text-xs font-black text-stone-500 px-1">匯入銀行帳戶 / 點數戶</label>
                 <select 
                   value={dividendAccount}
                   onChange={e => setDividendAccount(e.target.value)}
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                 >
-                  {accounts
-                    .filter(a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment')
-                    .map(a => (
-                      <option key={a.id} value={a.id}>{a.icon} {a.name} ({a.currency})</option>
-                    ))}
+                  {renderGroupedAccountOptions(accounts)}
                 </select>
               </div>
 
