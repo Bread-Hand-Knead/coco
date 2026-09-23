@@ -904,6 +904,128 @@ export const renderGroupedAccountOptions = (accountsList: Account[]) => {
   ));
 };
 
+interface GroupedAccountDropdownProps {
+  accounts: Account[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}
+
+function GroupedAccountDropdown({
+  accounts,
+  value,
+  onChange,
+  placeholder = '選擇交割帳戶 / 點數戶',
+}: GroupedAccountDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const filteredAccounts = useMemo(() => {
+    return (Array.isArray(accounts) ? accounts : []).filter(
+      a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment' || a.type === 'points'
+    );
+  }, [accounts]);
+
+  const groupedAccounts = useMemo(() => {
+    return groupAccountsByInstitution(filteredAccounts);
+  }, [filteredAccounts]);
+
+  const selectedAccount = useMemo(() => {
+    return filteredAccounts.find(a => a.id === value);
+  }, [filteredAccounts, value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  return (
+    <div ref={containerRef} className="relative w-full max-w-full">
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] flex items-center justify-between shadow-sm hover:border-[#FFD54F] transition-all cursor-pointer box-border max-w-full overflow-hidden"
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1 pr-2 truncate">
+          {selectedAccount ? (
+            <>
+              <span className="shrink-0">{selectedAccount.icon || '🏦'}</span>
+              <span className="truncate font-black text-[#5D4037]">{selectedAccount.name}</span>
+              <span className="text-xs text-stone-400 font-normal shrink-0">
+                ({selectedAccount.type === 'points' ? '點數' : selectedAccount.currency})
+              </span>
+            </>
+          ) : (
+            <span className="text-stone-400 font-medium truncate">{placeholder}</span>
+          )}
+        </div>
+        <ChevronDown size={18} className={`text-stone-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-[300] top-full left-0 right-0 w-full max-w-full mt-1 bg-white border-2 border-stone-100 rounded-2xl shadow-xl max-h-60 overflow-y-auto overflow-x-hidden p-2 space-y-2 box-border custom-scrollbar"
+          >
+            {groupedAccounts.length === 0 ? (
+              <div className="p-3 text-center text-xs text-stone-400 font-medium">沒有可選擇的帳戶</div>
+            ) : (
+              groupedAccounts.map(group => (
+                <div key={group.groupName} className="space-y-1">
+                  <div className="text-[11px] font-black text-stone-500 bg-stone-100/90 px-2.5 py-1 rounded-lg border border-stone-200/40 sticky top-0 z-10 backdrop-blur-xs truncate">
+                    {group.groupName}
+                  </div>
+                  <div className="space-y-0.5">
+                    {group.accounts.map(acc => {
+                      const isSelected = acc.id === value;
+                      return (
+                        <button
+                          key={acc.id}
+                          type="button"
+                          onClick={() => {
+                            onChange(acc.id);
+                            setIsOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-between gap-2 box-border max-w-full overflow-hidden ${
+                            isSelected 
+                              ? 'bg-[#FFD54F]/25 text-[#5D4037] font-black border border-[#FFD54F]/40' 
+                              : 'hover:bg-stone-50 text-stone-700 border border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
+                            <span className="shrink-0 text-sm">{acc.icon || '🏦'}</span>
+                            <span className="truncate">{acc.name}</span>
+                          </div>
+                          <span className="text-[10px] text-stone-400 font-normal shrink-0">
+                            ({acc.type === 'points' ? '點數' : acc.currency})
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 const isAccountExcludedFromNetWorth = (acc: Account, allAccounts: Account[]): boolean => {
   if (acc.excludeFromNetWorth) return true;
   if (acc.parentId) {
@@ -7354,14 +7476,12 @@ function InvestmentSection({
 
               <div className="space-y-1">
                 <label className="text-xs font-black text-stone-500 px-1">證券交割帳戶 / 扣款帳戶</label>
-                <select 
+                <GroupedAccountDropdown
+                  accounts={accounts}
                   value={stockLinkedAccount}
-                  onChange={e => setStockLinkedAccount(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                >
-                  <option value="">選擇交割帳戶 / 點數戶</option>
-                  {renderGroupedAccountOptions(accounts)}
-                </select>
+                  onChange={setStockLinkedAccount}
+                  placeholder="選擇交割帳戶 / 點數戶"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -7478,13 +7598,12 @@ function InvestmentSection({
 
               <div className="space-y-1">
                 <label className="text-xs font-black text-stone-500 px-1">交割扣款帳戶</label>
-                <select 
+                <GroupedAccountDropdown
+                  accounts={accounts}
                   value={buyAccount}
-                  onChange={e => setBuyAccount(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                >
-                  {renderGroupedAccountOptions(accounts)}
-                </select>
+                  onChange={setBuyAccount}
+                  placeholder="選擇交割帳戶 / 點數戶"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -7635,13 +7754,12 @@ function InvestmentSection({
 
               <div className="space-y-1">
                 <label className="text-xs font-black text-stone-500 px-1">匯入銀行帳戶 / 點數戶</label>
-                <select 
+                <GroupedAccountDropdown
+                  accounts={accounts}
                   value={dividendAccount}
-                  onChange={e => setDividendAccount(e.target.value)}
-                  className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                >
-                  {renderGroupedAccountOptions(accounts)}
-                </select>
+                  onChange={setDividendAccount}
+                  placeholder="選擇匯入帳戶 / 點數戶"
+                />
               </div>
 
               <div className="grid grid-cols-[3fr_2fr] gap-3">
