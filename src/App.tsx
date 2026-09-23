@@ -830,6 +830,37 @@ export const getGroupedAndUngrouped = (accountsList: Account[]) => {
   return { groupedList: grouped, singleList: single };
 };
 
+export const resolveBrokerAccount = (paymentAccountId: string, accounts: Account[]): string => {
+  if (!paymentAccountId || !Array.isArray(accounts)) return paymentAccountId;
+
+  const paymentAcc = accounts.find(a => a.id === paymentAccountId);
+  if (!paymentAcc) return paymentAccountId;
+
+  if (paymentAcc.type === 'investment') {
+    return paymentAcc.id;
+  }
+
+  const parentAcc = paymentAcc.parentId ? accounts.find(a => a.id === paymentAcc.parentId) : undefined;
+  const parentName = parentAcc?.name;
+  const paymentBankKey = getBankKeyword(paymentAcc.name, parentName);
+
+  if (paymentBankKey) {
+    const matchingInvestmentAcc = accounts.find(a => {
+      if (a.type !== 'investment') return false;
+      const aParentName = a.parentId ? accounts.find(x => x.id === a.parentId)?.name : undefined;
+      const aBankKey = getBankKeyword(a.name, aParentName);
+      return aBankKey === paymentBankKey;
+    });
+
+    if (matchingInvestmentAcc) {
+      return matchingInvestmentAcc.id;
+    }
+  }
+
+  const defaultInvestmentAcc = accounts.find(a => a.type === 'investment');
+  return defaultInvestmentAcc ? defaultInvestmentAcc.id : paymentAccountId;
+};
+
 export interface AccountGroup {
   groupName: string;
   accounts: Account[];
@@ -6182,16 +6213,28 @@ function InvestmentSection({
   const [dividendAccount, setDividendAccount] = useState('');
   const [dividendNotes, setDividendNotes] = useState('');
 
+  // 自動校正歷史持股與現有資料之 linkedAccount 歸屬證券戶 (確保點數戶/銀行戶買入皆合併對齊同機構之證券戶)
+  const calibratedStocks = useMemo(() => {
+    if (!Array.isArray(stocks)) return [];
+    return stocks.map(s => {
+      const resolvedLinkedAccount = resolveBrokerAccount(s.linkedAccount, accounts);
+      if (resolvedLinkedAccount && resolvedLinkedAccount !== s.linkedAccount) {
+        return { ...s, linkedAccount: resolvedLinkedAccount };
+      }
+      return s;
+    });
+  }, [stocks, accounts]);
+
   // filtered stocks by broker filter
   const filteredStocks = useMemo(() => {
-    if (selectedBrokerFilter === 'all') return stocks;
-    return stocks.filter(s => s.linkedAccount === selectedBrokerFilter);
-  }, [stocks, selectedBrokerFilter]);
+    if (selectedBrokerFilter === 'all') return calibratedStocks;
+    return calibratedStocks.filter(s => s.linkedAccount === selectedBrokerFilter);
+  }, [calibratedStocks, selectedBrokerFilter]);
 
   // aggregated / filtered stock groups by broker filter
   const displayStockGroups = useMemo<AggregatedStockGroup[]>(() => {
     if (selectedBrokerFilter !== 'all') {
-      const singleBrokerStocks = stocks.filter(s => s.linkedAccount === selectedBrokerFilter);
+      const singleBrokerStocks = calibratedStocks.filter(s => s.linkedAccount === selectedBrokerFilter);
       return singleBrokerStocks.map(s => {
         const cost = s.totalCost !== undefined && s.totalCost > 0 ? s.totalCost : Math.round(s.shares * s.avgPrice);
         const fee = s.fee || 0;
@@ -6215,7 +6258,7 @@ function InvestmentSection({
     const groupsMap: Record<string, Stock[]> = {};
     const orderList: string[] = [];
 
-    stocks.forEach(s => {
+    calibratedStocks.forEach(s => {
       const key = (s.code || '').trim().toUpperCase();
       if (!groupsMap[key]) {
         groupsMap[key] = [];
@@ -6266,7 +6309,7 @@ function InvestmentSection({
         brokerAccountIds
       };
     });
-  }, [stocks, selectedBrokerFilter]);
+  }, [calibratedStocks, selectedBrokerFilter]);
 
   // overview stats
   const totalPrincipal = useMemo(() => {
@@ -6436,6 +6479,7 @@ function InvestmentSection({
       return;
     }
 
+    const resolvedBrokerAccount = resolveBrokerAccount(stockLinkedAccount, accounts);
     const isNew = !editingStock;
     const calculatedDefaultCost = Math.round(sharesNum * priceNum) + feeNum;
     const inputCost = parseFloat(stockTotalCost) || calculatedDefaultCost;
@@ -6447,7 +6491,7 @@ function InvestmentSection({
     // 檢查同證券交割帳戶下是否已存在相同股票/基金代碼（同標的自動加權平均合併）
     const existingIndex = isNew ? stocks.findIndex(s => 
       s.code.trim().toLowerCase() === cleanCode.toLowerCase() && 
-      s.linkedAccount === stockLinkedAccount
+      resolveBrokerAccount(s.linkedAccount, accounts) === resolvedBrokerAccount
     ) : -1;
 
     if (isNew && existingIndex !== -1) {
@@ -6474,6 +6518,7 @@ function InvestmentSection({
         evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : existing.evaluationDate,
         fee: (existing.fee || 0) + feeNum,
         totalCost: newTotalCost,
+        linkedAccount: resolvedBrokerAccount,
         purchaseDate: stockPurchaseDate,
         settlementDate: finalSettlementDate,
         notes: stockNotes.trim() ? stockNotes.trim() : mergedNotes
@@ -6501,7 +6546,7 @@ function InvestmentSection({
         avgPrice: priceNum,
         currentPrice: currentPriceNum,
         evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : undefined,
-        linkedAccount: stockLinkedAccount,
+        linkedAccount: resolvedBrokerAccount,
         purchaseDate: stockPurchaseDate,
         settlementDate: finalSettlementDate,
         fee: feeNum,
@@ -6586,6 +6631,8 @@ function InvestmentSection({
     const unitLabel = buyingStock.category === 'fund' ? '單位' : '股';
     const noteText = `[買入] ${buyingStock.code} ${bShares}${unitLabel} @ $${bPrice}${bFee > 0 ? ` (含手續費 $${bFee})` : ''}${buyNotes.trim() ? ' (' + buyNotes.trim() + ')' : ''}`;
 
+    const resolvedBrokerAccount = resolveBrokerAccount(buyAccount, accounts);
+
     if (editingBuyRecord) {
       const updatedRecord: Transaction = {
         ...editingBuyRecord,
@@ -6638,7 +6685,7 @@ function InvestmentSection({
         avgPrice: newAvgPrice,
         fee: totalStockFee,
         totalCost: totalStockCost,
-        linkedAccount: buyAccount,
+        linkedAccount: resolvedBrokerAccount,
         settlementDate: finalBuySettlementDate
       };
 
@@ -6663,22 +6710,28 @@ function InvestmentSection({
       accountId: buyAccount
     });
 
+    // Find existing stock under resolved broker account, or fallback to buyingStock
+    const targetStock = stocks.find(s => 
+      s.code === buyingStock.code && 
+      resolveBrokerAccount(s.linkedAccount, accounts) === resolvedBrokerAccount
+    ) || buyingStock;
+
     // Update stock details
-    const oldShares = buyingStock.shares;
-    const oldAvgPrice = buyingStock.avgPrice;
+    const oldShares = targetStock.shares;
+    const oldAvgPrice = targetStock.avgPrice;
     const newShares = parseFloat((oldShares + bShares).toFixed(4));
-    const oldTotalCost = buyingStock.totalCost !== undefined ? buyingStock.totalCost : (oldShares * oldAvgPrice);
+    const oldTotalCost = targetStock.totalCost !== undefined ? targetStock.totalCost : (oldShares * oldAvgPrice);
     const newTotalCost = oldTotalCost + totalCost;
-    const netNewTotalCost = Math.max(0, newTotalCost - ((buyingStock.fee || 0) + bFee));
+    const netNewTotalCost = Math.max(0, newTotalCost - ((targetStock.fee || 0) + bFee));
     const newAvgPrice = newShares > 0 ? parseFloat((netNewTotalCost / newShares).toFixed(4)) : 0;
 
     const updatedStock: Stock = {
-      ...buyingStock,
+      ...targetStock,
       shares: newShares,
       avgPrice: newAvgPrice,
-      fee: (buyingStock.fee || 0) + bFee,
+      fee: (targetStock.fee || 0) + bFee,
       totalCost: newTotalCost,
-      linkedAccount: buyAccount,
+      linkedAccount: resolvedBrokerAccount,
       settlementDate: finalBuySettlementDate
     };
 
@@ -6889,12 +6942,12 @@ function InvestmentSection({
                 : 'bg-white/80 text-stone-500 border border-stone-200/60 hover:bg-stone-100'
             }`}
           >
-            全部券商 ({selectedBrokerFilter === 'all' && displayStockGroups.length !== stocks.length ? `${displayStockGroups.length} 檔 / ` : ''}${stocks.length} 筆)
+            全部券商 ({selectedBrokerFilter === 'all' && displayStockGroups.length !== calibratedStocks.length ? `${displayStockGroups.length} 檔 / ` : ''}${calibratedStocks.length} 筆)
           </button>
           {accounts
-            .filter(a => stocks.some(s => s.linkedAccount === a.id) || a.type === 'investment')
+            .filter(a => a.type !== 'points' && (a.type === 'investment' || calibratedStocks.some(s => s.linkedAccount === a.id)))
             .map(acc => {
-              const count = stocks.filter(s => s.linkedAccount === acc.id).length;
+              const count = calibratedStocks.filter(s => s.linkedAccount === acc.id).length;
               return (
                 <button
                   key={acc.id}
