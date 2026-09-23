@@ -592,7 +592,7 @@ const INITIAL_PROJECTS: Project[] = [
 
 // --- Main App ---
 
-import { getCategoryIcon, getFontFamily } from './lib/financeUtils';
+import { getCategoryIcon, getFontFamily, calculateEstimatedSellingDeduction } from './lib/financeUtils';
 
 // Helper to parse date string "YYYY-MM-DD" to local Date object
 const parseLocalDate = (dateStr: string) => {
@@ -6085,8 +6085,15 @@ function InvestmentSection({
   }, [displayStockGroups]);
 
   const totalUnrealizedPL = useMemo(() => {
-    return totalMarketValue - totalPrincipal;
-  }, [totalMarketValue, totalPrincipal]);
+    return displayStockGroups.reduce((sum, g) => {
+      if (g.currentPrice !== undefined && g.currentPrice > 0) {
+        const mv = g.totalShares * g.currentPrice;
+        const deduction = calculateEstimatedSellingDeduction(g.code, g.category, mv).totalDeduction;
+        return sum + (mv - g.totalCost - deduction);
+      }
+      return sum;
+    }, 0);
+  }, [displayStockGroups]);
 
   const totalROI = useMemo(() => {
     return totalPrincipal > 0 ? (totalUnrealizedPL / totalPrincipal) * 100 : 0;
@@ -6727,7 +6734,10 @@ function InvestmentSection({
             const hasCurrentPrice = group.currentPrice !== undefined && group.currentPrice > 0;
             const currentPrice = hasCurrentPrice ? group.currentPrice! : group.avgPrice;
             const marketValue = group.totalShares * currentPrice;
-            const unrealizedPL = hasCurrentPrice ? (marketValue - group.totalCost) : 0;
+            const sellingDeduction = hasCurrentPrice 
+              ? calculateEstimatedSellingDeduction(group.code, group.category, marketValue)
+              : { estimatedTax: 0, estimatedFee: 0, totalDeduction: 0 };
+            const unrealizedPL = hasCurrentPrice ? (marketValue - group.totalCost - sellingDeduction.totalDeduction) : 0;
             const roi = (hasCurrentPrice && group.totalCost > 0) ? (unrealizedPL / group.totalCost) * 100 : 0;
             const isFund = group.category === 'fund';
             const unitLabel = isFund ? '單位' : '股';

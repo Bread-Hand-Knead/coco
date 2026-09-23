@@ -50,3 +50,42 @@ export const getCategoryIcon = (categoryName: string, type: 'income' | 'expense'
 };
 
 export const getFontFamily = () => ({ fontFamily: '"王漢宗中隸書", "王漢宗", sans-serif' });
+
+export interface SellingDeduction {
+  estimatedTax: number;
+  estimatedFee: number;
+  totalDeduction: number;
+}
+
+export const calculateEstimatedSellingDeduction = (
+  code: string,
+  category: 'stock' | 'fund' | undefined,
+  marketValue: number,
+  discountRate: number = 1.0
+): SellingDeduction => {
+  if (!marketValue || marketValue <= 0) {
+    return { estimatedTax: 0, estimatedFee: 0, totalDeduction: 0 };
+  }
+
+  const cleanCode = (code || '').trim();
+  const isFund = category === 'fund';
+  const isETF = cleanCode.startsWith('00') || cleanCode.toUpperCase().includes('ETF');
+
+  let taxRate = 0.003; // 一般股票 0.3%
+  if (isFund) {
+    taxRate = 0; // 基金 0%
+  } else if (isETF) {
+    taxRate = 0.001; // ETF 0.1%
+  }
+
+  const estimatedTax = Math.floor(marketValue * taxRate);
+  const rawFee = Math.floor(marketValue * 0.001425 * discountRate);
+  const estimatedFee = Math.max(20, rawFee > 0 ? rawFee : Math.floor(marketValue * 0.001425));
+
+  return {
+    estimatedTax,
+    estimatedFee,
+    totalDeduction: estimatedTax + estimatedFee
+  };
+};
+
