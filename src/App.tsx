@@ -6938,8 +6938,14 @@ function InvestmentSection({
                       <span className="text-sm font-black text-[#5D4037]">${Math.round(marketValue).toLocaleString()}</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-stone-600 mb-0.5 leading-tight">
-                        未實現損益<br />報酬率
+                      {/* 手機版：兩行 */}
+                      <span className="block md:hidden text-xs font-medium text-stone-600 mb-0.5 leading-tight">
+                        <div>未實現損益</div>
+                        <div>報酬率</div>
+                      </span>
+                      {/* 電腦版：單行 */}
+                      <span className="hidden md:block text-sm font-medium text-stone-600 mb-0.5 whitespace-nowrap">
+                        未實現損益 / 報酬率
                       </span>
                       <span className={`text-sm font-black ${unrealizedPL > 0 ? 'text-rose-500' : unrealizedPL < 0 ? 'text-emerald-600' : 'text-stone-600'}`}>
                         {unrealizedPL > 0 ? '+' : ''}${Math.round(unrealizedPL).toLocaleString()}
