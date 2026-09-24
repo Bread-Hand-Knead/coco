@@ -8022,44 +8022,34 @@ function InvestmentSection({
                     {(() => {
                       const keyword = selectedStockForDetail.code.split(' (')[0].trim();
                       const stockTrades = (selectedStockForDetail as any).trades;
+                      const stockHistory = (selectedStockForDetail as any).history;
                       
-                      // 優先使用股票物件內自帶的 trades，或由 records 中以 stockId / symbol / 戶頭進行精確比對
-                      const rawTradeList = (Array.isArray(stockTrades) && stockTrades.length > 0)
-                        ? stockTrades
-                        : records.filter(r => {
-                            // 1. 若交易包含精確的 stockId
-                            if ((r as any).stockId && (r as any).stockId === selectedStockForDetail.id) {
-                              return true;
-                            }
+                      // 依規格優先順序取得交易紀錄清單
+                      let rawTradeList: Transaction[] = [];
 
-                            // 2. 標的代碼比對 (全代碼或代碼關鍵字)
-                            const isSameSymbol = r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword));
-                            if (!isSameSymbol) return false;
+                      if (Array.isArray(stockTrades) && stockTrades.length > 0) {
+                        // 優先順序 1: 讀取 currentStock 身上自帶的 trades 陣列
+                        rawTradeList = stockTrades;
+                      } else if (Array.isArray(stockHistory) && stockHistory.length > 0) {
+                        // 優先順序 2: 讀取 currentStock 身上自帶的 history 陣列
+                        rawTradeList = stockHistory;
+                      } else {
+                        // 優先順序 3: 全域交易清單中比對 stockId 或標的代碼 (移除任何券商帳戶限制)
+                        rawTradeList = records.filter(r => {
+                          if ((r as any).stockId && (r as any).stockId === selectedStockForDetail.id) {
+                            return true;
+                          }
+                          if ((r as any).symbol && (r as any).symbol === selectedStockForDetail.code) {
+                            return true;
+                          }
+                          if (r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword))) {
+                            return true;
+                          }
+                          return false;
+                        });
+                      }
 
-                            // 跨券商全覽模式且未指定連結戶頭：直接包含
-                            if (selectedBrokerFilter === 'all' && !selectedStockForDetail.linkedAccount) {
-                              return true;
-                            }
-
-                            // 特定券商模式或單一庫存戶頭比對
-                            const targetBrokerId = selectedBrokerFilter !== 'all' 
-                              ? selectedBrokerFilter 
-                              : selectedStockForDetail.linkedAccount;
-
-                            if (!targetBrokerId) return true;
-
-                            const tradeBrokerId = (r as any).brokerAccountId || r.accountId || (r as any).brokerId;
-                            const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
-                            const stockResolvedBroker = resolveBrokerAccount(targetBrokerId, accounts);
-
-                            return (
-                              tradeBrokerId === targetBrokerId ||
-                              recordResolvedBroker === stockResolvedBroker ||
-                              recordResolvedBroker === targetBrokerId ||
-                              !tradeBrokerId
-                            );
-                          });
-
+                      // 依日期降冪排序 (最新的排在最上方)
                       const allSortedList = [...rawTradeList].sort((a, b) => {
                         const dateDiff = (b.date || '').localeCompare(a.date || '');
                         if (dateDiff !== 0) return dateDiff;
