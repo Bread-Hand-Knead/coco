@@ -861,6 +861,38 @@ export const resolveBrokerAccount = (paymentAccountId: string, accounts: Account
   return defaultInvestmentAcc ? defaultInvestmentAcc.id : paymentAccountId;
 };
 
+export const getStockMatchKeywords = (stockCode: string): string[] => {
+  if (!stockCode) return [];
+  const set = new Set<string>();
+
+  const trimmed = stockCode.trim();
+  set.add(trimmed);
+  set.add(trimmed.replace(/\s+/g, ''));
+
+  // 1. 提取括號內的代碼或數字，例如 "006208"
+  const parenMatch = trimmed.match(/\(([^)]+)\)/);
+  if (parenMatch && parenMatch[1]) {
+    const inside = parenMatch[1].trim();
+    set.add(inside);
+    set.add(inside.replace(/\s+/g, ''));
+  }
+
+  // 2. 提取括號前的名稱，例如 "富邦台 50" 或 "富邦台50"
+  const beforeParen = trimmed.split(' (')[0].split('(')[0].trim();
+  if (beforeParen) {
+    set.add(beforeParen);
+    set.add(beforeParen.replace(/\s+/g, ''));
+  }
+
+  // 3. 提取 4~6 位數股票代碼數字
+  const digitsMatch = trimmed.match(/\d{4,6}/);
+  if (digitsMatch && digitsMatch[0]) {
+    set.add(digitsMatch[0]);
+  }
+
+  return Array.from(set).filter(k => k.length > 0);
+};
+
 export interface AccountGroup {
   groupName: string;
   accounts: Account[];
@@ -6994,18 +7026,39 @@ function InvestmentSection({
             const firstSub = group.subStocks[0];
             const linkedAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === firstSub?.linkedAccount);
 
-            // 抓取最新一筆「買入交易紀錄」 (Latest Buy Trade) 及其備註
+            // 抓取最新一筆屬於本券商標的的「買入交易紀錄」 (Latest Buy Trade for this specific broker stock) 及其備註
             const latestTradeInfo = (() => {
               if (!firstSub) return null;
-              const stockCode = firstSub.code;
-              const keyword = stockCode.split(' (')[0].trim();
+              const keywords = getStockMatchKeywords(firstSub.code);
+              const targetBrokerId = firstSub.linkedAccount;
               
-              // 嚴格過濾「買入交易」，排除股利/配息等非買入紀錄
+              // 嚴格過濾「買入交易」，且限制必須歸屬於本持股所繫結之券商帳戶 (避免元大證券卡片顯示國泰證券交易)
               const buyRecords = (Array.isArray(records) ? records : [])
                 .filter(r => {
                   if (r.isDeleted || !r.note) return false;
-                  const matchesStock = r.note.includes(stockCode) || r.note.includes(keyword);
+                  
+                  // 1. 標的比對 (比對純數字代碼 006208、中文名稱與原字串)
+                  const matchesStock = 
+                    ((r as any).stockId && (r as any).stockId === firstSub.id) ||
+                    ((r as any).symbol && keywords.some(k => (r as any).symbol.includes(k))) ||
+                    keywords.some(k => r.note.includes(k));
+                  
                   if (!matchesStock) return false;
+
+                  // 2. 券商帳戶歸屬比對 (獨立隔離各券商之買入紀錄)
+                  if (targetBrokerId) {
+                    const tradeBrokerId = (r as any).brokerAccountId || r.accountId || (r as any).brokerId;
+                    const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
+                    const targetAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === targetBrokerId);
+                    const targetBankKey = targetAcc ? getBankKeyword(targetAcc.name) : '';
+
+                    const isIdMatch = tradeBrokerId === targetBrokerId || recordResolvedBroker === targetBrokerId;
+                    const isNoteMatch = Boolean(r.note && ((targetAcc && r.note.includes(targetAcc.name)) || (targetBankKey && r.note.includes(targetBankKey))));
+                    
+                    if (!isIdMatch && !isNoteMatch) return false;
+                  }
+
+                  // 3. 類型比對 (排除股利/配息紀錄)
                   const isDividend = r.type === 'income' || r.note.includes('[股利]') || r.note.includes('股利') || r.note.includes('配息');
                   const isBuy = r.type === 'expense' || r.note.includes('[買入]') || r.note.includes('買入') || !isDividend;
                   return isBuy && !isDividend;
@@ -8020,7 +8073,7 @@ function InvestmentSection({
 
                   <div className={`flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1 min-h-[200px] transition-all custom-scrollbar ${isOverviewCollapsed ? 'max-h-[560px]' : 'max-h-[380px]'}`}>
                     {(() => {
-                      const keyword = selectedStockForDetail.code.split(' (')[0].trim();
+                      const keywords = getStockMatchKeywords(selectedStockForDetail.code);
                       const stockTrades = (selectedStockForDetail as any).trades;
                       const stockHistory = (selectedStockForDetail as any).history;
                       
@@ -8041,17 +8094,20 @@ function InvestmentSection({
                       } else if (Array.isArray(stockHistory) && stockHistory.length > 0) {
                         rawTradeList = stockHistory;
                       } else {
-                        rawTradeList = records.filter(r => {
-                          // 1. 標的代碼比對
+                        // 1. 找出所有與該股票代碼/名稱相關的交易 (支援 006208, 富邦台 50, 富邦台50 等)
+                        const allSymbolMatches = records.filter(r => {
+                          if (r.isDeleted) return false;
                           const isSameSymbol = Boolean(
                             ((r as any).stockId && (r as any).stockId === selectedStockForDetail.id) ||
-                            ((r as any).symbol && (r as any).symbol === selectedStockForDetail.code) ||
-                            (r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword)))
+                            ((r as any).symbol && keywords.some(k => (r as any).symbol.includes(k))) ||
+                            (r.note && keywords.some(k => r.note.includes(k)))
                           );
-                          if (!isSameSymbol) return false;
+                          return isSameSymbol;
+                        });
 
-                          // 2. 特定券商比對 (元大 vs 國泰獨立隔離)
-                          if (targetBrokerId) {
+                        // 2. 特定券商比對 (元大 vs 國泰獨立隔離)，若券商比對無結果則容錯回退顯示所有符合該標的之交易
+                        if (targetBrokerId) {
+                          const brokerFiltered = allSymbolMatches.filter(r => {
                             const tradeBrokerId = (r as any).brokerAccountId || r.accountId || (r as any).brokerId;
                             const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
                             
@@ -8059,15 +8115,16 @@ function InvestmentSection({
                             const tradeBankKey = tradeAcc ? getBankKeyword(tradeAcc.name) : '';
 
                             const isIdMatch = tradeBrokerId === targetBrokerId || recordResolvedBroker === targetBrokerId;
-                            const isBankKeyMatch = Boolean(targetBankKey && tradeBankKey && targetBankKey === tradeBankKey);
+                            const isBankKeyMatch = Boolean(targetBankKey && tradeBankKey && targetBankKey === targetBankKey);
                             const isNoteMatch = Boolean(r.note && ((currentBrokerAcc && r.note.includes(currentBrokerAcc.name)) || (targetBankKey && r.note.includes(targetBankKey))));
 
-                            const isBrokerMatch = isIdMatch || isBankKeyMatch || isNoteMatch;
-                            if (!isBrokerMatch) return false;
-                          }
+                            return isIdMatch || isBankKeyMatch || isNoteMatch;
+                          });
 
-                          return true;
-                        });
+                          rawTradeList = brokerFiltered.length > 0 ? brokerFiltered : allSymbolMatches;
+                        } else {
+                          rawTradeList = allSymbolMatches;
+                        }
                       }
 
                       // 依日期降冪排序 (最新的排在最上方)
