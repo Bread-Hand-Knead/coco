@@ -8024,28 +8024,49 @@ function InvestmentSection({
                       const stockTrades = (selectedStockForDetail as any).trades;
                       const stockHistory = (selectedStockForDetail as any).history;
                       
-                      // 依規格優先順序取得交易紀錄清單
+                      // 決定目標券商帳戶 ID (頁面選取之券商分頁或卡片指定之券商)
+                      const targetBrokerId = selectedBrokerFilter !== 'all' 
+                        ? selectedBrokerFilter 
+                        : (selectedStockForDetail.linkedAccount ? resolveBrokerAccount(selectedStockForDetail.linkedAccount, accounts) : null);
+
+                      const currentBrokerAcc = targetBrokerId 
+                        ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === targetBrokerId) 
+                        : null;
+                      const targetBankKey = currentBrokerAcc ? getBankKeyword(currentBrokerAcc.name) : '';
+
                       let rawTradeList: Transaction[] = [];
 
                       if (Array.isArray(stockTrades) && stockTrades.length > 0) {
-                        // 優先順序 1: 讀取 currentStock 身上自帶的 trades 陣列
                         rawTradeList = stockTrades;
                       } else if (Array.isArray(stockHistory) && stockHistory.length > 0) {
-                        // 優先順序 2: 讀取 currentStock 身上自帶的 history 陣列
                         rawTradeList = stockHistory;
                       } else {
-                        // 優先順序 3: 全域交易清單中比對 stockId 或標的代碼 (移除任何券商帳戶限制)
                         rawTradeList = records.filter(r => {
-                          if ((r as any).stockId && (r as any).stockId === selectedStockForDetail.id) {
-                            return true;
+                          // 1. 標的代碼比對
+                          const isSameSymbol = Boolean(
+                            ((r as any).stockId && (r as any).stockId === selectedStockForDetail.id) ||
+                            ((r as any).symbol && (r as any).symbol === selectedStockForDetail.code) ||
+                            (r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword)))
+                          );
+                          if (!isSameSymbol) return false;
+
+                          // 2. 特定券商比對 (元大 vs 國泰獨立隔離)
+                          if (targetBrokerId) {
+                            const tradeBrokerId = (r as any).brokerAccountId || r.accountId || (r as any).brokerId;
+                            const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
+                            
+                            const tradeAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === tradeBrokerId);
+                            const tradeBankKey = tradeAcc ? getBankKeyword(tradeAcc.name) : '';
+
+                            const isIdMatch = tradeBrokerId === targetBrokerId || recordResolvedBroker === targetBrokerId;
+                            const isBankKeyMatch = Boolean(targetBankKey && tradeBankKey && targetBankKey === tradeBankKey);
+                            const isNoteMatch = Boolean(r.note && ((currentBrokerAcc && r.note.includes(currentBrokerAcc.name)) || (targetBankKey && r.note.includes(targetBankKey))));
+
+                            const isBrokerMatch = isIdMatch || isBankKeyMatch || isNoteMatch;
+                            if (!isBrokerMatch) return false;
                           }
-                          if ((r as any).symbol && (r as any).symbol === selectedStockForDetail.code) {
-                            return true;
-                          }
-                          if (r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword))) {
-                            return true;
-                          }
-                          return false;
+
+                          return true;
                         });
                       }
 
