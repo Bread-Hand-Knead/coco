@@ -7051,14 +7051,25 @@ function InvestmentSection({
               <div 
                 key={group.code + (group.isAggregated ? '-aggregated' : `-${firstSub?.id}`)} 
                 onClick={() => {
-                  if (!group.isAggregated && firstSub) {
-                    setStockDetailFilter('all');
+                  setStockDetailFilter('all');
+                  if (group.isAggregated) {
+                    setSelectedStockForDetail({
+                      id: `aggregated-${group.code}`,
+                      code: group.code,
+                      shares: group.totalShares,
+                      avgPrice: group.avgPrice,
+                      totalCost: group.totalCost,
+                      fee: group.totalFee,
+                      currentPrice: group.currentPrice,
+                      category: group.subStocks[0]?.category || 'stock',
+                      notes: '',
+                      linkedAccount: ''
+                    });
+                  } else if (firstSub) {
                     setSelectedStockForDetail(firstSub);
                   }
                 }}
-                className={`bg-white p-5 rounded-[30px] border-2 border-white shadow-sm flex flex-col gap-4 relative transition-all ${
-                  !group.isAggregated ? 'cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md active:scale-[0.99]' : ''
-                }`}
+                className="bg-white p-5 rounded-[30px] border-2 border-white shadow-sm flex flex-col gap-4 relative transition-all cursor-pointer hover:border-[#FFD54F]/40 hover:shadow-md active:scale-[0.99]"
               >
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -7229,7 +7240,11 @@ function InvestmentSection({
                         return (
                           <div 
                             key={sub.id}
-                            className="bg-white p-3.5 rounded-xl border border-stone-200/60 flex flex-col gap-2 shadow-2xs hover:border-[#FFD54F] transition-all"
+                            onClick={() => {
+                              setStockDetailFilter('all');
+                              setSelectedStockForDetail(sub);
+                            }}
+                            className="bg-white p-3.5 rounded-xl border border-stone-200/60 flex flex-col gap-2 shadow-2xs hover:border-[#FFD54F] cursor-pointer transition-all active:scale-[0.99]"
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-1.5">
@@ -8006,8 +8021,25 @@ function InvestmentSection({
                   <div className={`flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1 min-h-[200px] transition-all custom-scrollbar ${isOverviewCollapsed ? 'max-h-[560px]' : 'max-h-[380px]'}`}>
                     {(() => {
                       const keyword = selectedStockForDetail.code.split(' (')[0].trim();
+                      
+                      // 依據目前檢視的券商或標的 linkedAccount 決定過濾的目標券商戶頭 (若在「全部券商」模式下點擊跨券商總覽則不限制)
+                      const targetBrokerAccountId = selectedBrokerFilter !== 'all'
+                        ? selectedBrokerFilter
+                        : (selectedStockForDetail.linkedAccount ? resolveBrokerAccount(selectedStockForDetail.linkedAccount, accounts) : null);
+
                       const allSortedList = records
-                        .filter(r => r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword)))
+                        .filter(r => {
+                          const isSameSymbol = r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword));
+                          if (!isSameSymbol) return false;
+
+                          if (targetBrokerAccountId) {
+                            const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
+                            const isSameBroker = r.accountId === targetBrokerAccountId || recordResolvedBroker === targetBrokerAccountId;
+                            if (!isSameBroker) return false;
+                          }
+
+                          return true;
+                        })
                         .sort((a, b) => {
                           const dateDiff = b.date.localeCompare(a.date);
                           if (dateDiff !== 0) return dateDiff;
