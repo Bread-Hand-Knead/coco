@@ -857,8 +857,7 @@ export const resolveBrokerAccount = (paymentAccountId: string, accounts: Account
     }
   }
 
-  const defaultInvestmentAcc = accounts.find(a => a.type === 'investment');
-  return defaultInvestmentAcc ? defaultInvestmentAcc.id : paymentAccountId;
+  return paymentAccountId;
 };
 
 export const getStockMatchKeywords = (stockCode: string): string[] => {
@@ -7032,14 +7031,22 @@ function InvestmentSection({
               const keywords = getStockMatchKeywords(firstSub.code);
               const targetBrokerId = firstSub.linkedAccount;
               
-              // 嚴格過濾「買入交易」，且限制必須歸屬於本持股所繫結之券商帳戶 (避免元大證券卡片顯示國泰證券交易)
+              // 嚴格過濾「買入交易」，且限制必須歸屬於本持股所繫結之券商帳戶 (避免元大證券卡片顯示國泰證券或一般銀行筆記)
               const buyRecords = (Array.isArray(records) ? records : [])
                 .filter(r => {
                   if (r.isDeleted || !r.note) return false;
-                  
+
+                  const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
+                  const isInvestmentAcc = acc ? acc.type === 'investment' : false;
+                  const isBuyTag = Boolean(r.note && (r.note.includes('[買入]') || r.note.includes('[加購]')));
+                  const hasStockId = Boolean((r as any).stockId);
+
+                  // 必須為投資戶或具備 [買入]/[加購]/stockId 標記，排除一般銀行隨手筆記（如「要投資006208的」）
+                  if (!isInvestmentAcc && !isBuyTag && !hasStockId) return false;
+
                   // 1. 標的比對 (比對純數字代碼 006208、中文名稱與原字串)
                   const matchesStock = 
-                    ((r as any).stockId && (r as any).stockId === firstSub.id) ||
+                    (hasStockId && (r as any).stockId === firstSub.id) ||
                     ((r as any).symbol && keywords.some(k => (r as any).symbol.includes(k))) ||
                     keywords.some(k => r.note.includes(k));
                   
@@ -7049,18 +7056,14 @@ function InvestmentSection({
                   if (targetBrokerId) {
                     const tradeBrokerId = (r as any).brokerAccountId || r.accountId || (r as any).brokerId;
                     const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
-                    const targetAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === targetBrokerId);
-                    const targetBankKey = targetAcc ? getBankKeyword(targetAcc.name) : '';
-
                     const isIdMatch = tradeBrokerId === targetBrokerId || recordResolvedBroker === targetBrokerId;
-                    const isNoteMatch = Boolean(r.note && ((targetAcc && r.note.includes(targetAcc.name)) || (targetBankKey && r.note.includes(targetBankKey))));
                     
-                    if (!isIdMatch && !isNoteMatch) return false;
+                    if (!isIdMatch) return false;
                   }
 
                   // 3. 類型比對 (排除股利/配息紀錄)
                   const isDividend = r.type === 'income' || r.note.includes('[股利]') || r.note.includes('股利') || r.note.includes('配息');
-                  const isBuy = r.type === 'expense' || r.note.includes('[買入]') || r.note.includes('買入') || !isDividend;
+                  const isBuy = isBuyTag || r.type === 'expense' || !isDividend;
                   return isBuy && !isDividend;
                 })
                 .sort((a, b) => {
@@ -7975,12 +7978,12 @@ function InvestmentSection({
                     }}
                     className="flex items-center justify-between cursor-pointer py-1.5 px-2 group select-none hover:bg-stone-100/50 rounded-xl transition-colors"
                   >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="text-sm font-black text-stone-500 uppercase tracking-widest shrink-0">
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className="text-sm font-black text-stone-500 uppercase tracking-widest block">
                         持股數據總覽
                       </span>
                       {isOverviewCollapsed ? (
-                        <div className="text-[15px] font-medium text-[#5D4037] truncate bg-[#FFFDF5] border border-stone-200/60 px-3 py-1 rounded-xl shadow-2xs flex items-center gap-1.5 shrink-1 min-w-0">
+                        <div className="text-[13px] font-medium text-[#5D4037] truncate bg-[#FFFDF5] border border-stone-200/60 px-3 py-1 rounded-xl shadow-2xs flex items-center gap-1.5 shrink-1 min-w-0 mt-1">
                           <span className="font-bold">{selectedStockForDetail.shares.toLocaleString()}</span>
                           <span>{selectedStockForDetail.category === 'fund' ? '單位' : '股'}</span>
                           <span className="text-stone-300">｜</span>
@@ -7991,7 +7994,7 @@ function InvestmentSection({
                           <span className="font-bold">${Math.round(selectedStockForDetail.totalCost !== undefined ? selectedStockForDetail.totalCost : selectedStockForDetail.shares * selectedStockForDetail.avgPrice).toLocaleString()}</span>
                         </div>
                       ) : (
-                        <span className="text-xs font-bold text-stone-400 group-hover:text-stone-600 transition-colors">
+                        <span className="text-xs font-bold text-stone-400 group-hover:text-stone-600 transition-colors block mt-0.5">
                           (點擊收合)
                         </span>
                       )}
@@ -8100,7 +8103,7 @@ function InvestmentSection({
                           const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
                           const isInvestmentAccount = acc ? acc.type === 'investment' : false;
                           const isBuyTag = Boolean(r.note && (r.note.includes('[買入]') || r.note.includes('[加購]')));
-                          const isDividendTag = Boolean(r.note && (r.note.includes('[股利]') || r.note.includes('股利')));
+                          const isDividendTag = Boolean(r.type === 'income' && r.note && (r.note.includes('[股利]') || r.note.includes('股利') || r.note.includes('配息')));
                           const hasStockId = Boolean((r as any).stockId);
 
                           // 若非投資戶且無買入/股利/stockId標記，屬於一般銀行隨手筆記（如「要投資006208的」），必須排除！
