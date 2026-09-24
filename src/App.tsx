@@ -8022,23 +8022,50 @@ function InvestmentSection({
                     {(() => {
                       const keyword = selectedStockForDetail.code.split(' (')[0].trim();
                       
-                      // 依據目前檢視的券商或標的 linkedAccount 決定過濾的目標券商戶頭 (若在「全部券商」模式下點擊跨券商總覽則不限制)
+                      // 1. 取得目標券商帳戶 ID 與帳戶物件 (全部券商模式且未點選單一子券商時為 null)
                       const targetBrokerAccountId = selectedBrokerFilter !== 'all'
                         ? selectedBrokerFilter
                         : (selectedStockForDetail.linkedAccount ? resolveBrokerAccount(selectedStockForDetail.linkedAccount, accounts) : null);
 
+                      const currentBrokerAccount = targetBrokerAccountId 
+                        ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === targetBrokerAccountId)
+                        : null;
+
                       const allSortedList = records
                         .filter(r => {
+                          // 標的代碼比對
                           const isSameSymbol = r.note && (r.note.includes(selectedStockForDetail.code) || r.note.includes(keyword));
                           if (!isSameSymbol) return false;
 
-                          if (targetBrokerAccountId) {
-                            const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
-                            const isSameBroker = r.accountId === targetBrokerAccountId || recordResolvedBroker === targetBrokerAccountId;
-                            if (!isSameBroker) return false;
-                          }
+                          // 全部券商模式且未指定目標券商：全顯示
+                          if (!targetBrokerAccountId && !currentBrokerAccount) return true;
 
-                          return true;
+                          const targetId = targetBrokerAccountId;
+                          const targetName = currentBrokerAccount?.name;
+
+                          // 取得交易特有的券商/帳戶識別碼與名稱
+                          const tradeBrokerId = (r as any).brokerAccountId || r.accountId || (r as any).brokerId;
+                          const tradeAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === tradeBrokerId);
+                          const tradeBrokerName = (r as any).brokerName || (r as any).accountName || (r as any).account || tradeAcc?.name;
+
+                          // 自動計算 resolveBrokerAccount
+                          const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
+
+                          // ID 比對 (包含 resolvedBrokerAccount)
+                          const isIdMatch = Boolean(targetId && (tradeBrokerId === targetId || recordResolvedBroker === targetId));
+
+                          // 名稱與內文關鍵字比對
+                          const isNameMatch = Boolean(targetName && (
+                            tradeBrokerName === targetName ||
+                            (typeof tradeBrokerId === 'string' && tradeBrokerId.includes(targetName)) ||
+                            (typeof r.note === 'string' && r.note.includes(targetName)) ||
+                            (tradeBrokerName && targetName && getBankKeyword(tradeBrokerName) && getBankKeyword(tradeBrokerName) === getBankKeyword(targetName))
+                          ));
+
+                          // 舊資料相容比對 (若完全沒有指定券商資訊)
+                          const isLegacyMatch = !tradeBrokerId && !tradeBrokerName;
+
+                          return isIdMatch || isNameMatch || isLegacyMatch;
                         })
                         .sort((a, b) => {
                           const dateDiff = b.date.localeCompare(a.date);
