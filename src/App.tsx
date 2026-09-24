@@ -8085,7 +8085,6 @@ function InvestmentSection({
                       const currentBrokerAcc = targetBrokerId 
                         ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === targetBrokerId) 
                         : null;
-                      const targetBankKey = currentBrokerAcc ? getBankKeyword(currentBrokerAcc.name) : '';
 
                       let rawTradeList: Transaction[] = [];
 
@@ -8094,34 +8093,40 @@ function InvestmentSection({
                       } else if (Array.isArray(stockHistory) && stockHistory.length > 0) {
                         rawTradeList = stockHistory;
                       } else {
-                        // 1. 找出所有與該股票代碼/名稱相關的交易 (支援 006208, 富邦台 50, 富邦台50 等)
+                        // 1. 找出與該股票相關的真實投資交易紀錄 (排除一般銀行隨手記帳無關備註，如「要投資006208的」)
                         const allSymbolMatches = records.filter(r => {
                           if (r.isDeleted) return false;
+
+                          const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
+                          const isInvestmentAccount = acc ? acc.type === 'investment' : false;
+                          const isBuyTag = Boolean(r.note && (r.note.includes('[買入]') || r.note.includes('[加購]')));
+                          const isDividendTag = Boolean(r.note && (r.note.includes('[股利]') || r.note.includes('股利')));
+                          const hasStockId = Boolean((r as any).stockId);
+
+                          // 若非投資戶且無買入/股利/stockId標記，屬於一般銀行隨手筆記（如「要投資006208的」），必須排除！
+                          if (!isInvestmentAccount && !isBuyTag && !isDividendTag && !hasStockId) {
+                            return false;
+                          }
+
                           const isSameSymbol = Boolean(
-                            ((r as any).stockId && (r as any).stockId === selectedStockForDetail.id) ||
+                            (hasStockId && (r as any).stockId === selectedStockForDetail.id) ||
                             ((r as any).symbol && keywords.some(k => (r as any).symbol.includes(k))) ||
                             (r.note && keywords.some(k => r.note.includes(k)))
                           );
                           return isSameSymbol;
                         });
 
-                        // 2. 特定券商比對 (元大 vs 國泰獨立隔離)，若券商比對無結果則容錯回退顯示所有符合該標的之交易
+                        // 2. 依指定券商進行嚴格隔離過濾 (元大證券僅看元大，國泰證券僅看國泰)
                         if (targetBrokerId) {
-                          const brokerFiltered = allSymbolMatches.filter(r => {
+                          rawTradeList = allSymbolMatches.filter(r => {
                             const tradeBrokerId = (r as any).brokerAccountId || r.accountId || (r as any).brokerId;
                             const recordResolvedBroker = resolveBrokerAccount(r.accountId, accounts);
-                            
-                            const tradeAcc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === tradeBrokerId);
-                            const tradeBankKey = tradeAcc ? getBankKeyword(tradeAcc.name) : '';
 
                             const isIdMatch = tradeBrokerId === targetBrokerId || recordResolvedBroker === targetBrokerId;
-                            const isBankKeyMatch = Boolean(targetBankKey && tradeBankKey && targetBankKey === targetBankKey);
-                            const isNoteMatch = Boolean(r.note && ((currentBrokerAcc && r.note.includes(currentBrokerAcc.name)) || (targetBankKey && r.note.includes(targetBankKey))));
+                            const isNoteMatch = Boolean(r.note && currentBrokerAcc && r.note.includes(currentBrokerAcc.name));
 
-                            return isIdMatch || isBankKeyMatch || isNoteMatch;
+                            return isIdMatch || isNoteMatch;
                           });
-
-                          rawTradeList = brokerFiltered.length > 0 ? brokerFiltered : allSymbolMatches;
                         } else {
                           rawTradeList = allSymbolMatches;
                         }
@@ -8139,7 +8144,10 @@ function InvestmentSection({
                           return r.type === 'expense' || (r.note && (r.note.includes('[買入]') || r.note.includes('買入')));
                         }
                         if (stockDetailFilter === 'dividend') {
-                          return r.type === 'income' || (r.note && (r.note.includes('[股利]') || r.note.includes('股利')));
+                          // 股利頁籤：必須為收入紀錄 (type === 'income' 且 >0)，排除支出/轉帳紀錄
+                          const isIncome = r.type === 'income' || (r.amount > 0 && (!r.type || r.type === 'income'));
+                          const isDividendNote = Boolean(r.note && (r.note.includes('[股利]') || r.note.includes('股利') || r.note.includes('配息')));
+                          return isIncome && isDividendNote;
                         }
                         return true;
                       });
@@ -8213,13 +8221,28 @@ function InvestmentSection({
                 </div>
               </div>
 
-              {/* Close Button */}
-              <div className="pt-3 border-t border-[#5D4037]/10 shrink-0">
+              {/* Bottom Action Bar */}
+              <div className="pt-3 border-t border-[#5D4037]/10 shrink-0 flex items-center gap-2">
                 <button 
-                  onClick={() => setSelectedStockForDetail(null)} 
-                  className="w-full py-3.5 bg-[#5D4037] text-white rounded-2xl font-black shadow-md hover:bg-[#4E342E] transition-all text-sm"
+                  type="button"
+                  onClick={() => handleOpenBuy(selectedStockForDetail)}
+                  className="flex-1 py-3 bg-[#FFFDF5] hover:bg-[#FFD54F]/20 text-[#5D4037] border border-[#FFD54F]/50 rounded-2xl font-black shadow-xs transition-all text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.98]"
                 >
-                  關閉明細
+                  <Plus size={15} /> 新增買入
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => handleOpenDividend(selectedStockForDetail)}
+                  className="flex-1 py-3 bg-[#FFFDF5] hover:bg-emerald-100/50 text-[#5D4037] border border-emerald-300/50 rounded-2xl font-black shadow-xs transition-all text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.98]"
+                >
+                  <Coins size={15} className="text-emerald-600" /> 股利/配息入帳
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setSelectedStockForDetail(null)} 
+                  className="px-5 py-3 bg-[#5D4037] text-white rounded-2xl font-black shadow-md hover:bg-[#4E342E] transition-all text-xs sm:text-sm cursor-pointer active:scale-[0.98] shrink-0"
+                >
+                  關閉
                 </button>
               </div>
             </motion.div>
