@@ -23808,6 +23808,20 @@ function AiSplitModal({ isOpen, initialTab = 'expense', presetData, onClose, acc
     return list.length > 0 ? list : ['其他'];
   }, [categories, targetType]);
 
+  const groupedAccountOptions = useMemo(() => {
+    const list = Array.isArray(accounts) ? accounts : [];
+    const grouped = groupAccountsByInstitution(list);
+    return grouped.map(g => (
+      <optgroup key={g.groupName} label={g.groupName}>
+        {g.accounts.map(a => (
+          <option key={a.id} value={a.id}>
+            {a.icon ? `${a.icon} ` : ''}{a.name}
+          </option>
+        ))}
+      </optgroup>
+    ));
+  }, [accounts]);
+
   const [parsedItems, setParsedItems] = useState<{ name: string; amount: number; category: string; projectId?: string; isPrepay: boolean }[]>(() => {
     if (presetData?.items && presetData.items.length > 0) {
       return presetData.items.map((item: any) => {
@@ -24201,9 +24215,7 @@ ${categoriesString}
                     className="w-full p-3 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F]"
                     style={getFontFamily()}
                   >
-                    {accounts.map(acc => (
-                      <option key={acc.id} value={acc.id}>{acc.name}</option>
-                    ))}
+                    {groupedAccountOptions}
                   </select>
                 </div>
 
@@ -24324,8 +24336,16 @@ ${categoriesString}
                 style={getFontFamily()}
               >
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-stone-400 shrink-0">帳戶：</span>
-                  <span className="font-bold truncate">{(Array.isArray(accounts) ? accounts : []).find(a => a.id === selectedAccountId)?.name}</span>
+                  <span className="text-stone-400 shrink-0 font-bold">帳戶：</span>
+                  <select
+                    value={selectedAccountId}
+                    onChange={e => setSelectedAccountId(e.target.value)}
+                    className="bg-stone-50 hover:bg-stone-100 border border-stone-200/80 rounded-xl px-2.5 py-1 text-xs font-bold text-[#5D4037] outline-none cursor-pointer max-w-[140px] sm:max-w-[190px] truncate shadow-sm transition-all focus:border-[#FFD54F]"
+                    style={getFontFamily()}
+                    title="點擊切換支付/扣款帳戶"
+                  >
+                    {groupedAccountOptions}
+                  </select>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <div 
