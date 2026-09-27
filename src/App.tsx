@@ -11188,13 +11188,14 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
             <div className="space-y-2">
               <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註 (買了什麼？)</label>
               <textarea 
+                rows={2}
                 value={edited.note || ''}
                 disabled={isInstallment}
                 onChange={e => {
                   const val = e.target.value;
                   setEdited({ ...edited, note: val, remark: val });
                 }}
-                className={`w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[100px] resize-none whitespace-pre-wrap break-all ${isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
+                className={`w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[18px] outline-none shadow-sm focus:border-[#FFD54F] transition-all min-h-[80px] resize-none whitespace-pre-wrap break-all ${isInstallment ? 'opacity-60 cursor-not-allowed bg-stone-50' : ''}`}
                 placeholder="買了什麼？"
                 style={getFontFamily()}
               />
@@ -23185,11 +23186,13 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 {/* Note Input */}
                 <div className="space-y-2">
                   <span className="text-[18px] font-bold text-[#000000] uppercase px-2">備註 (買了什麼？)</span>
-                  <input 
+                  <textarea 
+                    rows={2}
                     value={note}
                     onChange={e => setNote(e.target.value)}
-                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[16px] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#000000] text-[16px] outline-none shadow-sm focus:border-[#FFD54F] transition-all resize-none whitespace-pre-wrap break-all"
                     placeholder="例如：開源社雞排、演唱會周邊"
+                    style={getFontFamily()}
                   />
                 </div>
 
@@ -23514,11 +23517,13 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 {/* Note Info */}
                 <div className="flex flex-col gap-1">
                   <label className="text-[14px] font-bold text-stone-600 uppercase px-1">預設備註 (買了什麼？)</label>
-                  <input 
+                  <textarea 
+                    rows={2}
                     value={editingTemplate.note || ''} 
                     onChange={e => setEditingTemplate({...editingTemplate, note: e.target.value})}
                     placeholder="例如：開源社雞排"
-                    className="w-full p-3 bg-white border border-stone-100 rounded-xl outline-none font-bold text-sm shadow-sm"
+                    className="w-full p-3 bg-white border border-stone-100 rounded-xl outline-none font-bold text-sm shadow-sm resize-none whitespace-pre-wrap break-all"
+                    style={getFontFamily()}
                   />
                 </div>
 
