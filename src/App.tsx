@@ -1305,7 +1305,7 @@ export const getRecordPersonalAmount = (r: Transaction): number => {
   if (items && items.length > 0) {
     const personalSum = items
       .filter((i: any) => !i.isPrepay && !(typeof i.tag === 'string' && i.tag.includes('家裡代墊')) && i.reimbursementTag !== 'family')
-      .reduce((sum, item) => sum + Math.abs(item.amount), 0);
+      .reduce((sum, item) => sum + (item.amount || 0), 0);
     return personalSum + (r.fee || 0);
   }
   if (r.isPrepay) return 0;
@@ -1318,7 +1318,7 @@ export const getRecordPrepayAmount = (r: Transaction): number => {
   if (items && items.length > 0) {
     return items
       .filter((i: any) => !!i.isPrepay || (typeof i.tag === 'string' && i.tag.includes('家裡代墊')) || i.reimbursementTag === 'family')
-      .reduce((sum, item) => sum + Math.abs(item.amount), 0);
+      .reduce((sum, item) => sum + (item.amount || 0), 0);
   }
   if (r.isPrepay) return Math.abs(r.amount);
   return 0;
@@ -9496,7 +9496,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       )}
                       {(record.isPrepay || (record.subItems && record.subItems.some(i => i.isPrepay))) && (
                         <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-amber-100/90 text-amber-900 rounded-full font-bold leading-none border border-amber-200/60 shadow-xs">
-                          🏠 代墊 {record.subItems && record.subItems.some(i => i.isPrepay) ? `$ ${record.subItems.filter(i => i.isPrepay).reduce((s, i) => s + Math.abs(i.amount), 0).toLocaleString()}` : ''}
+                          🏠 代墊 {record.subItems && record.subItems.some(i => i.isPrepay) ? `$ ${record.subItems.filter(i => i.isPrepay).reduce((s, i) => s + (i.amount || 0), 0).toLocaleString()}` : ''}
                         </span>
                       )}
                       {(account.parentId === undefined || account.isBrandGroup) && record.accountId !== account.id && (
@@ -9692,7 +9692,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         {/* 🛒 個人消費清單及小計 */}
                         {(() => {
                           const personalItems = record.subItems.filter(i => !i.isPrepay);
-                          const personalSum = personalItems.reduce((s, i) => s + Math.abs(i.amount), 0);
+                          const personalSum = personalItems.reduce((s, i) => s + (i.amount || 0), 0);
                           if (personalItems.length === 0) return null;
                           return (
                             <div className="bg-white p-3 rounded-xl border border-stone-200/80 space-y-1.5 shadow-xs">
@@ -9716,7 +9716,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                           </span>
                                         )}
                                       </span>
-                                      <span className="font-black text-[#5D4037]">${Math.abs(item.amount).toLocaleString()}</span>
+                                      <span className={`font-black ${item.amount < 0 ? 'text-emerald-600' : 'text-[#5D4037]'}`}>
+                                        {item.amount < 0 ? '-' : ''}${Math.abs(item.amount).toLocaleString()}
+                                      </span>
                                     </div>
                                   );
                                 })}
@@ -9728,7 +9730,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                         {/* 🏠 家裡代墊清單及小計 */}
                         {(() => {
                           const prepayItems = record.subItems.filter(i => !!i.isPrepay);
-                          const prepaySum = prepayItems.reduce((s, i) => s + Math.abs(i.amount), 0);
+                          const prepaySum = prepayItems.reduce((s, i) => s + (i.amount || 0), 0);
                           if (prepayItems.length === 0) return null;
                           return (
                             <div className="bg-[#FFF4D3] p-3 rounded-xl border border-amber-200/80 space-y-1.5 shadow-xs">
@@ -9753,7 +9755,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                                           </span>
                                         )}
                                       </span>
-                                      <span className="font-black text-amber-950">${Math.abs(item.amount).toLocaleString()}</span>
+                                      <span className={`font-black ${item.amount < 0 ? 'text-emerald-700' : 'text-amber-950'}`}>
+                                        {item.amount < 0 ? '-' : ''}${Math.abs(item.amount).toLocaleString()}
+                                      </span>
                                     </div>
                                   );
                                 })}
@@ -10512,7 +10516,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     if (record.subItems && record.subItems.length > 0) {
       const nonMergedSubs = record.subItems.filter(s => !s.originalRecordId);
       if (nonMergedSubs.length > 0) {
-        return nonMergedSubs.reduce((sum, s) => sum + Math.abs(s.amount), 0);
+        return nonMergedSubs.reduce((sum, s) => sum + (s.amount || 0), 0);
       }
     }
     return Math.abs(record.amount);
@@ -10557,7 +10561,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
       }));
       setAmountStr(baseOriginalAmount.toString());
     } else {
-      const subTotal = updatedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
+      const subTotal = updatedSubs.reduce((sum, item) => sum + (item.amount || 0), 0);
       const unit = isTransfer ? '筆' : '類明細';
       const updatedNote = updatedSubs.length > 1 ? `${baseTitle} 等 ${updatedSubs.length} ${unit}` : baseTitle;
       
@@ -10636,7 +10640,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   const handleUpdateSubItemAmount = (idx: number, amtVal: number) => {
     if (!edited.subItems) return;
     const updatedSubs = edited.subItems.map((s, i) => i === idx ? { ...s, amount: amtVal } : s);
-    const newSum = updatedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
+    const newSum = updatedSubs.reduce((sum, item) => sum + (item.amount || 0), 0);
     setEdited(prev => ({
       ...prev,
       subItems: updatedSubs,
@@ -10747,7 +10751,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     });
 
     const combinedSubs = [...existingSubs, ...newSubs];
-    const totalSum = combinedSubs.reduce((sum, item) => sum + Math.abs(item.amount), 0);
+    const totalSum = combinedSubs.reduce((sum, item) => sum + (item.amount || 0), 0);
 
     const defaultTitle = isTransfer ? '信用卡扣款' : '主消費項目';
     const baseTitle = (edited.note || edited.merchant || defaultTitle).replace(/ 等 \d+ (類明細|筆)$/, '');
@@ -11454,7 +11458,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                       </button>
                       <div className="text-right text-[11px] font-bold text-[#5D4037]">
                         <span>{edited.type === 'transfer' ? '繳款小計: ' : '子項目小計: '}</span>
-                        <span className="font-black text-amber-900">$ {edited.subItems.reduce((s, i) => s + Math.abs(i.amount), 0).toLocaleString()}</span>
+                        <span className="font-black text-amber-900">$ {edited.subItems.reduce((s, i) => s + (i.amount || 0), 0).toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
@@ -24049,16 +24053,32 @@ ${rawText}
 可用${typeText}分類清單（請務必只從以下清單中選擇最符合的「主分類 > 子分類」或「主分類」填入，若都不符合請填「其他」）：
 ${categoriesString}
 
+【核心拆分規則】
+1. 嚴格 1:1 逐行完整擷取（Strict Line-by-Line Extraction）：
+   - 發票/收據上出現的所有購買品項與所有折抵扣減項目，必須逐行完整擷取，絕對禁止自行合併、忽略、攤提或過濾任何品項！
+   - 包含促銷折扣、買一送一折抵、折價券、折扣碼、點數折抵、禮券折抵等負數金額項目，皆必須獨立作為一筆品項行。
+2. 負數折抵金額處理：
+   - 折扣/折抵/促銷/買一送一/折價券等扣減金額品項，其 "amount" 欄位必須為負數金額（例如 -59、-5）。
+   - 正數商品品項金額為正數（例如 30、118）。
+   - 負數金額項目金額直接帶負值，參與該筆交易的總金額加總。
+3. 品項名稱請統一修飾為台灣繁體中文慣用語（如：將「視頻」改為「影片」，「屏幕」改為「螢幕」，「反饋」改為「回饋」等）。
+
 請輸出一個標準的 JSON 物件，不可以包含任何解釋、Markdown格式（如 \`\`\`json）或前導後導文字。格式如下：
 {
   "date": "2026-09-09", // 若明細文字中有出現交易日期，請提取為 YYYY-MM-DD 格式；若文字中未提及日期，請填 null
   "time": "17:35", // 若明細文字中有出現交易時間（例如 17:35、17:35:12、下午5點35分 等），請提取並轉換為 24 小時制 HH:mm 格式；若文字中未提及時間，請填 null
   "items": [
     {
-      "name": "品項名稱",
-      "amount": 100, // 正整數金額
+      "name": "四維雙面膠帶",
+      "amount": 30, // 正數金額
       "category": "選擇的分類", // 必須是可用${typeText}分類清單中的一項
       "isPrepay": false // 如果明細中提到是「幫別人買、家裡代墊、代付、代購、代墊、代收、代收款」等，請設為 true，否則為 false
+    },
+    {
+      "name": "買1送1折抵",
+      "amount": -59, // 負數折抵金額 (帶負號)
+      "category": "選擇的分類",
+      "isPrepay": false
     }
   ]
 }
@@ -24066,7 +24086,7 @@ ${categoriesString}
 請注意：
 1. 輸出必須為標準的 JSON 物件，可以直接被 JSON.parse 解析。
 2. 若文字中有時間（例如 "2026/09/09 17:35"、"17:35:12"、"下午 05:35" 等），務必提取時間至 "time" 欄位（格式為 HH:mm）。
-3. 品項名稱請徹底改善非台灣用語，例如將「視頻」改為「影片」，「屏幕」改為「螢幕」，「反饋」改為「回饋」等。`;
+3. 切記：所有折抵、買一送一與促銷扣減項目必須獨立列出且金額為負數，絕對不能遺漏或合併！`;
 
       const requestBody = {
         contents: [{
@@ -24168,13 +24188,15 @@ ${categoriesString}
         }
       }
 
-      // Filter and clean items with auto category-to-project matching
+      // Filter and clean items with auto category-to-project matching, preserving negative amounts for discounts
       const items = rawItems.map((item: any) => {
         const cat = targetCategories.includes(item.category) ? item.category : (targetCategories[0] || '其他');
         const matchPid = findMatchingProjectId(cat, projects);
+        const parsedAmt = parseInt(item.amount, 10);
+        const amt = isNaN(parsedAmt) ? 0 : parsedAmt;
         return {
           name: filterTaiwanTerms(item.name || '未命名項目'),
-          amount: Math.abs(parseInt(item.amount) || 0),
+          amount: amt,
           category: cat,
           projectId: matchPid || undefined,
           isPrepay: !!item.isPrepay
@@ -24266,7 +24288,7 @@ ${categoriesString}
       const subItemsList: SubItem[] = parsedItems.map((item, idx) => ({
         id: `sub_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`,
         name: filterTaiwanTerms(item.name),
-        amount: Math.abs(item.amount),
+        amount: item.amount,
         category: filterTaiwanTerms(item.category),
         projectId: item.projectId,
         isPrepay: item.isPrepay
