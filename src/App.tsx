@@ -959,6 +959,41 @@ export const groupAccountsByInstitution = (accountsList: Account[]): AccountGrou
   return result;
 };
 
+export function isImageIconString(icon?: string): boolean {
+  if (!icon) return false;
+  return (
+    icon.startsWith('data:image') ||
+    icon.startsWith('http://') ||
+    icon.startsWith('https://') ||
+    icon.startsWith('/') ||
+    icon.includes(';base64,') ||
+    /\.(png|jpg|jpeg|svg|webp|gif)(\?.*)?$/i.test(icon) ||
+    icon.length > 30
+  );
+}
+
+export function SafeAccountIcon({
+  icon,
+  name = '',
+  className = "w-5 h-5 object-contain rounded inline-block mr-2"
+}: {
+  icon?: string;
+  name?: string;
+  className?: string;
+}) {
+  if (!icon) return null;
+  if (isImageIconString(icon)) {
+    return (
+      <img
+        src={icon}
+        alt={name}
+        className={className}
+      />
+    );
+  }
+  return <span className="mr-2 text-base">{icon}</span>;
+}
+
 export const renderGroupedAccountOptions = (accountsList: Account[]) => {
   const filtered = (Array.isArray(accountsList) ? accountsList : []).filter(
     a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment' || a.type === 'points'
@@ -967,11 +1002,15 @@ export const renderGroupedAccountOptions = (accountsList: Account[]) => {
 
   return grouped.map(g => (
     <optgroup key={g.groupName} label={g.groupName}>
-      {g.accounts.map(a => (
-        <option key={a.id} value={a.id}>
-          {a.icon} {a.name} ({a.type === 'points' ? '點數' : a.currency})
-        </option>
-      ))}
+      {g.accounts.map(a => {
+        const hasImg = a.icon && isImageIconString(a.icon);
+        const iconPrefix = hasImg ? '🏦 ' : (a.icon ? `${a.icon} ` : '');
+        return (
+          <option key={a.id} value={a.id}>
+            {iconPrefix}{a.name} ({a.type === 'points' ? '點數' : a.currency})
+          </option>
+        );
+      })}
     </optgroup>
   ));
 };
@@ -1030,7 +1069,7 @@ function GroupedAccountDropdown({
         <div className="flex items-center gap-2 min-w-0 flex-1 pr-2 truncate">
           {selectedAccount ? (
             <>
-              <span className="shrink-0">{selectedAccount.icon || '🏦'}</span>
+              <SafeAccountIcon icon={selectedAccount.icon || '🏦'} name={selectedAccount.name} className="w-5 h-5 object-contain rounded shrink-0 inline-block mr-1" />
               <span className="truncate font-black text-[#5D4037]">{selectedAccount.name}</span>
               <span className="text-xs text-stone-400 font-normal shrink-0">
                 ({selectedAccount.type === 'points' ? '點數' : selectedAccount.currency})
@@ -1078,7 +1117,7 @@ function GroupedAccountDropdown({
                           }`}
                         >
                           <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
-                            <span className="shrink-0 text-sm">{acc.icon || '🏦'}</span>
+                            <SafeAccountIcon icon={acc.icon || '🏦'} name={acc.name} className="w-4 h-4 object-contain rounded shrink-0 inline-block mr-1" />
                             <span className="truncate">{acc.name}</span>
                           </div>
                           <span className="text-[10px] text-stone-400 font-normal shrink-0">
@@ -23770,6 +23809,125 @@ interface AiSplitModalProps {
   onIncrementAiCount?: () => void;
 }
 
+function AiAccountDropdown({
+  accounts,
+  value,
+  onChange,
+  compact = false
+}: {
+  accounts: Account[];
+  value: string;
+  onChange: (value: string) => void;
+  compact?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const filteredAccounts = useMemo(() => {
+    return Array.isArray(accounts) ? accounts : [];
+  }, [accounts]);
+
+  const groupedAccounts = useMemo(() => {
+    return groupAccountsByInstitution(filteredAccounts);
+  }, [filteredAccounts]);
+
+  const selectedAccount = useMemo(() => {
+    return filteredAccounts.find(a => a.id === value);
+  }, [filteredAccounts, value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  return (
+    <div ref={containerRef} className={`relative ${compact ? 'min-w-[130px] max-w-[190px]' : 'w-full'}`} style={getFontFamily()}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className={
+          compact
+            ? "bg-stone-50 hover:bg-stone-100 border border-stone-200/80 rounded-xl px-2.5 py-1 text-xs font-bold text-[#5D4037] outline-none cursor-pointer w-full flex items-center justify-between gap-1 shadow-sm transition-all hover:border-[#FFD54F]"
+            : "w-full p-3 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none flex items-center justify-between shadow-sm hover:border-[#FFD54F] transition-all cursor-pointer"
+        }
+      >
+        <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+          {selectedAccount ? (
+            <>
+              <SafeAccountIcon icon={selectedAccount.icon || '🏦'} name={selectedAccount.name} className="w-4 h-4 object-contain rounded shrink-0 inline-block mr-1" />
+              <span className="truncate font-bold text-[#5D4037]">{selectedAccount.name}</span>
+            </>
+          ) : (
+            <span className="text-stone-400 font-medium truncate">選擇扣款帳戶</span>
+          )}
+        </div>
+        <ChevronDown size={14} className={`text-stone-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-[350] top-full left-0 right-0 w-full min-w-[200px] mt-1 bg-white border-2 border-[#5D4037]/10 rounded-2xl shadow-xl max-h-60 overflow-y-auto overflow-x-hidden p-2 space-y-2 box-border custom-scrollbar"
+          >
+            {groupedAccounts.length === 0 ? (
+              <div className="p-3 text-center text-xs text-stone-400 font-medium">無可用帳戶</div>
+            ) : (
+              groupedAccounts.map(group => (
+                <div key={group.groupName} className="space-y-1">
+                  <div className="text-[11px] font-black text-[#5D4037]/60 bg-stone-100/90 px-2.5 py-1 rounded-lg border border-stone-200/40 sticky top-0 z-10 backdrop-blur-xs truncate">
+                    {group.groupName}
+                  </div>
+                  <div className="space-y-0.5">
+                    {group.accounts.map(acc => {
+                      const isSelected = acc.id === value;
+                      return (
+                        <button
+                          key={acc.id}
+                          type="button"
+                          onClick={() => {
+                            onChange(acc.id);
+                            setIsOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-between gap-2 box-border max-w-full overflow-hidden ${
+                            isSelected 
+                              ? 'bg-[#FFD54F]/25 text-[#5D4037] font-black border border-[#FFD54F]/40' 
+                              : 'hover:bg-stone-50 text-stone-700 border border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+                            <SafeAccountIcon icon={acc.icon || '🏦'} name={acc.name} className="w-4 h-4 object-contain rounded shrink-0 inline-block mr-1" />
+                            <span className="truncate">{acc.name}</span>
+                          </div>
+                          <span className="text-[10px] text-stone-400 font-normal shrink-0">
+                            ({acc.type === 'points' ? '點數' : acc.currency})
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function AiSplitModal({ isOpen, initialTab = 'expense', presetData, onClose, accounts, categories, projects, user, onSaveBatch, onIncrementAiCount }: AiSplitModalProps) {
   const [step, setStep] = useState<1 | 2>(() => (presetData?.items && presetData.items.length > 0) ? 2 : 1);
   const [rawText, setRawText] = useState('');
@@ -24209,14 +24367,11 @@ ${categoriesString}
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[12px] font-bold text-[#5D4037]/70 uppercase ml-1">2. 扣款帳戶</label>
-                  <select
+                  <AiAccountDropdown
+                    accounts={accounts}
                     value={selectedAccountId}
-                    onChange={e => setSelectedAccountId(e.target.value)}
-                    className="w-full p-3 bg-white border-2 border-[#5D4037]/10 rounded-2xl font-bold text-[#5D4037] text-sm outline-none focus:border-[#FFD54F]"
-                    style={getFontFamily()}
-                  >
-                    {groupedAccountOptions}
-                  </select>
+                    onChange={setSelectedAccountId}
+                  />
                 </div>
 
                 {/* 交易日期與交易時間並列在同一排 */}
@@ -24337,15 +24492,12 @@ ${categoriesString}
               >
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-stone-400 shrink-0 font-bold">帳戶：</span>
-                  <select
+                  <AiAccountDropdown
+                    accounts={accounts}
                     value={selectedAccountId}
-                    onChange={e => setSelectedAccountId(e.target.value)}
-                    className="bg-stone-50 hover:bg-stone-100 border border-stone-200/80 rounded-xl px-2.5 py-1 text-xs font-bold text-[#5D4037] outline-none cursor-pointer max-w-[140px] sm:max-w-[190px] truncate shadow-sm transition-all focus:border-[#FFD54F]"
-                    style={getFontFamily()}
-                    title="點擊切換支付/扣款帳戶"
-                  >
-                    {groupedAccountOptions}
-                  </select>
+                    onChange={setSelectedAccountId}
+                    compact={true}
+                  />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <div 
