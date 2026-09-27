@@ -1459,6 +1459,7 @@ export default function App() {
   };
   const [isAiSplitModalOpen, setIsAiSplitModalOpen] = useState(false);
   const [aiSplitInitialTab, setAiSplitInitialTab] = useState<'expense' | 'income'>('expense');
+  const [aiSplitPresetData, setAiSplitPresetData] = useState<{ items?: any[]; date?: string; time?: string } | null>(null);
   const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
   const [rateModalAccount, setRateModalAccount] = useState<Account | null>(null);
   const [historyFilter, setHistoryFilter] = useState<{ type: 'day' | 'week' | 'month' | 'year', date: string }>({ type: 'day', date: selectedDate });
@@ -3928,8 +3929,9 @@ export default function App() {
               }}
               selectedDate={selectedDate}
               records={records}
-              onOpenAiSplit={(modeTab) => { 
+              onOpenAiSplit={(modeTab, items, date, time) => { 
                 setAiSplitInitialTab(modeTab); 
+                setAiSplitPresetData(items && items.length > 0 ? { items, date, time } : null);
                 setIsRecordModalOpen(false); 
                 setDuplicatingRecord(null);
                 setIsAiSplitModalOpen(true); 
@@ -3944,7 +3946,11 @@ export default function App() {
             <AiSplitModal 
               isOpen={isAiSplitModalOpen}
               initialTab={aiSplitInitialTab}
-              onClose={() => setIsAiSplitModalOpen(false)}
+              presetData={aiSplitPresetData}
+              onClose={() => {
+                setIsAiSplitModalOpen(false);
+                setAiSplitPresetData(null);
+              }}
               accounts={accounts}
               categories={categories}
               projects={projects}
@@ -21534,7 +21540,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   onSave: (r: any, keepOpen?: boolean) => void,
   selectedDate: string,
   records: Transaction[],
-  onOpenAiSplit: (tab: 'expense' | 'income') => void
+  onOpenAiSplit: (tab: 'expense' | 'income', initialItems?: any[], initialDate?: string, initialTime?: string) => void
 }) {
   const parseCategoryString = (rawCat?: string) => {
     if (!rawCat) return { main: null, sub: null };
@@ -21782,345 +21788,143 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setIsScanningReceipt(true);
 
     try {
-      // 1. Load jsQR dynamically if not present
-      if (!(window as any).jsQR) {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
+      const key = (import.meta as any).env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
+      if (!key.trim()) {
+        alert('請先設定 Gemini API 金鑰！');
+        onOpenAiSplit(tab === 'income' ? 'income' : 'expense');
+        return;
       }
 
-      // 2. Preprocess image: detect QR code first, then fallback to OCR preprocessing
-      const scanResult = await new Promise<{ qrParsed: any; preprocessedSrc: string }>((resolve) => {
+      // Convert File to Base64
+      const base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (ev) => {
-          const img = new Image();
-          img.onload = () => {
-            // First attempt to detect QR Code from raw/original image dimensions
-            const qrCanvas = document.createElement('canvas');
-            qrCanvas.width = img.width;
-            qrCanvas.height = img.height;
-            const qrCtx = qrCanvas.getContext('2d');
-            let qrParsed = null;
-
-            if (qrCtx) {
-              qrCtx.drawImage(img, 0, 0);
-              const qrImgData = qrCtx.getImageData(0, 0, img.width, img.height);
-              try {
-                const code = (window as any).jsQR(qrImgData.data, qrImgData.width, qrImgData.height, {
-                  inversionAttempts: "dontInvert"
-                });
-                if (code && code.data) {
-                  console.log("QR Code detected:", code.data);
-                  qrParsed = parseTaiwanEInvoiceQR(code.data) || { note: code.data };
-                }
-              } catch (err) {
-                console.error("jsQR error:", err);
-              }
-            }
-
-            // Next, prepare preprocessed source for Tesseract OCR
-            const ocrCanvas = document.createElement('canvas');
-            const scale = 2.5; // 2.5x upscale for high-definition text
-            ocrCanvas.width = img.width * scale;
-            ocrCanvas.height = img.height * scale;
-            const ocrCtx = ocrCanvas.getContext('2d');
-            if (!ocrCtx) {
-              resolve({ qrParsed, preprocessedSrc: ev.target?.result as string });
-              return;
-            }
-            ocrCtx.imageSmoothingEnabled = true;
-            ocrCtx.imageSmoothingQuality = 'high';
-            ocrCtx.drawImage(img, 0, 0, ocrCanvas.width, ocrCanvas.height);
-
-            const imgData = ocrCtx.getImageData(0, 0, ocrCanvas.width, ocrCanvas.height);
-            const d = imgData.data;
-            for (let i = 0; i < d.length; i += 4) {
-              const r = d[i], g = d[i + 1], b = d[i + 2];
-              const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-              if (luminance < 190) {
-                const factor = 0.7; // Darken text strokes for crisp character boundaries
-                d[i] = Math.max(0, r * factor);
-                d[i + 1] = Math.max(0, g * factor);
-                d[i + 2] = Math.max(0, b * factor);
-              }
-            }
-            ocrCtx.putImageData(imgData, 0, 0);
-            resolve({ qrParsed, preprocessedSrc: ocrCanvas.toDataURL('image/png') });
-          };
-          img.onerror = () => resolve({ qrParsed: null, preprocessedSrc: ev.target?.result as string });
-          img.src = ev.target?.result as string;
+          const res = ev.target?.result as string;
+          const b64 = res.split(',')[1] || res;
+          resolve(b64);
         };
+        reader.onerror = reject;
         reader.readAsDataURL(file);
       });
 
-      let foundAmount = 0;
-      let foundDate = '';
-      let foundNote = '';
-      let foundAccountName = '';
-      let isQRCodeScan = false;
-
-      if (scanResult.qrParsed) {
-        isQRCodeScan = true;
-        const qp = scanResult.qrParsed;
-        if (qp.amount) foundAmount = qp.amount;
-        if (qp.date) foundDate = qp.date;
-        if (qp.note) foundNote = qp.note;
-      } else {
-        // Fall back to Tesseract OCR
-        if (!(window as any).Tesseract) {
-          await new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-          });
+      const typeText = tab === 'income' ? '收入' : '支出';
+      const targetCats = categories.filter(c => c.type === (tab === 'income' ? 'income' : 'expense'));
+      const catList: string[] = [];
+      targetCats.forEach(cat => {
+        catList.push(cat.name);
+        if (cat.sub && cat.sub.length > 0) {
+          cat.sub.forEach(sub => catList.push(`${cat.name} > ${sub}`));
         }
+      });
+      const categoriesString = catList.length > 0 ? catList.join('\n') : '其他';
 
-        const result = await (window as any).Tesseract.recognize(scanResult.preprocessedSrc, 'chi_tra+eng');
-        const rawText = result.data.text || '';
-        console.log('Raw OCR Output:\n', rawText);
+      const prompt = `你是一個專業的記帳與發票解析助理。請幫我解析這張發票或收據圖片，將圖片中的所有購買品項與折抵項目拆分為多個獨立品項，並同時自動提取發票上的交易日期與時間。
 
-        // Clean lines and filter out mobile status bar / system UI garbage
-        const lines = rawText
-          .split('\n')
-          .map((l: string) => l.trim())
-          .filter((l: string) => {
-            if (!l || l.length < 2) return false;
-            if (/^(?:[0-2]?[0-9]:[0-5][0-9]|5G|4G|LTE|WiFi|100%|[0-9]{1,2}%|付款詳細資訊|交易資訊|交易來源|商店資訊)$/i.test(l)) return false;
-            if (/^[0-2]?[0-9]:[0-5][0-9]\s*[@\u4e00-\u9fa5]/i.test(l)) return false; // e.g. "20:45 @ 三"
-            return true;
-          });
+可用${typeText}分類清單（請務必從以下清單中選擇最符合的填入，若不符合填「其他」）：
+${categoriesString}
 
-        // 1. Amount Extraction (Prioritize total labels: 實際支付金額, 總金額, 合計 across line breaks)
-        const priorityAmountMatch = rawText.match(/(?:實際支付金額|總金額|合計|小計)[\s\S]{0,35}?\$?\s*([0-9,]{2,7}(?:\.[0-9]{1,2})?)/i);
-        if (priorityAmountMatch) {
-          const val = parseFloat(priorityAmountMatch[1].replace(/,/g, ''));
-          if (val > 0 && val < 1000000) {
-            foundAmount = val;
-          }
-        }
+【核心拆分規則】
+1. 嚴格 1:1 逐行完整擷取（Strict Line-by-Line Extraction）：
+   - 發票/收據上出現的所有購買品項與所有折抵扣減項目，務必逐行完整擷取，絕對禁止自行合併、忽略、攤提或過濾任何品項！
+   - 包含促銷折扣、買一送一折抵、折價券、折扣碼、點數折抵、禮券折抵等負數金額項目，皆必須獨立作為一筆品項行。
+2. 負數折抵金額處理：
+   - 折扣/折抵/促銷/買一送一/折價券等扣減金額品項，其 "amount" 欄位必須為負數金額（例如 -59、-5）。
+   - 正數商品品項金額為正數（例如 30、118）。
+3. 品項名稱請統一使用台灣繁體中文慣用語。
 
-        if (!foundAmount) {
-          const amountRegexes = [
-            /(?:NT\$|NTS|NT\s*\$|\$|金額|實付|價格|小計)[\s:]*([0-9,]+(?:\.[0-9]{1,2})?)/gi,
-            /([0-9,]+)\s*(?:元|TWD|NTD)/gi
-          ];
+請輸出一個標準 JSON 物件，不可以包含任何 Markdown 標籤或前導後導文字：
+{
+  "date": "2026-09-09", // 發票/交易日期，若未提及填 null
+  "time": "17:35", // 24小時制 HH:mm，若未提及填 null
+  "items": [
+    {
+      "name": "四維雙面膠帶",
+      "amount": 30,
+      "category": "選擇的分類",
+      "isPrepay": false
+    },
+    {
+      "name": "買1送1折抵",
+      "amount": -59,
+      "category": "選擇的分類",
+      "isPrepay": false
+    }
+  ]
+}`;
 
-          for (const rx of amountRegexes) {
-            let match;
-            while ((match = rx.exec(rawText)) !== null) {
-              const numStr = match[1].replace(/,/g, '');
-              const val = parseFloat(numStr);
-              if (val > 0 && val < 1000000) {
-                foundAmount = val;
-                break;
+      const requestBody = {
+        contents: [{
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: file.type || "image/jpeg",
+                data: base64Data
               }
             }
-            if (foundAmount > 0) break;
-          }
+          ]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json"
         }
+      };
 
-        if (!foundAmount) {
-          for (const line of lines) {
-            const m = line.match(/(?:NT\$|NTS|\$)?\s*([0-9]{1,6})/i);
-            if (m && (line.includes('NT') || line.includes('$') || line.includes('元'))) {
-              const val = parseFloat(m[1]);
-              if (val > 0 && val < 500000) {
-                foundAmount = val;
-                break;
-              }
-            }
-          }
-        }
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestBody)
+      });
 
-        // 2. Date Extraction (Prioritize "付款日期" for Line Pay or full timestamp 202X/M/D)
-        const payDateMatch = rawText.match(/付款日期[\s\S]{0,25}?([0-9]{4})[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/i);
-        if (payDateMatch) {
-          const y = payDateMatch[1];
-          const m = payDateMatch[2].padStart(2, '0');
-          const d = payDateMatch[3].padStart(2, '0');
-          foundDate = `${y}-${m}-${d}`;
-        }
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`API 請求失敗: ${res.status} - ${errText}`);
+      }
 
-        if (!foundDate) {
-          const timestampMatch = rawText.match(/(202[0-9])[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
-          if (timestampMatch) {
-            const y = timestampMatch[1];
-            const m = timestampMatch[2].padStart(2, '0');
-            const d = timestampMatch[3].padStart(2, '0');
-            foundDate = `${y}-${m}-${d}`;
-          } else {
-            const minguoMatch = rawText.match(/(1[0-2][0-9])[/\-.年\s]+(0?[1-9]|1[0-2])[/\-.月\s]+([1-3][0-9]|0[1-9]|[1-9])/);
-            if (minguoMatch) {
-              const y = String(parseInt(minguoMatch[1]) + 1911);
-              const m = minguoMatch[2].padStart(2, '0');
-              const d = minguoMatch[3].padStart(2, '0');
-              foundDate = `${y}-${m}-${d}`;
-            }
-          }
-        }
+      const resJson = await res.json();
+      const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!responseText) {
+        throw new Error('Gemini API 未回傳任何文字結果。');
+      }
 
-        // Helper to identify and reject company header / tax ID lines
-        const isCompanyHeader = (l: string) => {
-          return /蝦皮|電商|新加坡|公司|公句|統編|條碼|分公司|地址|代表人|營業人|娛樂/i.test(l);
+      const cleanText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      const parsedResult = JSON.parse(cleanText);
+
+      let rawItems: any[] = [];
+      let extractedTime: string | undefined = undefined;
+      let extractedDate: string | undefined = undefined;
+
+      if (Array.isArray(parsedResult)) {
+        rawItems = parsedResult;
+      } else if (parsedResult && typeof parsedResult === 'object') {
+        if (Array.isArray(parsedResult.items)) rawItems = parsedResult.items;
+        if (typeof parsedResult.time === 'string' && parsedResult.time.trim() && parsedResult.time !== 'null') extractedTime = parsedResult.time.trim();
+        if (typeof parsedResult.date === 'string' && parsedResult.date.trim() && parsedResult.date !== 'null') extractedDate = parsedResult.date.trim();
+      }
+
+      const items = rawItems.map((item: any) => {
+        const cat = catList.includes(item.category) ? item.category : (catList[0] || '其他');
+        const matchPid = findMatchingProjectId(cat, projects);
+        const parsedAmt = parseInt(item.amount, 10);
+        return {
+          name: filterTaiwanTerms(item.name || '未命名項目'),
+          amount: isNaN(parsedAmt) ? 0 : parsedAmt,
+          category: cat,
+          projectId: matchPid || undefined,
+          isPrepay: !!item.isPrepay
         };
+      }).filter((item: any) => item.name && item.amount !== 0);
 
-        // Helper to identify and reject advertisement & footer garbage lines
-        const isAdOrGarbage = (l: string) => {
-          return /亞培|安素|HMB|體力|免費試用|年過|鎖住|GEL|Clinical|STUDY|Shield|試用包|贊助|廣告|優惠/i.test(l);
-        };
-
-        // 3. Product / Note Extraction (Target Shopee 購買品項, E-Invoice 品名, or Line Pay Item)
-        // Strategy 0: Product Line with brackets (【...】, [...], (...)) or product spec keywords (cm, ml, kg, 鋼, 樂)
-        for (const line of lines) {
-          if (isCompanyHeader(line) || isAdOrGarbage(line)) continue;
-
-          // Bracket check (matches 【...】, [...], (...))
-          if (/[【\[\(\{].+?[】\]\)\}]/.test(line) && line.length > 5) {
-            foundNote = line;
-            break;
-          }
-
-          // Product spec keywords
-          if (/(?:cm|mm|ml|g|kg|不鏽鋼|鋼|雙層|隔熱|雷刻|理想牌|台灣製|優酪乳|客製|無加糖)/i.test(line) && line.length > 5) {
-            foundNote = line;
-            break;
-          }
-        }
-
-        // Strategy A: Shopee Invoice ("購買品項")
-        if (!foundNote) {
-          const shopeeIdx = lines.findIndex(l => l.includes('購買品項') || l.includes('品項'));
-          if (shopeeIdx !== -1) {
-            for (let k = shopeeIdx + 1; k < Math.min(shopeeIdx + 4, lines.length); k++) {
-              const l = lines[k];
-              if (!isCompanyHeader(l) && !isAdOrGarbage(l) && !l.includes('總金額') && l.length > 3) {
-                foundNote = l;
-                break;
-              }
-            }
-          }
-        }
-
-        // Strategy B: E-Invoice ("品名")
-        if (!foundNote) {
-          const itemHeaderIdx = lines.findIndex(l => l.includes('品名') || l.includes('數量') || l.includes('小計'));
-          if (itemHeaderIdx !== -1) {
-            for (let j = itemHeaderIdx + 1; j < Math.min(itemHeaderIdx + 4, lines.length); j++) {
-              const l = lines[j];
-              if (!l.includes('共') && !l.includes('合計') && !isCompanyHeader(l) && !isAdOrGarbage(l) && l.length > 2) {
-                foundNote = l;
-                break;
-              }
-            }
-          }
-        }
-
-        // Strategy C: Line Pay Store / Product Name
-        if (!foundNote) {
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            if (line.includes('(product)') || line.includes('市集') || line.includes('冰淇淋') || line.includes('商店') || line.includes('咔啾') || line.includes('Kaju') || line.includes('味啾') || line.includes('噴啾')) {
-              if (!isCompanyHeader(line) && !isAdOrGarbage(line)) {
-                foundNote = line;
-                break;
-              }
-            }
-          }
-        }
-
-        if (!foundNote) {
-          const merchantKeywords = ['LINE Pay', '7-ELEVEN', '7-11', '全家', '萊爾富', 'OK超商', '麥當勞', '摩斯', '肯德基', '星巴克', '蝦皮', 'Uber', 'Foodpanda', '中油', '家樂福', '全聯', '寶雅', '屈臣氏', '康是美', '大潤發', '美廉社'];
-          for (const line of lines) {
-            for (const kw of merchantKeywords) {
-              if (line.toLowerCase().includes(kw.toLowerCase()) && !isCompanyHeader(line) && !isAdOrGarbage(line)) {
-                foundNote = line;
-                break;
-              }
-            }
-            if (foundNote) break;
-          }
-        }
-
-        // Fallback: exclude company headers, tax IDs, invoice numbers, ad garbage
-        if (!foundNote) {
-          for (const line of lines) {
-            if (/^(?:付款詳細資訊|交易資訊|付款日期|請款日期|交易號碼|商品|付款方式|交易經由|商品價格|實際支付金額|未開獎|發票明細|捐贈發票|購買品項|總金額|備註)$/.test(line)) continue;
-            if (isCompanyHeader(line) || isAdOrGarbage(line) || line.includes('CW18') || line.includes('DN-') || line.includes('5680')) continue;
-            if (!/^[0-9\s:$/.\-]+$/.test(line) && line.length > 2 && line.length < 60 && !line.includes('202') && !line.includes('NT$')) {
-              foundNote = line;
-              break;
-            }
-          }
-        }
-
-        // Clean up note text: strip prices ($449x1, $449), quantities, UI icon artifacts, collapse Chinese spaces, fix OCR typos
-        if (foundNote) {
-          foundNote = foundNote
-            .replace(/\$[0-9]+x[0-9]+/gi, '')
-            .replace(/\$[0-9]+/gi, '')
-            .replace(/x[0-9]+/gi, '')
-            .replace(/^[加圖商店 Icon\s]+/g, '')
-            .replace(/\[(?:即加|即眾|3270|即眾不回|即加不合|即)/g, '【妤眾不同')
-            .replace(/【(?:即加|即眾|3270|即眾不回|即加不合)/g, '【妤眾不同')
-            .replace(/代富刻/g, '雷刻')
-            .replace(/靈刻/g, '雷刻')
-            .replace(/不欠[鋼鍋碗]/g, '不鏽鋼')
-            .replace(/不鍛鋼/g, '不鏽鋼')
-            .replace(/雙[府飛]/g, '雙層')
-            .replace(/隔[替府]/g, '隔熱')
-            .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
-            .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
-            .replace(/\(product\)/gi, '')
-            .replace(/(?:噴|嘖|味|咖|口卡)\s*啾/g, '咔啾')
-            .trim();
-        }
-
-        // 4. Auto-detect Account (e.g. 中國信託 / JCB / 3457 / line pay)
-        if (accounts && accounts.length > 0) {
-          for (const acc of accounts) {
-            const accName = acc.name.toLowerCase();
-            if (rawText.includes(acc.name) || (accName.includes('中信') && (rawText.includes('中國信託') || rawText.includes('中信') || rawText.includes('JCB') || rawText.includes('3457'))) || (accName.includes('台新') && rawText.includes('台新')) || (accName.includes('玉山') && rawText.includes('玉山')) || (accName.includes('國泰') && rawText.includes('國泰'))) {
-              setSelectedAccountId(acc.id);
-              foundAccountName = acc.name;
-              break;
-            }
-          }
-        }
-      }
-
-      const summaryStr: string[] = [];
-      if (foundAmount > 0) {
-        setAmount(String(foundAmount));
-        summaryStr.push(`金額: $${foundAmount}`);
-      }
-      if (foundDate) {
-        setConsumptionDate(foundDate);
-        setPostingDate(foundDate);
-        summaryStr.push(`日期: ${foundDate}`);
-      }
-      if (foundNote) {
-        setNote(foundNote);
-        summaryStr.push(`備註: ${foundNote}`);
-      }
-      if (foundAccountName) {
-        summaryStr.push(`帳戶: ${foundAccountName}`);
-      }
-
-      if (summaryStr.length > 0) {
-        alert(isQRCodeScan ? `✨ 成功讀取發票 QR Code！\n\n${summaryStr.join('\n')}` : `✨ 成功辨識交易明細！\n\n${summaryStr.join('\n')}`);
+      if (items.length > 0) {
+        onOpenAiSplit(tab === 'income' ? 'income' : 'expense', items, extractedDate, extractedTime);
       } else {
-        alert("📷 已讀取發票/截圖，未能自動解析出清楚的數字或日期，請手動輸入。");
+        alert('無法解析此發票圖片中的品項，請確認照片是否清晰。');
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Scan Error:", err);
-      alert("辨識圖片時發生錯誤，請重試一次。");
+      alert("發票辨識失敗：" + (err.message || "請重試一次。"));
     } finally {
       setIsScanningReceipt(false);
       e.target.value = '';
@@ -22728,38 +22532,26 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
       <div className="flex items-center gap-1.5 shrink-0">
         {tab !== 'transfer' && (
-          <>
-            <label 
-              onClick={(e) => e.stopPropagation()} 
-              className="p-1.5 bg-white hover:bg-[#FFD54F]/20 active:scale-95 transition-all rounded-xl border border-stone-200 shadow-sm flex items-center justify-center cursor-pointer text-[#5D4037]"
-              title="發票掃描"
-            >
-              <input 
-                type="file" 
-                accept="image/*" 
-                capture="environment"
-                className="hidden" 
-                onChange={handleScanReceipt} 
-                disabled={isScanningReceipt}
-              />
-              {isScanningReceipt ? (
-                <Loader2 className="w-3.5 h-3.5 text-[#5D4037] animate-spin" />
-              ) : (
-                <Camera size={14} className="text-[#5D4037]" />
-              )}
-            </label>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenAiSplit(tab === 'income' ? 'income' : 'expense');
-              }}
-              className="p-1.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-xl border border-[#0284C7]/40 shadow-sm flex items-center justify-center text-[#0369A1]"
-              title="AI 智慧拆分"
-            >
-              <Sparkles size={14} className="text-[#0369A1]" />
-            </button>
-          </>
+          <label 
+            onClick={(e) => e.stopPropagation()} 
+            className="px-2.5 py-1.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-xl border border-[#0284C7]/40 shadow-sm flex items-center justify-center cursor-pointer text-[#0369A1] gap-1"
+            title="發票掃描"
+          >
+            <input 
+              type="file" 
+              accept="image/*" 
+              capture="environment"
+              className="hidden" 
+              onChange={handleScanReceipt} 
+              disabled={isScanningReceipt}
+            />
+            {isScanningReceipt ? (
+              <Loader2 className="w-3.5 h-3.5 text-[#0369A1] animate-spin" />
+            ) : (
+              <Camera size={14} className="text-[#0369A1]" />
+            )}
+            <span className="text-xs font-black">發票掃描</span>
+          </label>
         )}
         <button
           type="button"
@@ -22789,7 +22581,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         <div className="flex items-center justify-between gap-2 w-full">
           {tab !== 'transfer' ? (
             <div className="flex items-center gap-2 flex-1">
-              <label className="flex-1 h-10 px-3 bg-white hover:bg-[#FFD54F]/10 active:scale-95 transition-all rounded-2xl border-2 border-[#5D4037]/10 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#5D4037]">
+              <label className="flex-1 h-10 px-3 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#0369A1]">
                 <input 
                   type="file" 
                   accept="image/*" 
@@ -22800,25 +22592,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
                 />
                 {isScanningReceipt ? (
                   <>
-                    <Loader2 className="w-4 h-4 text-[#5D4037] animate-spin" />
-                    <span className="text-xs font-black">辨識中</span>
+                    <Loader2 className="w-4 h-4 text-[#0369A1] animate-spin" />
+                    <span className="text-xs font-black" style={getFontFamily()}>辨識中...</span>
                   </>
                 ) : (
                   <>
-                    <Camera size={16} className="text-[#5D4037]" />
-                    <span className="text-xs font-black">發票掃描</span>
+                    <Camera size={16} className="text-[#0369A1]" />
+                    <span className="text-xs font-black" style={getFontFamily()}>發票掃描</span>
                   </>
                 )}
               </label>
-              <button
-                type="button"
-                onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
-                className="flex-1 h-10 px-3 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#0369A1]"
-                style={getFontFamily()}
-              >
-                <Sparkles size={16} className="text-[#0369A1]" />
-                <span className="text-xs font-black">AI 智慧拆分</span>
-              </button>
             </div>
           ) : <div className="flex-1" />}
 
@@ -23977,6 +23760,7 @@ function PrepaymentsView({
 interface AiSplitModalProps {
   isOpen: boolean;
   initialTab?: 'expense' | 'income';
+  presetData?: { items?: any[]; date?: string; time?: string } | null;
   onClose: () => void;
   accounts: Account[];
   categories: Category[];
@@ -23986,12 +23770,13 @@ interface AiSplitModalProps {
   onIncrementAiCount?: () => void;
 }
 
-function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categories, projects, user, onSaveBatch, onIncrementAiCount }: AiSplitModalProps) {
-  const [step, setStep] = useState<1 | 2>(1);
+function AiSplitModal({ isOpen, initialTab = 'expense', presetData, onClose, accounts, categories, projects, user, onSaveBatch, onIncrementAiCount }: AiSplitModalProps) {
+  const [step, setStep] = useState<1 | 2>(() => (presetData?.items && presetData.items.length > 0) ? 2 : 1);
   const [rawText, setRawText] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
-  const [transactionDate, setTransactionDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [transactionDate, setTransactionDate] = useState(() => presetData?.date || new Date().toISOString().split('T')[0]);
   const [transactionTime, setTransactionTime] = useState(() => {
+    if (presetData?.time) return presetData.time;
     const now = new Date();
     const hh = String(now.getHours()).padStart(2, '0');
     const mm = String(now.getMinutes()).padStart(2, '0');
@@ -24004,7 +23789,6 @@ function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categ
   const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('gemini_api_key') || '');
   const [isParsing, setIsParsing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [parsedItems, setParsedItems] = useState<{ name: string; amount: number; category: string; projectId?: string; isPrepay: boolean }[]>([]);
 
   const targetType = initialTab === 'income' ? 'income' : 'expense';
 
@@ -24023,6 +23807,43 @@ function AiSplitModal({ isOpen, initialTab = 'expense', onClose, accounts, categ
       });
     return list.length > 0 ? list : ['其他'];
   }, [categories, targetType]);
+
+  const [parsedItems, setParsedItems] = useState<{ name: string; amount: number; category: string; projectId?: string; isPrepay: boolean }[]>(() => {
+    if (presetData?.items && presetData.items.length > 0) {
+      return presetData.items.map((item: any) => {
+        const cat = targetCategories.includes(item.category) ? item.category : (targetCategories[0] || '其他');
+        const matchPid = findMatchingProjectId(cat, projects);
+        return {
+          name: filterTaiwanTerms(item.name || '未命名項目'),
+          amount: typeof item.amount === 'number' ? item.amount : parseInt(item.amount, 10) || 0,
+          category: cat,
+          projectId: item.projectId || matchPid || undefined,
+          isPrepay: !!item.isPrepay
+        };
+      });
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    if (presetData?.items && presetData.items.length > 0) {
+      const formatted = presetData.items.map((item: any) => {
+        const cat = targetCategories.includes(item.category) ? item.category : (targetCategories[0] || '其他');
+        const matchPid = findMatchingProjectId(cat, projects);
+        return {
+          name: filterTaiwanTerms(item.name || '未命名項目'),
+          amount: typeof item.amount === 'number' ? item.amount : parseInt(item.amount, 10) || 0,
+          category: cat,
+          projectId: item.projectId || matchPid || undefined,
+          isPrepay: !!item.isPrepay
+        };
+      });
+      setParsedItems(formatted);
+      if (presetData.date) setTransactionDate(presetData.date);
+      if (presetData.time) setTransactionTime(presetData.time);
+      setStep(2);
+    }
+  }, [presetData, targetCategories, projects]);
 
   const handleSaveApiKey = () => {
     localStorage.setItem('gemini_api_key', apiKeyInput.trim());
@@ -24303,7 +24124,7 @@ ${categoriesString}
       const firstItemName = filterTaiwanTerms(parsedItems[0]?.name || '採買');
       const mainTitle = parsedItems.length === 1 
         ? firstItemName 
-        : `${firstItemName} 等 ${parsedItems.length} 類明細`;
+        : `${firstItemName} 等 ${parsedItems.length} 項明細`;
 
       const recordToSave = {
         amount: isIncome ? Math.abs(totalDeduction) : -Math.abs(totalDeduction),
