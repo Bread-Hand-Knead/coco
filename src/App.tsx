@@ -294,6 +294,14 @@ interface Transaction {
 
 type CurrencyMode = 'TWD' | 'FOREIGN' | 'INVESTMENT' | null;
 
+export interface PriceHistoryItem {
+  id: string;
+  date: string;           // 評估日期 (例如: 2026/09/23)
+  price: number;          // 目前市價 / 最新淨值
+  marketValue: number;    // 目前總市值 / 總現值
+  createdAt: string;      // 建立時間戳記 (ISO 格式)
+}
+
 export interface Stock {
   id: string;
   code: string;           // 股票代號/名稱 (例如: 006208 富邦台50)
@@ -301,7 +309,8 @@ export interface Stock {
   shares: number;         // 持有數量 (股數 / 單位數，支援小數點後 4 位)
   avgPrice: number;       // 平均買入單價 / 申購淨值 (元)
   currentPrice?: number;  // 目前市價 / 最新淨值 (元)
-  evaluationDate?: string; // 市值評估日期 (YYYY-MM-DD)
+  evaluationDate?: string; // 市值評估日期 (YYYY-MM-DD 或 YYYY/MM/DD)
+  priceHistory?: PriceHistoryItem[]; // 市價評估歷史紀錄
   linkedAccount: string;  // 綁定之證券/基金交割銀行帳戶 ID
   purchaseDate?: string;  // 購買日期 (成交日)
   settlementDate?: string; // 交割日期 (扣款日)
@@ -322,6 +331,7 @@ export interface AggregatedStockGroup {
   avgPrice: number;
   currentPrice?: number;
   evaluationDate?: string;
+  priceHistory?: PriceHistoryItem[];
   subStocks: Stock[];
   brokerAccountIds: string[];
 }
@@ -6023,6 +6033,8 @@ function InvestmentSection({
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
+  const [stockPriceHistory, setStockPriceHistory] = useState<PriceHistoryItem[]>([]);
+  const [isPriceHistoryOpen, setIsPriceHistoryOpen] = useState(false);
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('all');
   const [expandedStockCodes, setExpandedStockCodes] = useState<Record<string, boolean>>({});
   const [isOverviewCollapsed, setIsOverviewCollapsed] = useState(false);
@@ -6279,6 +6291,7 @@ function InvestmentSection({
           avgPrice: s.avgPrice,
           currentPrice: s.currentPrice,
           evaluationDate: s.evaluationDate,
+          priceHistory: s.priceHistory,
           subStocks: [s],
           brokerAccountIds: s.linkedAccount ? [s.linkedAccount] : []
         };
@@ -6310,6 +6323,7 @@ function InvestmentSection({
       let latestEvalDate: string | undefined = undefined;
 
       const brokerAccountIds = Array.from(new Set(groupStocks.map(s => s.linkedAccount).filter(Boolean)));
+      const combinedHistoryMap = new Map<string, PriceHistoryItem>();
 
       groupStocks.forEach(s => {
         totalShares += s.shares;
@@ -6322,9 +6336,20 @@ function InvestmentSection({
         if (s.evaluationDate && (!latestEvalDate || s.evaluationDate > latestEvalDate)) {
           latestEvalDate = s.evaluationDate;
         }
+        if (Array.isArray(s.priceHistory)) {
+          s.priceHistory.forEach(h => {
+            combinedHistoryMap.set(h.date.replace(/-/g, '/'), h);
+          });
+        }
       });
 
       const avgPrice = totalShares > 0 ? parseFloat((totalCost / totalShares).toFixed(2)) : 0;
+      const groupPriceHistory = Array.from(combinedHistoryMap.values()).sort((a, b) => {
+        const dateA = a.date.replace(/\//g, '-');
+        const dateB = b.date.replace(/\//g, '-');
+        if (dateA !== dateB) return dateB.localeCompare(dateA);
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      });
 
       return {
         isAggregated,
@@ -6336,6 +6361,7 @@ function InvestmentSection({
         avgPrice,
         currentPrice: latestCurrentPrice,
         evaluationDate: latestEvalDate,
+        priceHistory: groupPriceHistory.length > 0 ? groupPriceHistory : undefined,
         subStocks: groupStocks,
         brokerAccountIds
       };
@@ -6458,6 +6484,7 @@ function InvestmentSection({
     setStockSettlementDate(calculateSettlementDate(todayStr));
     setIsStockSettlementManual(false);
     setStockEvaluationDate(todayStr);
+    setStockPriceHistory([]);
     setStockNotes('');
     setIsStockModalOpen(true);
   };
@@ -6487,6 +6514,7 @@ function InvestmentSection({
       setIsStockSettlementManual(false);
     }
     setStockEvaluationDate(stock.evaluationDate || new Date().toISOString().split('T')[0]);
+    setStockPriceHistory(stock.priceHistory ? [...stock.priceHistory] : []);
     setStockNotes(stock.notes || '');
     setIsStockModalOpen(true);
   };
@@ -6519,6 +6547,57 @@ function InvestmentSection({
       ? stockSettlementDate.trim() 
       : calculateSettlementDate(stockPurchaseDate || new Date().toISOString().split('T')[0]);
 
+    // 自動更新/追加市價歷史紀錄 (Price Evaluation History)
+    let finalPriceHistory: PriceHistoryItem[] = [...stockPriceHistory];
+
+    if (currentPriceNum !== undefined && currentPriceNum > 0) {
+      const rawEvalDate = (stockEvaluationDate && stockEvaluationDate.trim()) 
+        ? stockEvaluationDate.trim() 
+        : new Date().toISOString().split('T')[0];
+      const formattedEvalDate = rawEvalDate.replace(/-/g, '/');
+
+      const inputMarketValue = stockCurrentMarketValue.trim() !== '' 
+        ? parseFloat(stockCurrentMarketValue) 
+        : undefined;
+      const calculatedMV = (inputMarketValue !== undefined && !isNaN(inputMarketValue) && inputMarketValue > 0)
+        ? inputMarketValue
+        : Math.round(sharesNum * currentPriceNum);
+
+      // 檢查該日期是否已有記錄
+      const existingHistoryIdx = finalPriceHistory.findIndex(
+        h => h.date.replace(/-/g, '/') === formattedEvalDate
+      );
+
+      if (existingHistoryIdx !== -1) {
+        // 若該日期已有記錄，則更新當日記錄，避免重複洗版
+        finalPriceHistory[existingHistoryIdx] = {
+          ...finalPriceHistory[existingHistoryIdx],
+          date: formattedEvalDate,
+          price: currentPriceNum,
+          marketValue: Math.round(calculatedMV),
+          createdAt: new Date().toISOString()
+        };
+      } else {
+        // 追加一筆記錄
+        const newHistoryItem: PriceHistoryItem = {
+          id: `eval_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          date: formattedEvalDate,
+          price: currentPriceNum,
+          marketValue: Math.round(calculatedMV),
+          createdAt: new Date().toISOString()
+        };
+        finalPriceHistory = [newHistoryItem, ...finalPriceHistory];
+      }
+
+      // 依日期由新到舊降冪排列 (最新的在最上方)
+      finalPriceHistory.sort((a, b) => {
+        const dateA = a.date.replace(/\//g, '-');
+        const dateB = b.date.replace(/\//g, '-');
+        if (dateA !== dateB) return dateB.localeCompare(dateA);
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      });
+    }
+
     // 檢查同證券交割帳戶下是否已存在相同股票/基金代碼（同標的自動加權平均合併）
     const existingIndex = isNew ? stocks.findIndex(s => 
       s.code.trim().toLowerCase() === cleanCode.toLowerCase() && 
@@ -6540,6 +6619,20 @@ function InvestmentSection({
       const buyLog = `[加購 ${dateStr}] +${sharesNum} @ $${priceNum}`;
       const mergedNotes = existing.notes ? `${existing.notes} | ${buyLog}` : buyLog;
 
+      const combinedMap = new Map<string, PriceHistoryItem>();
+      (existing.priceHistory || []).forEach(h => {
+        combinedMap.set(h.date.replace(/-/g, '/'), h);
+      });
+      finalPriceHistory.forEach(h => {
+        combinedMap.set(h.date.replace(/-/g, '/'), h);
+      });
+      const mergedPriceHistoryList = Array.from(combinedMap.values()).sort((a, b) => {
+        const dateA = a.date.replace(/\//g, '-');
+        const dateB = b.date.replace(/\//g, '-');
+        if (dateA !== dateB) return dateB.localeCompare(dateA);
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      });
+
       const mergedStock: Stock = {
         ...existing,
         category: stockCategory,
@@ -6547,6 +6640,7 @@ function InvestmentSection({
         avgPrice: newAvgPrice,
         currentPrice: currentPriceNum !== undefined ? currentPriceNum : existing.currentPrice,
         evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : existing.evaluationDate,
+        priceHistory: mergedPriceHistoryList.length > 0 ? mergedPriceHistoryList : undefined,
         fee: (existing.fee || 0) + feeNum,
         totalCost: newTotalCost,
         linkedAccount: resolvedBrokerAccount,
@@ -6577,6 +6671,7 @@ function InvestmentSection({
         avgPrice: priceNum,
         currentPrice: currentPriceNum,
         evaluationDate: currentPriceNum !== undefined ? stockEvaluationDate : undefined,
+        priceHistory: finalPriceHistory.length > 0 ? finalPriceHistory : undefined,
         linkedAccount: resolvedBrokerAccount,
         purchaseDate: stockPurchaseDate,
         settlementDate: finalSettlementDate,
@@ -7554,8 +7649,21 @@ function InvestmentSection({
 
               {/* 目前市價 / 目前市值 防呆雙向連動 (用於損益與報酬率試算) */}
               <div className="space-y-2 bg-[#FFFDF5] p-3.5 rounded-2xl border border-stone-200/50">
-                <div className="flex items-center justify-between px-1">
+                <div className="flex items-center justify-between px-1 gap-2 flex-wrap">
                   <span className="text-xs font-black text-[#5D4037]">💡 現值/損益試算 (選填，可雙向換算)</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsPriceHistoryOpen(true)}
+                    className="text-[11px] font-black text-[#8D6E63] hover:text-[#5D4037] bg-[#FFF9E3] hover:bg-[#FFD54F]/30 border border-[#FFD54F]/50 px-2.5 py-1 rounded-xl transition-all flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer"
+                    title="查看歷史市價評估記錄"
+                  >
+                    <span>🕒 查看市價歷史</span>
+                    {stockPriceHistory.length > 0 && (
+                      <span className="bg-[#5D4037] text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
+                        {stockPriceHistory.length}
+                      </span>
+                    )}
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -7663,6 +7771,122 @@ function InvestmentSection({
                   className="flex-1 py-4 bg-[#5D4037] text-white rounded-2xl font-black shadow-lg hover:bg-[#4E342E] transition-all text-sm"
                 >
                   儲存持股
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal: Price Evaluation History List (市價歷史記錄) */}
+      <AnimatePresence>
+        {isPriceHistoryOpen && (
+          <div className="fixed inset-0 z-[230] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setIsPriceHistoryOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#FFF9E3] w-full max-w-sm rounded-[35px] p-6 shadow-2xl relative z-10 border-2 border-white flex flex-col gap-4 max-h-[80vh] overflow-hidden"
+              style={getFontFamily()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-[#5D4037]/10 pb-3 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🕒</span>
+                  <div>
+                    <h4 className="text-base font-black text-[#5D4037]">市價歷史記錄</h4>
+                    <p className="text-[11px] text-stone-500 font-bold">
+                      {stockCode ? stockCode : (selectedStockForDetail?.code || '持股')} 歷史評估軌跡
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setIsPriceHistoryOpen(false)}
+                  className="p-1.5 text-stone-400 hover:text-[#5D4037] hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* History Items List */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2.5 pr-0.5 min-h-[150px]">
+                {stockPriceHistory.length === 0 ? (
+                  <div className="text-center py-10 space-y-2">
+                    <span className="text-3xl block">📊</span>
+                    <p className="text-xs font-bold text-stone-400 leading-relaxed">
+                      尚無歷史市價記錄<br/>
+                      修改「目前市價」與「評估日期」並儲存時<br/>
+                      系統將自動記錄歷史軌跡
+                    </p>
+                  </div>
+                ) : (
+                  stockPriceHistory
+                    .slice()
+                    .sort((a, b) => {
+                      const dateA = a.date.replace(/\//g, '-');
+                      const dateB = b.date.replace(/\//g, '-');
+                      if (dateA !== dateB) return dateB.localeCompare(dateA);
+                      return (b.createdAt || '').localeCompare(a.createdAt || '');
+                    })
+                    .map((item) => (
+                      <div 
+                        key={item.id}
+                        className="bg-white p-3.5 rounded-2xl border border-stone-200/60 shadow-2xs flex items-center justify-between gap-3 hover:border-[#FFD54F] transition-all"
+                      >
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-[#5D4037] bg-[#FFF9E3] border border-[#FFD54F]/40 px-2 py-0.5 rounded-lg">
+                              📅 {item.date.replace(/-/g, '/')}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs pt-1">
+                            <span className="font-medium text-stone-600">
+                              市價: <span className="font-black text-[#5D4037]">${item.price.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                            </span>
+                            <span className="font-medium text-stone-600">
+                              總市值: <span className="font-black text-emerald-700">${Math.round(item.marketValue).toLocaleString()}</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`確定要刪除 ${item.date.replace(/-/g, '/')} 的市價記錄嗎？`)) {
+                              const nextHistory = stockPriceHistory.filter(h => h.id !== item.id);
+                              setStockPriceHistory(nextHistory);
+                              if (selectedStockForDetail && !isStockModalOpen) {
+                                const updated = {
+                                  ...selectedStockForDetail,
+                                  priceHistory: nextHistory.length > 0 ? nextHistory : undefined
+                                };
+                                onSaveStock(updated);
+                                setSelectedStockForDetail(updated);
+                              }
+                            }
+                          }}
+                          className="p-2 text-stone-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors shrink-0 cursor-pointer"
+                          title="刪除此筆歷史"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="pt-2 border-t border-stone-200/60 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsPriceHistoryOpen(false)}
+                  className="w-full py-3 bg-[#5D4037] text-white text-xs font-black rounded-xl hover:bg-[#4E342E] transition-all shadow-sm cursor-pointer"
+                >
+                  完成
                 </button>
               </div>
             </motion.div>
@@ -8043,6 +8267,23 @@ function InvestmentSection({
                       </motion.div>
                     )}
                   </AnimatePresence>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStockPriceHistory(selectedStockForDetail.priceHistory || []);
+                      setIsPriceHistoryOpen(true);
+                    }}
+                    className="w-full py-2 bg-[#FFF9E3] hover:bg-[#FFD54F]/20 text-[#5D4037] border border-[#FFD54F]/40 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-2xs mt-1 cursor-pointer"
+                    title="查看該持股的歷史市價評估軌跡"
+                  >
+                    <span>🕒 查看市價歷史</span>
+                    {selectedStockForDetail.priceHistory && selectedStockForDetail.priceHistory.length > 0 && (
+                      <span className="bg-[#5D4037] text-white text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                        {selectedStockForDetail.priceHistory.length}
+                      </span>
+                    )}
+                  </button>
                 </div>
 
                 {/* Right Column: Transaction History */}
@@ -8148,7 +8389,7 @@ function InvestmentSection({
                         }
                         if (stockDetailFilter === 'dividend') {
                           // 股利頁籤：必須為收入紀錄 (type === 'income' 且 >0)，排除支出/轉帳紀錄
-                          const isIncome = r.type === 'income' || (r.amount > 0 && (!r.type || r.type === 'income'));
+                          const isIncome = (r.type as string) === 'income' || r.amount > 0;
                           const isDividendNote = Boolean(r.note && (r.note.includes('[股利]') || r.note.includes('股利') || r.note.includes('配息')));
                           return isIncome && isDividendNote;
                         }

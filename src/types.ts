@@ -118,6 +118,14 @@ export interface FixedRecord {
   note?: string;
 }
 
+export interface PriceHistoryItem {
+  id: string;
+  date: string;           // 評估日期 (例如: 2026/09/23)
+  price: number;          // 目前市價 / 最新淨值
+  marketValue: number;    // 目前總市值 / 總現值
+  createdAt: string;      // 建立時間戳記 (ISO 格式)
+}
+
 export interface Stock {
   id: string;
   code: string;           // 股票代號/名稱 (例如: 006208 富邦台50)
@@ -126,6 +134,7 @@ export interface Stock {
   avgPrice: number;       // 平均買入單價
   currentPrice?: number;  // 目前市價 / 最新淨值
   evaluationDate?: string; // 市值評估日期
+  priceHistory?: PriceHistoryItem[]; // 市價評估歷史紀錄
   linkedAccount: string;  // 綁定之證券交割銀行帳戶 ID
   purchaseDate?: string;  // 購買日期 (成交日)
   settlementDate?: string; // 交割日期 (扣款日)
@@ -146,6 +155,7 @@ export interface AggregatedStockGroup {
   avgPrice: number;
   currentPrice?: number;
   evaluationDate?: string;
+  priceHistory?: PriceHistoryItem[];
   subStocks: Stock[];
   brokerAccountIds: string[];
 }
