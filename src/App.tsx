@@ -24106,9 +24106,9 @@ ${categoriesString}
 }
 
 const MODEL_CASCADE = [
-  'gemini-3.8-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite'
+  'gemini-2.0-flash',        // 主力模型：穩定支援多模態視覺辨識
+  'gemini-1.5-flash',        // 備援一：穩定可靠
+  'gemini-1.5-flash-8b',     // 備援二：輕量，高可用
 ];
 
 interface GeminiRequestPayload {
@@ -24120,28 +24120,23 @@ const callGeminiApiWithFallback = async (
   key: string,
   requestBody: GeminiRequestPayload
 ): Promise<any> => {
-  let isBusyOrQuotaError = false;
   let lastErrorMsg = '';
 
   for (let mIdx = 0; mIdx < MODEL_CASCADE.length; mIdx++) {
     const model = MODEL_CASCADE[mIdx];
-    // Retry up to 2 times for each model in cascade
+    // 每個模型最多重試 2 次（應對暫時塞車）
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
         });
 
         if (res.ok) {
           const resJson = await res.json();
           const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!responseText) {
-            throw new Error('Gemini API 未回傳任何文字結果。');
-          }
+          if (!responseText) throw new Error('Gemini API 未回傳任何文字結果。');
           return resJson;
         }
 
@@ -24149,40 +24144,35 @@ const callGeminiApiWithFallback = async (
         const errText = await res.text();
         const lowerErr = errText.toLowerCase();
 
-        // 503 (UNAVAILABLE), 500 (SERVER_ERROR), 429 (RATE_LIMIT)
-        const isRetryable = status === 503 || status === 500 || status === 429 ||
-          lowerErr.includes('503') || lowerErr.includes('500') || lowerErr.includes('429') ||
+        // 503 / 500 / 429：暫時性忙碌，同一模型稍後重試
+        const isBusy = status === 503 || status === 500 || status === 429 ||
           lowerErr.includes('high demand') || lowerErr.includes('unavailable') || lowerErr.includes('resource_exhausted');
 
-        if (isRetryable) {
-          isBusyOrQuotaError = true;
-          console.warn(`[Gemini Cascade] 模型 ${model} (嘗試 ${attempt + 1}) 遭遇 ${status}，自動在背景無縫切換備援模型重試...`);
-          await new Promise(r => setTimeout(r, 1000));
-          continue;
+        if (isBusy) {
+          console.warn(`[Gemini] 模型 ${model} (嘗試 ${attempt + 1}) 遭遇 ${status}，稍後重試...`);
+          lastErrorMsg = `伺服器忙碌 (${status})`;
+          await new Promise(r => setTimeout(r, 800));
+          continue; // 同模型再試一次
         }
 
-        // Non-retryable error
-        throw new Error(`API 請求失敗 (${status})`);
+        // 404 / 400：模型不存在或請求格式錯誤 → 跳下一個模型
+        console.warn(`[Gemini] 模型 ${model} 回傳 ${status}，跳至備援模型...`);
+        lastErrorMsg = `${model} 不可用 (${status})`;
+        break; // 跳出 attempt 迴圈，進入下一個模型
+
       } catch (err: any) {
-        const msg = err?.message || '';
-        lastErrorMsg = msg;
-        if (msg.includes('503') || msg.includes('500') || msg.includes('429') || msg.toLowerCase().includes('high demand') || msg.toLowerCase().includes('unavailable') || msg.includes('連線稍忙')) {
-          isBusyOrQuotaError = true;
-          await new Promise(r => setTimeout(r, 1000));
-        } else if (msg.startsWith('API 請求失敗')) {
-          throw err;
-        } else {
-          await new Promise(r => setTimeout(r, 1000));
-        }
+        lastErrorMsg = err?.message || '';
+        console.warn(`[Gemini] 模型 ${model} 例外：${lastErrorMsg}`);
+        await new Promise(r => setTimeout(r, 800));
+        // 例外也繼續嘗試下一個模型
       }
     }
   }
 
-  if (isBusyOrQuotaError) {
-    throw new Error('目前 AI 連線稍忙，請稍候片刻再試一次');
-  }
-  throw new Error(lastErrorMsg || '目前 AI 連線稍忙，請稍候片刻再試一次');
+  // 所有模型都失敗
+  throw new Error(lastErrorMsg || '所有備援模型皆無法使用，請稍後再試');
 };
+
 
 const filterTaiwanTerms = (text: string): string => {
   if (!text) return '';
