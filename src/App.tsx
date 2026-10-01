@@ -1500,7 +1500,7 @@ export default function App() {
   };
   const [isAiSplitModalOpen, setIsAiSplitModalOpen] = useState(false);
   const [aiSplitInitialTab, setAiSplitInitialTab] = useState<'expense' | 'income'>('expense');
-  const [aiSplitPresetData, setAiSplitPresetData] = useState<{ items?: any[]; date?: string; time?: string } | null>(null);
+  const [aiSplitPresetData, setAiSplitPresetData] = useState<{ items?: any[]; date?: string; time?: string; note?: string } | null>(null);
   const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<Account | null>(null);
   const [rateModalAccount, setRateModalAccount] = useState<Account | null>(null);
   const [historyFilter, setHistoryFilter] = useState<{ type: 'day' | 'week' | 'month' | 'year', date: string }>({ type: 'day', date: selectedDate });
@@ -3995,9 +3995,9 @@ export default function App() {
               }}
               selectedDate={selectedDate}
               records={records}
-              onOpenAiSplit={(modeTab, items, date, time) => { 
+              onOpenAiSplit={(modeTab, items, date, time, note) => { 
                 setAiSplitInitialTab(modeTab); 
-                setAiSplitPresetData(items && items.length > 0 ? { items, date, time } : null);
+                setAiSplitPresetData(items && items.length > 0 ? { items, date, time, note } : null);
                 setIsRecordModalOpen(false); 
                 setDuplicatingRecord(null);
                 setIsAiSplitModalOpen(true); 
@@ -21815,7 +21815,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   onSave: (r: any, keepOpen?: boolean) => void,
   selectedDate: string,
   records: Transaction[],
-  onOpenAiSplit: (tab: 'expense' | 'income', initialItems?: any[], initialDate?: string, initialTime?: string) => void
+  onOpenAiSplit: (tab: 'expense' | 'income', initialItems?: any[], initialDate?: string, initialTime?: string, initialNote?: string) => void
 }) {
   const parseCategoryString = (rawCat?: string) => {
     if (!rawCat) return { main: null, sub: null };
@@ -22064,6 +22064,173 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
   };
 
 
+  // ─── 台灣電子發票 QR Code 解碼工具 ───────────────────────────────────────
+
+  /** 用 Canvas 從 File 解析出所有 QR Code 原始字串（可能有 1 或 2 個 QR Code） */
+  const decodeQRCodesFromImage = async (file: File): Promise<string[]> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = async () => {
+        const MAX_SIZE = 1600;
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        if (w > MAX_SIZE || h > MAX_SIZE) {
+          const ratio = Math.min(MAX_SIZE / w, MAX_SIZE / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+
+        const results: string[] = [];
+        // 先掃描整圖
+        try {
+          const { default: jsQR } = await import('jsqr');
+          const imageData = ctx.getImageData(0, 0, w, h);
+          const qr = jsQR(imageData.data, w, h);
+          if (qr?.data) results.push(qr.data);
+
+          // 若只找到一個，再切左右半張各掃一次（一張發票通常有左右兩個 QR）
+          if (results.length < 2) {
+            const halfW = Math.floor(w / 2);
+            // 左半
+            const leftData = ctx.getImageData(0, 0, halfW, h);
+            const leftQR = jsQR(leftData.data, halfW, h);
+            if (leftQR?.data && !results.includes(leftQR.data)) results.push(leftQR.data);
+            // 右半
+            const rightData = ctx.getImageData(halfW, 0, w - halfW, h);
+            const rightQR = jsQR(rightData.data, w - halfW, h);
+            if (rightQR?.data && !results.includes(rightQR.data)) results.push(rightQR.data);
+          }
+
+          // 若還是不夠，切下半張（超商發票 QR 多在下方）
+          if (results.length < 2) {
+            const halfH = Math.floor(h / 2);
+            const bottomData = ctx.getImageData(0, halfH, w, h - halfH);
+            const bottomQR = jsQR(bottomData.data, w, h - halfH);
+            if (bottomQR?.data && !results.includes(bottomQR.data)) results.push(bottomQR.data);
+
+            // 下半左右各掃
+            const bHalfW = Math.floor(w / 2);
+            const bLeftData = ctx.getImageData(0, halfH, bHalfW, h - halfH);
+            const bLeftQR = jsQR(bLeftData.data, bHalfW, h - halfH);
+            if (bLeftQR?.data && !results.includes(bLeftQR.data)) results.push(bLeftQR.data);
+            const bRightData = ctx.getImageData(bHalfW, halfH, w - bHalfW, h - halfH);
+            const bRightQR = jsQR(bRightData.data, w - bHalfW, h - halfH);
+            if (bRightQR?.data && !results.includes(bRightQR.data)) results.push(bRightQR.data);
+          }
+        } catch (_e) {
+          // jsQR 載入失敗或掃描失敗，直接回傳空陣列
+        }
+        resolve(results);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve([]); };
+      img.src = url;
+    });
+  };
+
+  /** 判斷是否為台灣電子發票左側 QR Code（開頭為發票字軌 2 碼大寫英文 + 8 碼數字） */
+  const isLeftInvoiceQR = (raw: string): boolean =>
+    /^[A-Z]{2}\d{8}/.test(raw) && raw.length >= 40;
+
+  /** 判斷是否為台灣電子發票右側 QR Code（** 開頭） */
+  const isRightInvoiceQR = (raw: string): boolean => raw.startsWith('**');
+
+  /**
+   * 解析台灣電子發票 QR Code
+   * 左側格式（前 77 碼固定欄位）：
+   *   [0:10]  發票號碼
+   *   [10:17] 民國年月日 YYYMMDD
+   *   [17:21] 隨機碼
+   *   [21:29] 未稅銷售額 hex
+   *   [29:37] 含稅總計 hex
+   *   [37:45] 買方統編
+   *   [45:53] 賣方統編
+   *   [53:77] AES 驗證碼 Base64
+   *   [77+]   :商品明細（:品名:數量:單價...）
+   * 右側格式：**商品明細（接續左側）
+   */
+  interface EInvoiceParseResult {
+    invoiceNo: string;      // 發票號碼（帶格式，如 AB-12345678）
+    date: string;           // 西元日期 YYYY-MM-DD
+    taxExcluded: number;    // 未稅金額
+    total: number;          // 含稅總計
+    sellerTaxId: string;    // 賣方統編
+    buyerTaxId: string;     // 買方統編
+    items: Array<{ name: string; qty: number; unitPrice: number; amount: number }>;
+  }
+
+  const parseEInvoiceQRCodes = (qrStrings: string[]): EInvoiceParseResult | null => {
+    const leftRaw = qrStrings.find(isLeftInvoiceQR);
+    const rightRaw = qrStrings.find(isRightInvoiceQR);
+    if (!leftRaw) return null;
+
+    try {
+      const invoiceNo = leftRaw.slice(0, 10); // e.g. AB12345678
+      const rocDate = leftRaw.slice(10, 17);  // YYYMMDD（民國年 3 碼）
+      const taxExHex = leftRaw.slice(21, 29);
+      const totalHex = leftRaw.slice(29, 37);
+      const buyerTaxId = leftRaw.slice(37, 45).trim();
+      const sellerTaxId = leftRaw.slice(45, 53).trim();
+
+      // 民國年轉西元
+      const rocYear = parseInt(rocDate.slice(0, 3), 10);
+      const month = rocDate.slice(3, 5);
+      const day = rocDate.slice(5, 7);
+      const adYear = rocYear + 1911;
+      const date = `${adYear}-${month}-${day}`;
+
+      // hex 轉 10 進位金額
+      const taxExcluded = parseInt(taxExHex, 16) || 0;
+      const total = parseInt(totalHex, 16) || 0;
+
+      // 品項：左側 77 碼後的 colon 段落，加上右側 ** 後的文字
+      let itemStr = '';
+      if (leftRaw.length > 77) {
+        const afterFixed = leftRaw.slice(77);
+        // 品項段以第一個 ':' 開始（格式：:品名:數量:單價...）
+        const colonIdx = afterFixed.indexOf(':');
+        if (colonIdx >= 0) itemStr += afterFixed.slice(colonIdx + 1);
+      }
+      if (rightRaw) {
+        const afterStars = rightRaw.slice(2); // 去掉 **
+        itemStr += (itemStr ? ':' : '') + afterStars;
+      }
+
+      const items: EInvoiceParseResult['items'] = [];
+      if (itemStr.trim()) {
+        // 格式：品名:數量:單價:品名:數量:單價...（每組 3 個冒號分隔欄位）
+        const parts = itemStr.split(':').filter(p => p.trim() !== '');
+        for (let i = 0; i + 2 < parts.length; i += 3) {
+          const name = parts[i].trim();
+          const qty = parseFloat(parts[i + 1]) || 1;
+          const unitPrice = parseFloat(parts[i + 2]) || 0;
+          if (name && unitPrice > 0) {
+            items.push({ name, qty, unitPrice, amount: Math.round(qty * unitPrice) });
+          }
+        }
+      }
+
+      return {
+        invoiceNo: `${invoiceNo.slice(0, 2)}-${invoiceNo.slice(2)}`, // AB-12345678
+        date,
+        taxExcluded,
+        total,
+        sellerTaxId,
+        buyerTaxId,
+        items,
+      };
+    } catch (_e) {
+      return null;
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -22072,6 +22239,62 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     setIsScanningReceipt(true);
 
     try {
+      // ── 第一步：優先嘗試台灣電子發票 QR Code 解碼 ──────────────────────────
+      const qrStrings = await decodeQRCodesFromImage(file);
+      const invoiceData = parseEInvoiceQRCodes(qrStrings);
+
+      if (invoiceData) {
+        // ✅ QR Code 解碼成功 → 直接填入，不需要呼叫 Gemini
+        const targetCats = categories.filter(c => c.type === (tab === 'income' ? 'income' : 'expense'));
+        const catList: string[] = [];
+        targetCats.forEach(cat => {
+          catList.push(cat.name);
+          if (cat.sub && cat.sub.length > 0) {
+            cat.sub.forEach(sub => catList.push(`${cat.name} > ${sub}`));
+          }
+        });
+
+        let items: Array<{ name: string; amount: number; category: string; projectId?: string; isPrepay: boolean }>;
+
+        if (invoiceData.items.length > 0) {
+          // 有解析到品項明細
+          const defaultCat = catList[0] || '其他';
+          items = invoiceData.items.map(it => {
+            const matchPid = findMatchingProjectId(defaultCat, projects);
+            return {
+              name: filterTaiwanTerms(it.name),
+              amount: it.amount,
+              category: defaultCat,
+              projectId: matchPid || undefined,
+              isPrepay: false,
+            };
+          });
+        } else {
+          // QR Code 有解碼但無品項（某些超商只印號碼）→ 以總金額建一筆記錄
+          const defaultCat = catList[0] || '其他';
+          const matchPid = findMatchingProjectId(defaultCat, projects);
+          items = [{
+            name: `電子發票 ${invoiceData.invoiceNo}`,
+            amount: invoiceData.total,
+            category: defaultCat,
+            projectId: matchPid || undefined,
+            isPrepay: false,
+          }];
+        }
+
+        if (items.length > 0) {
+          onOpenAiSplit(
+            tab === 'income' ? 'income' : 'expense',
+            items,
+            invoiceData.date,
+            undefined,
+            `電子發票 ${invoiceData.invoiceNo}`,
+          );
+          return;
+        }
+      }
+
+      // ── 第二步：QR Code 解碼失敗或非電子發票 → 退回 Gemini AI 視覺辨識 ──────
       const key = (import.meta as any).env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
       if (!key.trim()) {
         alert('請先設定 Gemini API 金鑰！');
@@ -22208,6 +22431,7 @@ ${categoriesString}
       e.target.value = '';
     }
   };
+
 
   // Check if current account is credit card
   const isCreditCard = useMemo(() => {
@@ -24153,7 +24377,7 @@ function PrepaymentsView({
 interface AiSplitModalProps {
   isOpen: boolean;
   initialTab?: 'expense' | 'income';
-  presetData?: { items?: any[]; date?: string; time?: string } | null;
+  presetData?: { items?: any[]; date?: string; time?: string; note?: string } | null;
   onClose: () => void;
   accounts: Account[];
   categories: Category[];
@@ -24296,6 +24520,7 @@ function AiSplitModal({ isOpen, initialTab = 'expense', presetData, onClose, acc
   });
   const dateInputRef = useRef<HTMLInputElement>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
+  const [invoiceNote, setInvoiceNote] = useState(() => presetData?.note || '');
   const dateInputRef2 = useRef<HTMLInputElement>(null);
   const timeInputRef2 = useRef<HTMLInputElement>(null);
   const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('gemini_api_key') || '');
@@ -24367,6 +24592,7 @@ function AiSplitModal({ isOpen, initialTab = 'expense', presetData, onClose, acc
       setParsedItems(formatted);
       if (presetData.date) setTransactionDate(presetData.date);
       if (presetData.time) setTransactionTime(presetData.time);
+      if (presetData.note) setInvoiceNote(presetData.note);
       setStep(2);
     }
   }, [presetData, targetCategories, projects]);
@@ -24649,8 +24875,8 @@ ${categoriesString}
       const recordToSave = {
         amount: isIncome ? Math.abs(totalDeduction) : -Math.abs(totalDeduction),
         category: filterTaiwanTerms(parsedItems[0]?.category || '其他'),
-        note: mainTitle,
-        remark: mainTitle,
+        note: invoiceNote ? `${invoiceNote} ${mainTitle}` : mainTitle,
+        remark: invoiceNote ? `${invoiceNote} ${mainTitle}` : mainTitle,
         date: transactionDate,
         time: transactionTime,
         postingDate: transactionDate,
