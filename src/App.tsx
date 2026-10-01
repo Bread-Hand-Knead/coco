@@ -288,6 +288,8 @@ interface Transaction {
   _isMergedTransfer?: boolean;
   _mergedRecordIds?: string[];
   _mergedDisplayName?: string;
+  isCustomInstallment?: boolean;
+  customSchedule?: CustomInstallmentItem[];
   isDeleted?: boolean;
   deletedAt?: string;
 }
@@ -22808,26 +22810,43 @@ ${categoriesString}
 
       <div className="flex items-center gap-1.5 shrink-0">
         {tab !== 'transfer' && (
-          <label 
-            onClick={(e) => e.stopPropagation()} 
-            className="px-2.5 py-1.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-xl border border-[#0284C7]/40 shadow-sm flex items-center justify-center cursor-pointer text-[#0369A1] gap-1"
-            title="發票掃描"
-          >
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment"
-              className="hidden" 
-              onChange={handleScanReceipt} 
-              disabled={isScanningReceipt}
-            />
-            {isScanningReceipt ? (
-              <Loader2 className="w-3.5 h-3.5 text-[#0369A1] animate-spin" />
-            ) : (
-              <Camera size={14} className="text-[#0369A1]" />
-            )}
-            <span className="text-xs font-black">發票掃描</span>
-          </label>
+          <>
+            {/* 按鈕一：📷 發票掃描（相機/圖片） */}
+            <label 
+              onClick={(e) => e.stopPropagation()} 
+              className="px-2.5 py-1.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-xl border border-[#0284C7]/40 shadow-sm flex items-center justify-center cursor-pointer text-[#0369A1] gap-1"
+              title="📷 發票掃描（拍照/圖片上傳）"
+            >
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment"
+                className="hidden" 
+                onChange={handleScanReceipt} 
+                disabled={isScanningReceipt}
+              />
+              {isScanningReceipt ? (
+                <Loader2 className="w-3.5 h-3.5 text-[#0369A1] animate-spin" />
+              ) : (
+                <Camera size={14} className="text-[#0369A1]" />
+              )}
+              <span className="text-xs font-black">📷 掃描</span>
+            </label>
+
+            {/* 按鈕二：✨ AI 智慧解析（純文字貼上） */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenAiSplit(tab === 'income' ? 'income' : 'expense');
+              }}
+              className="px-2.5 py-1.5 bg-[#FFF3C4] hover:bg-[#FFE082] active:scale-95 transition-all rounded-xl border border-[#FFB300]/40 shadow-sm flex items-center justify-center cursor-pointer text-[#8D6E63] gap-1"
+              title="✨ AI 智慧解析（貼上明細文字）"
+            >
+              <Sparkles size={14} className="text-[#D97706]" />
+              <span className="text-xs font-black">✨ 文字解析</span>
+            </button>
+          </>
         )}
         <button
           type="button"
@@ -22857,7 +22876,8 @@ ${categoriesString}
         <div className="flex items-center justify-between gap-2 w-full">
           {tab !== 'transfer' ? (
             <div className="flex items-center gap-2 flex-1">
-              <label className="flex-1 h-10 px-3 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#0369A1]">
+              {/* 按鈕一：📷 發票掃描（相機拍攝/圖片上傳） */}
+              <label className="flex-1 h-10 px-2.5 bg-[#E0F2FE] hover:bg-[#BAE6FD] active:scale-95 transition-all rounded-2xl border-2 border-[#0284C7]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden text-[#0369A1]">
                 <input 
                   type="file" 
                   accept="image/*" 
@@ -22874,10 +22894,21 @@ ${categoriesString}
                 ) : (
                   <>
                     <Camera size={16} className="text-[#0369A1]" />
-                    <span className="text-xs font-black" style={getFontFamily()}>發票掃描</span>
+                    <span className="text-xs font-black" style={getFontFamily()}>📷 發票掃描</span>
                   </>
                 )}
               </label>
+
+              {/* 按鈕二：✨ AI 智慧解析（純文字貼上解析） */}
+              <button
+                type="button"
+                onClick={() => onOpenAiSplit(tab === 'income' ? 'income' : 'expense')}
+                className="flex-1 h-10 px-2.5 bg-[#FFF3C4] hover:bg-[#FFE082] active:scale-95 transition-all rounded-2xl border-2 border-[#FFB300]/40 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-[#8D6E63]"
+                title="點擊貼上載具或電子發票明細文字進行 AI 拆分"
+              >
+                <Sparkles size={16} className="text-[#D97706]" />
+                <span className="text-xs font-black" style={getFontFamily()}>✨ AI 智慧解析</span>
+              </button>
             </div>
           ) : <div className="flex-1" />}
 
@@ -23851,10 +23882,9 @@ ${categoriesString}
 }
 
 const MODEL_CASCADE = [
-  'gemini-1.5-flash',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash-8b',
-  'gemini-1.5-pro'
+  'gemini-3.8-flash',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite'
 ];
 
 interface GeminiRequestPayload {
@@ -23866,12 +23896,12 @@ const callGeminiApiWithFallback = async (
   key: string,
   requestBody: GeminiRequestPayload
 ): Promise<any> => {
-  let isBusyError = false;
+  let isBusyOrQuotaError = false;
   let lastErrorMsg = '';
 
   for (let mIdx = 0; mIdx < MODEL_CASCADE.length; mIdx++) {
     const model = MODEL_CASCADE[mIdx];
-    // Retry up to 2 times per model with ~1 second delay
+    // Retry up to 2 times for each model in cascade
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
@@ -23895,22 +23925,25 @@ const callGeminiApiWithFallback = async (
         const errText = await res.text();
         const lowerErr = errText.toLowerCase();
 
-        const isBusy = status === 503 || status === 429 || lowerErr.includes('503') || lowerErr.includes('429') || lowerErr.includes('high demand') || lowerErr.includes('unavailable');
+        // 503 (UNAVAILABLE), 500 (SERVER_ERROR), 429 (RATE_LIMIT)
+        const isRetryable = status === 503 || status === 500 || status === 429 ||
+          lowerErr.includes('503') || lowerErr.includes('500') || lowerErr.includes('429') ||
+          lowerErr.includes('high demand') || lowerErr.includes('unavailable') || lowerErr.includes('resource_exhausted');
 
-        if (isBusy) {
-          isBusyError = true;
-          console.warn(`[Gemini Fallback] 模型 ${model} (第 ${attempt + 1} 次) 發生 503/429 塞車，將進行重試/自動切換備援模型...`);
+        if (isRetryable) {
+          isBusyOrQuotaError = true;
+          console.warn(`[Gemini Cascade] 模型 ${model} (嘗試 ${attempt + 1}) 遭遇 ${status}，自動在背景無縫切換備援模型重試...`);
           await new Promise(r => setTimeout(r, 1000));
           continue;
         }
 
-        // Non-503/429 error
+        // Non-retryable error
         throw new Error(`API 請求失敗 (${status})`);
       } catch (err: any) {
         const msg = err?.message || '';
         lastErrorMsg = msg;
-        if (msg.includes('503') || msg.includes('429') || msg.toLowerCase().includes('high demand') || msg.toLowerCase().includes('unavailable') || msg.includes('忙碌')) {
-          isBusyError = true;
+        if (msg.includes('503') || msg.includes('500') || msg.includes('429') || msg.toLowerCase().includes('high demand') || msg.toLowerCase().includes('unavailable') || msg.includes('連線稍忙')) {
+          isBusyOrQuotaError = true;
           await new Promise(r => setTimeout(r, 1000));
         } else if (msg.startsWith('API 請求失敗')) {
           throw err;
@@ -23921,10 +23954,10 @@ const callGeminiApiWithFallback = async (
     }
   }
 
-  if (isBusyError) {
-    throw new Error('目前伺服器忙碌中，請稍候片刻再試');
+  if (isBusyOrQuotaError) {
+    throw new Error('目前 AI 連線稍忙，請稍候片刻再試一次');
   }
-  throw new Error(lastErrorMsg || '目前伺服器忙碌中，請稍候片刻再試');
+  throw new Error(lastErrorMsg || '目前 AI 連線稍忙，請稍候片刻再試一次');
 };
 
 const filterTaiwanTerms = (text: string): string => {
