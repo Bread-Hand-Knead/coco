@@ -22088,44 +22088,53 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         URL.revokeObjectURL(url);
 
         const results: string[] = [];
-        // 先掃描整圖
+        const addQr = (data: string | null | undefined) => {
+          if (data && !results.includes(data)) {
+            results.push(data);
+          }
+        };
+
         try {
           const { default: jsQR } = await import('jsqr');
-          const imageData = ctx.getImageData(0, 0, w, h);
-          const qr = jsQR(imageData.data, w, h);
-          if (qr?.data) results.push(qr.data);
 
-          // 若只找到一個，再切左右半張各掃一次（一張發票通常有左右兩個 QR）
+          const scanRegion = (x: number, y: number, rw: number, rh: number) => {
+            if (rw <= 0 || rh <= 0) return;
+            const imgData = ctx.getImageData(x, y, rw, rh);
+            const qr = jsQR(imgData.data, rw, rh);
+            if (qr?.data) addQr(qr.data);
+          };
+
+          // 先掃描整圖
+          scanRegion(0, 0, w, h);
+
+          // 切左右與下半區域加強辨識
           if (results.length < 2) {
             const halfW = Math.floor(w / 2);
-            // 左半
-            const leftData = ctx.getImageData(0, 0, halfW, h);
-            const leftQR = jsQR(leftData.data, halfW, h);
-            if (leftQR?.data && !results.includes(leftQR.data)) results.push(leftQR.data);
-            // 右半
-            const rightData = ctx.getImageData(halfW, 0, w - halfW, h);
-            const rightQR = jsQR(rightData.data, w - halfW, h);
-            if (rightQR?.data && !results.includes(rightQR.data)) results.push(rightQR.data);
+            const halfH = Math.floor(h / 2);
+
+            scanRegion(0, 0, halfW, h);
+            scanRegion(halfW, 0, w - halfW, h);
+            scanRegion(0, halfH, w, h - halfH);
+            scanRegion(0, halfH, halfW, h - halfH);
+            scanRegion(halfW, halfH, w - halfW, h - halfH);
           }
 
-          // 若還是不夠，切下半張（超商發票 QR 多在下方）
+          // 對比度強化/二值化掃描備援
           if (results.length < 2) {
-            const halfH = Math.floor(h / 2);
-            const bottomData = ctx.getImageData(0, halfH, w, h - halfH);
-            const bottomQR = jsQR(bottomData.data, w, h - halfH);
-            if (bottomQR?.data && !results.includes(bottomQR.data)) results.push(bottomQR.data);
-
-            // 下半左右各掃
-            const bHalfW = Math.floor(w / 2);
-            const bLeftData = ctx.getImageData(0, halfH, bHalfW, h - halfH);
-            const bLeftQR = jsQR(bLeftData.data, bHalfW, h - halfH);
-            if (bLeftQR?.data && !results.includes(bLeftQR.data)) results.push(bLeftQR.data);
-            const bRightData = ctx.getImageData(bHalfW, halfH, w - bHalfW, h - halfH);
-            const bRightQR = jsQR(bRightData.data, w - bHalfW, h - halfH);
-            if (bRightQR?.data && !results.includes(bRightQR.data)) results.push(bRightQR.data);
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+              const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
+              const val = avg > 128 ? 255 : 0;
+              d[i] = val;
+              d[i + 1] = val;
+              d[i + 2] = val;
+            }
+            const binarizedQr = jsQR(d, w, h);
+            if (binarizedQr?.data) addQr(binarizedQr.data);
           }
         } catch (_e) {
-          // jsQR 載入失敗或掃描失敗，直接回傳空陣列
+          // jsQR 載入失敗或掃描失敗，回傳已辨識到的結果
         }
         resolve(results);
       };
@@ -22152,8 +22161,8 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
    *   [37:45] 買方統編
    *   [45:53] 賣方統編
    *   [53:77] AES 驗證碼 Base64
-   *   [77+]   :商品明細（:品名:數量:單價...）
-   * 右側格式：**商品明細（接續左側）
+   *   [77+]   :********** (可選備註分隔符) :品項件數:總品項數:編碼格式 :品名:數量:單價...
+   * 右側格式：**品名:數量:單價...
    */
   interface EInvoiceParseResult {
     invoiceNo: string;      // 發票號碼（帶格式，如 AB-12345678）
@@ -22189,29 +22198,64 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       const taxExcluded = parseInt(taxExHex, 16) || 0;
       const total = parseInt(totalHex, 16) || 0;
 
-      // 品項：左側 77 碼後的 colon 段落，加上右側 ** 後的文字
-      let itemStr = '';
+      const items: EInvoiceParseResult['items'] = [];
+
+      // ── 解析左側 QR Code 商品明細 ──
       if (leftRaw.length > 77) {
-        const afterFixed = leftRaw.slice(77);
-        // 品項段以第一個 ':' 開始（格式：:品名:數量:單價...）
-        const colonIdx = afterFixed.indexOf(':');
-        if (colonIdx >= 0) itemStr += afterFixed.slice(colonIdx + 1);
-      }
-      if (rightRaw) {
-        const afterStars = rightRaw.slice(2); // 去掉 **
-        itemStr += (itemStr ? ':' : '') + afterStars;
+        const after77 = leftRaw.slice(77);
+        const tokens = after77.split(':').map(s => s.trim());
+        while (tokens.length > 0 && tokens[0] === '') {
+          tokens.shift();
+        }
+
+        // 跳過 '**********' 備註區段分隔符
+        if (tokens.length > 0 && /^\*+$/.test(tokens[0])) {
+          tokens.shift();
+        }
+
+        // 檢查前 3 個欄位是否為二維條碼元資料 [itemCount, totalCount, encoding]
+        if (tokens.length >= 3) {
+          const t0Num = parseInt(tokens[0], 10);
+          const t1Num = parseInt(tokens[1], 10);
+          const t2Num = parseInt(tokens[2], 10);
+          if (!isNaN(t0Num) && !isNaN(t1Num) && !isNaN(t2Num) && t2Num >= 1 && t2Num <= 3 && t0Num < 100 && t1Num < 100) {
+            tokens.splice(0, 3); // 跳過元資料標頭
+          }
+        }
+
+        // 依序解析 [品名, 數量, 單價]
+        for (let i = 0; i + 2 < tokens.length; i += 3) {
+          const name = tokens[i];
+          const qty = parseFloat(tokens[i + 1]);
+          const unitPrice = parseFloat(tokens[i + 2]);
+          if (name && !/^\*+$/.test(name) && !isNaN(qty) && !isNaN(unitPrice)) {
+            items.push({
+              name,
+              qty: qty || 1,
+              unitPrice: unitPrice || 0,
+              amount: Math.round((qty || 1) * (unitPrice || 0))
+            });
+          }
+        }
       }
 
-      const items: EInvoiceParseResult['items'] = [];
-      if (itemStr.trim()) {
-        // 格式：品名:數量:單價:品名:數量:單價...（每組 3 個冒號分隔欄位）
-        const parts = itemStr.split(':').filter(p => p.trim() !== '');
-        for (let i = 0; i + 2 < parts.length; i += 3) {
-          const name = parts[i].trim();
-          const qty = parseFloat(parts[i + 1]) || 1;
-          const unitPrice = parseFloat(parts[i + 2]) || 0;
-          if (name && unitPrice > 0) {
-            items.push({ name, qty, unitPrice, amount: Math.round(qty * unitPrice) });
+      // ── 解析右側 QR Code 商品明細 ──
+      if (rightRaw) {
+        let rightText = rightRaw.startsWith('**') ? rightRaw.slice(2) : rightRaw;
+        if (rightText.startsWith(':')) rightText = rightText.slice(1);
+        const tokens = rightText.split(':').map(s => s.trim()).filter(Boolean);
+
+        for (let i = 0; i + 2 < tokens.length; i += 3) {
+          const name = tokens[i];
+          const qty = parseFloat(tokens[i + 1]);
+          const unitPrice = parseFloat(tokens[i + 2]);
+          if (name && !/^\*+$/.test(name) && !isNaN(qty) && !isNaN(unitPrice)) {
+            items.push({
+              name,
+              qty: qty || 1,
+              unitPrice: unitPrice || 0,
+              amount: Math.round((qty || 1) * (unitPrice || 0))
+            });
           }
         }
       }
