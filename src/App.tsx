@@ -24106,9 +24106,9 @@ ${categoriesString}
 }
 
 const MODEL_CASCADE = [
-  'gemini-2.0-flash',        // 主力模型：穩定支援多模態視覺辨識
-  'gemini-1.5-flash',        // 備援一：穩定可靠
-  'gemini-1.5-flash-8b',     // 備援二：輕量，高可用
+  'gemini-3.8-flash',        // 主力：最新穩定多模態模型
+  'gemini-3.5-flash-lite',   // 備援一：輕量高可用
+  'gemini-3.1-pro',          // 備援二：高品質兜底
 ];
 
 interface GeminiRequestPayload {
