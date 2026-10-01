@@ -602,7 +602,7 @@ const INITIAL_PROJECTS: Project[] = [
 
 // --- Main App ---
 
-import { getCategoryIcon, getFontFamily, calculateEstimatedSellingDeduction } from './lib/financeUtils';
+import { getCategoryIcon, getFontFamily, calculateEstimatedSellingDeduction, generateDefaultCustomSchedule, getCorrectInstallmentDate, CustomInstallmentItem } from './lib/financeUtils';
 
 // Helper to parse date string "YYYY-MM-DD" to local Date object
 const parseLocalDate = (dateStr: string) => {
@@ -2556,7 +2556,7 @@ export default function App() {
     showUndoToast('股票投資紀錄已移至垃圾桶', () => handleRestoreStock(stockId));
   };
 
-  const handleSaveRecord = async (record: Omit<Transaction, 'id'>, keepOpen?: boolean) => {
+  const handleSaveRecord = async (record: Omit<Transaction, 'id'> & { customSchedule?: CustomInstallmentItem[] }, keepOpen?: boolean) => {
     if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
       const installmentGroupId = Date.now().toString();
       const totalAmtAbs = Math.abs(record.amount);
@@ -2568,14 +2568,22 @@ export default function App() {
       const batch = user ? writeBatch(db) : null;
 
       for (let i = 1; i <= totalTerms; i++) {
-        const targetYear = startDate.getFullYear();
-        const targetMonth = startDate.getMonth() + (i - 1);
-        const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
-        const targetDay = Math.min(startDate.getDate(), maxDays);
-        const currentDate = new Date(targetYear, targetMonth, targetDay);
-        const dateStr = formatLocalDate(currentDate);
-        
-        const currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+        let dateStr: string;
+        let currentAmtAbs: number;
+
+        if (record.isCustomInstallment && record.customSchedule && record.customSchedule.length >= i) {
+          dateStr = record.customSchedule[i - 1].date;
+          currentAmtAbs = Math.abs(record.customSchedule[i - 1].amount);
+        } else {
+          const targetYear = startDate.getFullYear();
+          const targetMonth = startDate.getMonth() + (i - 1);
+          const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+          const targetDay = Math.min(startDate.getDate(), maxDays);
+          const currentDate = new Date(targetYear, targetMonth, targetDay);
+          dateStr = formatLocalDate(currentDate);
+          currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+        }
+
         const finalAmt = record.amount < 0 ? -currentAmtAbs : currentAmtAbs;
 
         const id = `${installmentGroupId}-${i}`;
@@ -2816,7 +2824,8 @@ export default function App() {
     groupId: string, 
     newNote: string, 
     newTotalAmount: number, 
-    newTotalInstallments: number
+    newTotalInstallments: number,
+    customSchedule?: CustomInstallmentItem[]
   ) => {
     const groupRecords = records.filter(r => r.installmentGroupId === groupId);
     if (groupRecords.length === 0) return;
@@ -2836,14 +2845,22 @@ export default function App() {
         });
 
         for (let i = 1; i <= newTotalInstallments; i++) {
-          const targetYear = startDate.getFullYear();
-          const targetMonth = startDate.getMonth() + (i - 1);
-          const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
-          const targetDay = Math.min(startDate.getDate(), maxDays);
-          const currentDate = new Date(targetYear, targetMonth, targetDay);
-          const dateStr = formatLocalDate(currentDate);
+          let dateStr: string;
+          let currentAmtAbs: number;
 
-          const currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+          if (customSchedule && customSchedule.length >= i) {
+            dateStr = customSchedule[i - 1].date;
+            currentAmtAbs = Math.abs(customSchedule[i - 1].amount);
+          } else {
+            const targetYear = startDate.getFullYear();
+            const targetMonth = startDate.getMonth() + (i - 1);
+            const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+            const targetDay = Math.min(startDate.getDate(), maxDays);
+            const currentDate = new Date(targetYear, targetMonth, targetDay);
+            dateStr = formatLocalDate(currentDate);
+            currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+          }
+
           const finalAmt = first.amount < 0 ? -currentAmtAbs : currentAmtAbs;
 
           const id = `${groupId}-${i}`;
@@ -2872,14 +2889,22 @@ export default function App() {
 
     const newParts: Transaction[] = [];
     for (let i = 1; i <= newTotalInstallments; i++) {
-      const targetYear = startDate.getFullYear();
-      const targetMonth = startDate.getMonth() + (i - 1);
-      const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
-      const targetDay = Math.min(startDate.getDate(), maxDays);
-      const currentDate = new Date(targetYear, targetMonth, targetDay);
-      const dateStr = formatLocalDate(currentDate);
+      let dateStr: string;
+      let currentAmtAbs: number;
 
-      const currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+      if (customSchedule && customSchedule.length >= i) {
+        dateStr = customSchedule[i - 1].date;
+        currentAmtAbs = Math.abs(customSchedule[i - 1].amount);
+      } else {
+        const targetYear = startDate.getFullYear();
+        const targetMonth = startDate.getMonth() + (i - 1);
+        const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+        const targetDay = Math.min(startDate.getDate(), maxDays);
+        const currentDate = new Date(targetYear, targetMonth, targetDay);
+        dateStr = formatLocalDate(currentDate);
+        currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+      }
+
       const finalAmt = first.amount < 0 ? -currentAmtAbs : currentAmtAbs;
 
       const id = `${groupId}-${i}`;
@@ -10827,6 +10852,17 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
   }, [categories, edited.type]);
   const [isInstallment, setIsInstallment] = useState(() => !!record.isInstallment || !!record.installmentGroupId || !!record.installmentId);
   const [totalInstallments, setTotalInstallments] = useState(() => record.totalInstallments || 12);
+  const [isCustomInstallment, setIsCustomInstallment] = useState(() => !!record.isCustomInstallment);
+  const [customSchedules, setCustomSchedules] = useState<CustomInstallmentItem[]>(() => {
+    if (record.customSchedule && record.customSchedule.length > 0) {
+      return record.customSchedule;
+    }
+    return generateDefaultCustomSchedule(
+      Math.abs(record.amount || 0),
+      record.totalInstallments || 12,
+      record.date || formatLocalDate(new Date())
+    );
+  });
   const [amountStr, setAmountStr] = useState<string>(() => {
     const numPeriods = record.totalInstallments || 12;
     if ((record.isInstallment || record.installmentGroupId || record.installmentId) && numPeriods > 1) {
@@ -11821,6 +11857,88 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                         </div>
                       </div>
                     </div>
+
+                    {/* 自訂每期明細 (金額與日期) 開關 */}
+                    <div className="pt-3 border-t border-stone-200/50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-[#5D4037]">自訂每期明細 (金額與日期)</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextVal = !isCustomInstallment;
+                            setIsCustomInstallment(nextVal);
+                            if (nextVal && customSchedules.length !== totalInstallments) {
+                              setCustomSchedules(generateDefaultCustomSchedule(Math.abs(edited.amount), totalInstallments, edited.date));
+                            }
+                          }}
+                          className={`w-12 h-6 rounded-full transition-all relative ${isCustomInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isCustomInstallment ? 'left-7' : 'left-1'}`} />
+                        </button>
+                      </div>
+
+                      {isCustomInstallment && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 pt-1">
+                          <div className="text-[11px] font-bold text-stone-400">
+                            分期明細清單 (第 1 期 ～ 第 {totalInstallments} 期)
+                          </div>
+                          <div className="space-y-2 max-h-56 overflow-y-auto pr-1 no-scrollbar">
+                            {customSchedules.map((item, idx) => (
+                              <div key={idx} className="flex items-center gap-2 bg-white/90 p-2.5 rounded-xl border border-stone-200/80 shadow-2xs">
+                                <span className="text-xs font-black text-[#5D4037] w-14 shrink-0">第 {item.installment} 期</span>
+                                <div className="flex-1 space-y-1">
+                                  <label className="text-[9px] font-bold text-stone-400 block">扣款/入帳日期</label>
+                                  <input
+                                    type="date"
+                                    value={item.date}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, date: val } : it));
+                                    }}
+                                    className="w-full p-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                                    style={getFontFamily()}
+                                  />
+                                </div>
+                                <div className="w-28 shrink-0 space-y-1">
+                                  <label className="text-[9px] font-bold text-stone-400 block">本期金額</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={item.amount}
+                                    onChange={e => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, amount: val } : it));
+                                    }}
+                                    className="w-full p-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                                    style={getFontFamily()}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* 試算加總與相差提示 */}
+                          {(() => {
+                            const customSum = customSchedules.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+                            const originalTotal = Math.abs(edited.amount || 0);
+                            const diff = Math.abs(customSum - originalTotal);
+                            return (
+                              <div className="p-3 bg-stone-100/90 rounded-xl space-y-1 text-xs font-bold">
+                                <div className="flex items-center justify-between text-[#5D4037]">
+                                  <span>自訂加總：${customSum.toLocaleString()}</span>
+                                  <span>原總金額：${originalTotal.toLocaleString()}</span>
+                                </div>
+                                {diff !== 0 && (
+                                  <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200/80 rounded-lg text-[11px] text-amber-800 font-bold leading-snug">
+                                    💡 目前自訂加總與原總金額相差 ${diff.toLocaleString()} 元
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </motion.div>
+                      )}
+                    </div>
                     <div className="p-3 bg-amber-50/80 border border-amber-200/50 rounded-xl text-[11px] font-bold text-amber-800 leading-snug">
                       {isInstallment 
                         ? '💡 此項目目前標記為分期付款。關閉開關可將此消費還原為原始總金額並轉為一般單筆支出。'
@@ -12089,6 +12207,8 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                   toAccountId: resolvedType === 'transfer' ? finalToAccountId : undefined,
                   isInstallment,
                   totalInstallments: isInstallment ? totalInstallments : undefined,
+                  isCustomInstallment: (isInstallment && isCustomInstallment),
+                  customSchedule: (isInstallment && isCustomInstallment) ? customSchedules : undefined,
                   baseAmount: baseOriginalAmount
                 }, Object.values(childUpdatesMap));
               }}
@@ -15513,7 +15633,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
   records: Transaction[], 
   onDeleteGroup: (groupId: string) => void,
   onEarlySettlement: (groupId: string, remainingAmount: number, firstRecord: Transaction) => void,
-  onUpdateGroup: (groupId: string, newNote: string, newTotalAmount: number, newTotalInstallments: number) => void
+  onUpdateGroup: (groupId: string, newNote: string, newTotalAmount: number, newTotalInstallments: number, customSchedule?: CustomInstallmentItem[]) => void
 }) {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSettleConfirmOpen, setIsSettleConfirmOpen] = useState(false);
@@ -15525,13 +15645,35 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
   const [editTotalAmount, setEditTotalAmount] = useState('');
   const [editTotalInstallments, setEditTotalInstallments] = useState(12);
 
+  const [isCustomInstallment, setIsCustomInstallment] = useState(false);
+  const [customSchedules, setCustomSchedules] = useState<CustomInstallmentItem[]>([]);
+
   useEffect(() => {
-    if (editingGroup) {
+    if (editingGroup && editingGroup.length > 0) {
       const first = editingGroup[0];
       setEditNote(first.note?.split(' (分期')[0] || '');
       const actualTotalAmount = editingGroup.reduce((sum, r) => sum + Math.abs(r.amount), 0);
       setEditTotalAmount(actualTotalAmount.toString());
-      setEditTotalInstallments(first.totalInstallments || 12);
+      const totalTerms = first.totalInstallments || editingGroup.length || 12;
+      setEditTotalInstallments(totalTerms);
+
+      const sorted = [...editingGroup].sort((a, b) => (a.currentInstallment || 0) - (b.currentInstallment || 0));
+      const items: CustomInstallmentItem[] = sorted.map((r, idx) => ({
+        installment: r.currentInstallment || (idx + 1),
+        date: r.postingDate || r.date,
+        amount: Math.abs(r.amount)
+      }));
+      setCustomSchedules(items);
+
+      const startDate = first.date;
+      const baseAmt = Math.floor(actualTotalAmount / totalTerms);
+      const remainderAmt = actualTotalAmount - (baseAmt * totalTerms);
+      const isCustom = sorted.some((r, idx) => {
+        const expectedDate = getCorrectInstallmentDate(startDate, r.currentInstallment || (idx + 1));
+        const expectedAmt = (idx + 1) <= remainderAmt ? baseAmt + 1 : baseAmt;
+        return (r.postingDate && r.postingDate !== expectedDate) || Math.abs(r.amount) !== expectedAmt;
+      });
+      setIsCustomInstallment(isCustom);
     }
   }, [editingGroup]);
 
@@ -15555,7 +15697,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
       return;
     }
 
-    onUpdateGroup(groupId, trimmedNote, amt, terms);
+    onUpdateGroup(groupId, trimmedNote, amt, terms, isCustomInstallment ? customSchedules : undefined);
     setEditingGroup(null);
   };
 
@@ -15824,7 +15966,15 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                     min="1"
                     max="36"
                     value={editTotalInstallments}
-                    onChange={e => setEditTotalInstallments(parseInt(e.target.value) || 1)}
+                    onChange={e => {
+                      const val = parseInt(e.target.value) || 1;
+                      setEditTotalInstallments(val);
+                      if (isCustomInstallment) {
+                        const first = editingGroup ? editingGroup[0] : null;
+                        const startDateStr = first ? first.date : formatLocalDate(new Date());
+                        setCustomSchedules(generateDefaultCustomSchedule(parseFloat(editTotalAmount) || 0, val, startDateStr));
+                      }
+                    }}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-lg text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                   />
                 </div>
@@ -15844,6 +15994,90 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                     })()}
                   </div>
                 </div>
+              </div>
+
+              {/* 自訂每期明細 (金額與日期) 開關與編輯區塊 */}
+              <div className="pt-3 border-t border-stone-200/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#5D4037]">自訂每期明細 (金額與日期)</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextState = !isCustomInstallment;
+                      setIsCustomInstallment(nextState);
+                      if (nextState && customSchedules.length !== editTotalInstallments) {
+                        const first = editingGroup ? editingGroup[0] : null;
+                        const startDateStr = first ? first.date : formatLocalDate(new Date());
+                        setCustomSchedules(generateDefaultCustomSchedule(parseFloat(editTotalAmount) || 0, editTotalInstallments, startDateStr));
+                      }
+                    }}
+                    className={`w-12 h-6 rounded-full transition-all relative ${isCustomInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isCustomInstallment ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+
+                {isCustomInstallment && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3 pt-1">
+                    <div className="text-xs font-bold text-stone-400">
+                      分期明細清單 (第 1 期 ～ 第 {editTotalInstallments} 期)
+                    </div>
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1 no-scrollbar">
+                      {customSchedules.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-white/90 p-2.5 rounded-2xl border border-stone-200/80 shadow-2xs">
+                          <span className="text-xs font-black text-[#5D4037] w-14 shrink-0">第 {item.installment} 期</span>
+                          <div className="flex-1 space-y-1">
+                            <label className="text-[9px] font-bold text-stone-400 block">扣款/入帳日期</label>
+                            <input
+                              type="date"
+                              value={item.date}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, date: val } : it));
+                              }}
+                              className="w-full p-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                              style={getFontFamily()}
+                            />
+                          </div>
+                          <div className="w-28 shrink-0 space-y-1">
+                            <label className="text-[9px] font-bold text-stone-400 block">本期金額</label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={item.amount}
+                              onChange={e => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, amount: val } : it));
+                              }}
+                              className="w-full p-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                              style={getFontFamily()}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* 試算加總與相差提示 */}
+                    {(() => {
+                      const customSum = customSchedules.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+                      const originalTotal = Math.abs(parseFloat(editTotalAmount) || 0);
+                      const diff = Math.abs(customSum - originalTotal);
+                      return (
+                        <div className="p-3 bg-stone-100/90 rounded-2xl space-y-1 text-xs font-bold">
+                          <div className="flex items-center justify-between text-[#5D4037]">
+                            <span>自訂加總：${customSum.toLocaleString()}</span>
+                            <span>原總金額：${originalTotal.toLocaleString()}</span>
+                          </div>
+                          {diff !== 0 && (
+                            <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl text-[11px] text-amber-800 font-bold leading-snug">
+                              💡 目前自訂加總與原總金額相差 ${diff.toLocaleString()} 元
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </motion.div>
+                )}
               </div>
 
               <div className="flex w-full gap-3 mt-4">
@@ -21917,20 +22151,7 @@ ${categoriesString}
         }
       };
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`API 請求失敗: ${res.status} - ${errText}`);
-      }
-
-      const resJson = await res.json();
+      const resJson = await callGeminiApiWithFallback(key, requestBody);
       const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!responseText) {
         throw new Error('Gemini API 未回傳任何文字結果。');
@@ -21972,7 +22193,14 @@ ${categoriesString}
 
     } catch (err: any) {
       console.error("Scan Error:", err);
-      alert("發票辨識失敗：" + (err.message || "請重試一次。"));
+      const rawMsg = err?.message || '';
+      let displayMsg = rawMsg;
+      if (rawMsg.includes('503') || rawMsg.includes('429') || rawMsg.toLowerCase().includes('high demand') || rawMsg.toLowerCase().includes('unavailable') || rawMsg.includes('伺服器忙碌')) {
+        displayMsg = '目前伺服器忙碌中，請稍候片刻再試';
+      } else if (rawMsg.includes('API 請求失敗') || rawMsg.includes('{') || rawMsg.includes('}')) {
+        displayMsg = '請求服務失敗，請稍後再試。';
+      }
+      alert("發票辨識失敗：" + displayMsg);
     } finally {
       setIsScanningReceipt(false);
       e.target.value = '';
@@ -23622,6 +23850,83 @@ ${categoriesString}
   );
 }
 
+const MODEL_CASCADE = [
+  'gemini-1.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash-8b',
+  'gemini-1.5-pro'
+];
+
+interface GeminiRequestPayload {
+  contents: any[];
+  generationConfig?: any;
+}
+
+const callGeminiApiWithFallback = async (
+  key: string,
+  requestBody: GeminiRequestPayload
+): Promise<any> => {
+  let isBusyError = false;
+  let lastErrorMsg = '';
+
+  for (let mIdx = 0; mIdx < MODEL_CASCADE.length; mIdx++) {
+    const model = MODEL_CASCADE[mIdx];
+    // Retry up to 2 times per model with ~1 second delay
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (res.ok) {
+          const resJson = await res.json();
+          const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!responseText) {
+            throw new Error('Gemini API 未回傳任何文字結果。');
+          }
+          return resJson;
+        }
+
+        const status = res.status;
+        const errText = await res.text();
+        const lowerErr = errText.toLowerCase();
+
+        const isBusy = status === 503 || status === 429 || lowerErr.includes('503') || lowerErr.includes('429') || lowerErr.includes('high demand') || lowerErr.includes('unavailable');
+
+        if (isBusy) {
+          isBusyError = true;
+          console.warn(`[Gemini Fallback] 模型 ${model} (第 ${attempt + 1} 次) 發生 503/429 塞車，將進行重試/自動切換備援模型...`);
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+
+        // Non-503/429 error
+        throw new Error(`API 請求失敗 (${status})`);
+      } catch (err: any) {
+        const msg = err?.message || '';
+        lastErrorMsg = msg;
+        if (msg.includes('503') || msg.includes('429') || msg.toLowerCase().includes('high demand') || msg.toLowerCase().includes('unavailable') || msg.includes('忙碌')) {
+          isBusyError = true;
+          await new Promise(r => setTimeout(r, 1000));
+        } else if (msg.startsWith('API 請求失敗')) {
+          throw err;
+        } else {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+    }
+  }
+
+  if (isBusyError) {
+    throw new Error('目前伺服器忙碌中，請稍候片刻再試');
+  }
+  throw new Error(lastErrorMsg || '目前伺服器忙碌中，請稍候片刻再試');
+};
+
 const filterTaiwanTerms = (text: string): string => {
   if (!text) return '';
   return text
@@ -24111,20 +24416,7 @@ ${categoriesString}
         }
       };
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`API 請求失敗: ${res.status} - ${errText}`);
-      }
-
-      const resJson = await res.json();
+      const resJson = await callGeminiApiWithFallback(key, requestBody);
       const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!responseText) {
         throw new Error('Gemini API 未回傳任何文字結果，請確認金鑰是否正確。');
@@ -24222,7 +24514,14 @@ ${categoriesString}
       onIncrementAiCount?.();
     } catch (err: any) {
       console.error('AI split failed:', err);
-      alert('解析失敗：' + (err.message || '請確認網路連線或 API 金鑰是否正確。'));
+      const rawMsg = err?.message || '';
+      let displayMsg = rawMsg;
+      if (rawMsg.includes('503') || rawMsg.includes('429') || rawMsg.toLowerCase().includes('high demand') || rawMsg.toLowerCase().includes('unavailable') || rawMsg.includes('伺服器忙碌')) {
+        displayMsg = '目前伺服器忙碌中，請稍候片刻再試';
+      } else if (rawMsg.includes('API 請求失敗') || rawMsg.includes('{') || rawMsg.includes('}')) {
+        displayMsg = '請求服務失敗，請稍後再試。';
+      }
+      alert('解析失敗：' + displayMsg);
     } finally {
       setIsParsing(false);
     }

@@ -89,3 +89,56 @@ export const calculateEstimatedSellingDeduction = (
   };
 };
 
+export const getCorrectInstallmentDate = (startDateStr: string, currentInstallment: number): string => {
+  const startDate = new Date(startDateStr);
+  let targetYear: number;
+  let targetMonth: number;
+  let targetDay: number;
+
+  if (isNaN(startDate.getTime())) {
+    const today = new Date();
+    targetYear = today.getFullYear();
+    targetMonth = today.getMonth() + (currentInstallment - 1);
+    targetDay = today.getDate();
+  } else {
+    targetYear = startDate.getFullYear();
+    targetMonth = startDate.getMonth() + (currentInstallment - 1);
+    targetDay = startDate.getDate();
+  }
+
+  const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const safeDay = Math.min(targetDay, maxDays);
+  const currentDate = new Date(targetYear, targetMonth, safeDay);
+
+  const y = currentDate.getFullYear();
+  const m = String(currentDate.getMonth() + 1).padStart(2, '0');
+  const d = String(currentDate.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+export interface CustomInstallmentItem {
+  installment: number;
+  date: string;
+  amount: number;
+}
+
+export const generateDefaultCustomSchedule = (
+  totalAmount: number,
+  terms: number,
+  startDateStr: string
+): CustomInstallmentItem[] => {
+  const totalAmtAbs = Math.abs(totalAmount || 0);
+  const safeTerms = Math.max(1, Math.min(36, terms || 1));
+  const baseAmt = Math.floor(totalAmtAbs / safeTerms);
+  const remainderAmt = totalAmtAbs - baseAmt * safeTerms;
+
+  const items: CustomInstallmentItem[] = [];
+  for (let i = 1; i <= safeTerms; i++) {
+    const date = getCorrectInstallmentDate(startDateStr, i);
+    const amount = i <= remainderAmt ? baseAmt + 1 : baseAmt;
+    items.push({ installment: i, date, amount });
+  }
+  return items;
+};
+
+

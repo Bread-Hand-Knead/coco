@@ -52,10 +52,18 @@ export interface Transaction {
   isInstallment?: boolean;
   totalInstallments?: number;
   totalAmount?: number;
+  isCustomInstallment?: boolean;
+  customSchedule?: CustomInstallmentItem[];
   projectId?: string;
   projectName?: string;
   isDeleted?: boolean;
   deletedAt?: string;
+}
+
+export interface CustomInstallmentItem {
+  installment: number;
+  date: string;
+  amount: number;
 }
 
 export interface RateHistoryItem {
