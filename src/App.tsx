@@ -22287,44 +22287,28 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       const qrStrings = await decodeQRCodesFromImage(file);
       const invoiceData = parseEInvoiceQRCodes(qrStrings);
 
-      if (invoiceData) {
-        // ✅ QR Code 解碼成功 → 直接填入，不需要呼叫 Gemini
-        const targetCats = categories.filter(c => c.type === (tab === 'income' ? 'income' : 'expense'));
-        const catList: string[] = [];
-        targetCats.forEach(cat => {
-          catList.push(cat.name);
-          if (cat.sub && cat.sub.length > 0) {
-            cat.sub.forEach(sub => catList.push(`${cat.name} > ${sub}`));
-          }
-        });
+      const targetCats = categories.filter(c => c.type === (tab === 'income' ? 'income' : 'expense'));
+      const catList: string[] = [];
+      targetCats.forEach(cat => {
+        catList.push(cat.name);
+        if (cat.sub && cat.sub.length > 0) {
+          cat.sub.forEach(sub => catList.push(`${cat.name} > ${sub}`));
+        }
+      });
+      const defaultCat = catList[0] || '其他';
 
-        let items: Array<{ name: string; amount: number; category: string; projectId?: string; isPrepay: boolean }>;
-
-        if (invoiceData.items.length > 0) {
-          // 有解析到品項明細
-          const defaultCat = catList[0] || '其他';
-          items = invoiceData.items.map(it => {
-            const matchPid = findMatchingProjectId(defaultCat, projects);
-            return {
-              name: filterTaiwanTerms(it.name),
-              amount: it.amount,
-              category: defaultCat,
-              projectId: matchPid || undefined,
-              isPrepay: false,
-            };
-          });
-        } else {
-          // QR Code 有解碼但無品項（某些超商只印號碼）→ 以總金額建一筆記錄
-          const defaultCat = catList[0] || '其他';
+      if (invoiceData && invoiceData.items.length > 0) {
+        // ✅ QR Code 解析包含完整的商品明細 → 直接帶入，無須呼叫 Gemini
+        const items = invoiceData.items.map(it => {
           const matchPid = findMatchingProjectId(defaultCat, projects);
-          items = [{
-            name: `電子發票 ${invoiceData.invoiceNo}`,
-            amount: invoiceData.total,
+          return {
+            name: filterTaiwanTerms(it.name),
+            amount: it.amount,
             category: defaultCat,
             projectId: matchPid || undefined,
             isPrepay: false,
-          }];
-        }
+          };
+        });
 
         if (items.length > 0) {
           onOpenAiSplit(
@@ -22338,9 +22322,27 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
         }
       }
 
-      // ── 第二步：QR Code 解碼失敗或非電子發票 → 退回 Gemini AI 視覺辨識 ──────
+      // ── 第二步：若 QR Code 無明細（例如 7-11 紙本發票）或未掃到 QR Code → 使用 Gemini AI 視覺辨識 ──
       const key = (import.meta as any).env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
       if (!key.trim()) {
+        if (invoiceData) {
+          // 沒有 API Key 但有 QR Code 總額資料
+          const matchPid = findMatchingProjectId(defaultCat, projects);
+          onOpenAiSplit(
+            tab === 'income' ? 'income' : 'expense',
+            [{
+              name: `電子發票 ${invoiceData.invoiceNo}`,
+              amount: invoiceData.total,
+              category: defaultCat,
+              projectId: matchPid || undefined,
+              isPrepay: false,
+            }],
+            invoiceData.date,
+            undefined,
+            `電子發票 ${invoiceData.invoiceNo}`
+          );
+          return;
+        }
         alert('請先設定 Gemini API 金鑰！');
         onOpenAiSplit(tab === 'income' ? 'income' : 'expense');
         return;
@@ -22359,24 +22361,16 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       });
 
       const typeText = tab === 'income' ? '收入' : '支出';
-      const targetCats = categories.filter(c => c.type === (tab === 'income' ? 'income' : 'expense'));
-      const catList: string[] = [];
-      targetCats.forEach(cat => {
-        catList.push(cat.name);
-        if (cat.sub && cat.sub.length > 0) {
-          cat.sub.forEach(sub => catList.push(`${cat.name} > ${sub}`));
-        }
-      });
       const categoriesString = catList.length > 0 ? catList.join('\n') : '其他';
 
-      const prompt = `你是一個專業的記帳與發票解析助理。請幫我解析這張發票或收據圖片，將圖片中的所有購買品項與折抵項目拆分為多個獨立品項，並同時自動提取發票上的交易日期與時間。
+      const prompt = `你是一個專業的記帳與發票解析助理。請幫我解析這張發票、收據或交易明細圖片，將圖片中的所有購買品項與折抵項目拆分為多個獨立品項，並同時自動提取發票上的交易日期與時間。
 
 可用${typeText}分類清單（請務必從以下清單中選擇最符合的填入，若不符合填「其他」）：
 ${categoriesString}
 
 【核心拆分規則】
 1. 嚴格 1:1 逐行完整擷取（Strict Line-by-Line Extraction）：
-   - 發票/收據上出現的所有購買品項與所有折抵扣減項目，務必逐行完整擷取，絕對禁止自行合併、忽略、攤提或過濾任何品項！
+   - 發票/收據/明細畫面上出現的所有購買品項與所有折抵扣減項目，務必逐行完整擷取，絕對禁止自行合併（例如絕對不要寫成「7-ELEVEN消費總計」或「消費總計」）！
    - 包含促銷折扣、買一送一折抵、折價券、折扣碼、點數折抵、禮券折抵等負數金額項目，皆必須獨立作為一筆品項行。
 2. 負數折抵金額處理：
    - 折扣/折抵/促銷/買一送一/折價券等扣減金額品項，其 "amount" 欄位必須為負數金額（例如 -59、-5）。
@@ -22389,14 +22383,14 @@ ${categoriesString}
   "time": "17:35", // 24小時制 HH:mm，若未提及填 null
   "items": [
     {
-      "name": "四維雙面膠帶",
-      "amount": 30,
+      "name": "薯泥鮮蔬蛋沙拉",
+      "amount": 60,
       "category": "選擇的分類",
       "isPrepay": false
     },
     {
-      "name": "買1送1折抵",
-      "amount": -59,
+      "name": "(區)現蒸地瓜40元",
+      "amount": 40,
       "category": "選擇的分類",
       "isPrepay": false
     }
@@ -22420,42 +22414,69 @@ ${categoriesString}
         }
       };
 
-      const resJson = await callGeminiApiWithFallback(key, requestBody);
-      const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!responseText) {
-        throw new Error('Gemini API 未回傳任何文字結果。');
+      try {
+        const resJson = await callGeminiApiWithFallback(key, requestBody);
+        const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (responseText) {
+          const cleanText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+          const parsedResult = JSON.parse(cleanText);
+
+          let rawItems: any[] = [];
+          let extractedTime: string | undefined = undefined;
+          let extractedDate: string | undefined = undefined;
+
+          if (Array.isArray(parsedResult)) {
+            rawItems = parsedResult;
+          } else if (parsedResult && typeof parsedResult === 'object') {
+            if (Array.isArray(parsedResult.items)) rawItems = parsedResult.items;
+            if (typeof parsedResult.time === 'string' && parsedResult.time.trim() && parsedResult.time !== 'null') extractedTime = parsedResult.time.trim();
+            if (typeof parsedResult.date === 'string' && parsedResult.date.trim() && parsedResult.date !== 'null') extractedDate = parsedResult.date.trim();
+          }
+
+          const items = rawItems.map((item: any) => {
+            const cat = catList.includes(item.category) ? item.category : (catList[0] || '其他');
+            const matchPid = findMatchingProjectId(cat, projects);
+            const parsedAmt = parseInt(item.amount, 10);
+            return {
+              name: filterTaiwanTerms(item.name || '未命名項目'),
+              amount: isNaN(parsedAmt) ? 0 : parsedAmt,
+              category: cat,
+              projectId: matchPid || undefined,
+              isPrepay: !!item.isPrepay
+            };
+          }).filter((item: any) => item.name && item.amount !== 0);
+
+          if (items.length > 0) {
+            onOpenAiSplit(
+              tab === 'income' ? 'income' : 'expense',
+              items,
+              extractedDate || invoiceData?.date,
+              extractedTime,
+              invoiceData ? `電子發票 ${invoiceData.invoiceNo}` : undefined
+            );
+            return;
+          }
+        }
+      } catch (geminiErr) {
+        console.warn("Gemini API call failed during receipt scan:", geminiErr);
       }
 
-      const cleanText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-      const parsedResult = JSON.parse(cleanText);
-
-      let rawItems: any[] = [];
-      let extractedTime: string | undefined = undefined;
-      let extractedDate: string | undefined = undefined;
-
-      if (Array.isArray(parsedResult)) {
-        rawItems = parsedResult;
-      } else if (parsedResult && typeof parsedResult === 'object') {
-        if (Array.isArray(parsedResult.items)) rawItems = parsedResult.items;
-        if (typeof parsedResult.time === 'string' && parsedResult.time.trim() && parsedResult.time !== 'null') extractedTime = parsedResult.time.trim();
-        if (typeof parsedResult.date === 'string' && parsedResult.date.trim() && parsedResult.date !== 'null') extractedDate = parsedResult.date.trim();
-      }
-
-      const items = rawItems.map((item: any) => {
-        const cat = catList.includes(item.category) ? item.category : (catList[0] || '其他');
-        const matchPid = findMatchingProjectId(cat, projects);
-        const parsedAmt = parseInt(item.amount, 10);
-        return {
-          name: filterTaiwanTerms(item.name || '未命名項目'),
-          amount: isNaN(parsedAmt) ? 0 : parsedAmt,
-          category: cat,
-          projectId: matchPid || undefined,
-          isPrepay: !!item.isPrepay
-        };
-      }).filter((item: any) => item.name && item.amount !== 0);
-
-      if (items.length > 0) {
-        onOpenAiSplit(tab === 'income' ? 'income' : 'expense', items, extractedDate, extractedTime);
+      // ── 第三步：若 Gemini 辨識無品項且有 QR Code 總額 metadata，保底帶入發票號碼與總金額 ──
+      if (invoiceData) {
+        const matchPid = findMatchingProjectId(defaultCat, projects);
+        onOpenAiSplit(
+          tab === 'income' ? 'income' : 'expense',
+          [{
+            name: `電子發票 ${invoiceData.invoiceNo}`,
+            amount: invoiceData.total,
+            category: defaultCat,
+            projectId: matchPid || undefined,
+            isPrepay: false,
+          }],
+          invoiceData.date,
+          undefined,
+          `電子發票 ${invoiceData.invoiceNo}`
+        );
       } else {
         alert('無法解析此發票圖片中的品項，請確認照片是否清晰。');
       }
