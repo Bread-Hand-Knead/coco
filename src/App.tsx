@@ -12002,6 +12002,23 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                             const val = parseInt(e.target.value) || 1;
                             setTotalInstallments(val);
                             setEdited(prev => ({ ...prev, totalInstallments: val }));
+                            if (isCustomInstallment) {
+                              setCustomSchedules(prev => {
+                                if (prev.length === val) return prev;
+                                if (prev.length < val) {
+                                  const startDate = edited.date || formatLocalDate(new Date());
+                                  const totalAmt = parseFloat(amountStr) || Math.abs(edited.amount || 0) * val;
+                                  const defaultFull = generateDefaultCustomSchedule(totalAmt, val, startDate);
+                                  const extra: CustomInstallmentItem[] = [];
+                                  for (let i = prev.length + 1; i <= val; i++) {
+                                    extra.push(defaultFull[i - 1] || { installment: i, date: getCorrectInstallmentDate(startDate, i), amount: 0 });
+                                  }
+                                  return [...prev, ...extra];
+                                } else {
+                                  return prev.slice(0, val);
+                                }
+                              });
+                            }
                           }}
                           className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                         />
@@ -12023,8 +12040,9 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                           onClick={() => {
                             const nextVal = !isCustomInstallment;
                             setIsCustomInstallment(nextVal);
-                            if (nextVal && customSchedules.length !== totalInstallments) {
-                              setCustomSchedules(generateDefaultCustomSchedule(Math.abs(edited.amount), totalInstallments, edited.date));
+                            if (nextVal && (!customSchedules || customSchedules.length === 0)) {
+                              const totalAmt = parseFloat(amountStr) || Math.abs(edited.amount || 0) * totalInstallments;
+                              setCustomSchedules(generateDefaultCustomSchedule(totalAmt, totalInstallments, edited.date));
                             }
                           }}
                           className={`w-12 h-6 rounded-full transition-all relative ${isCustomInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
@@ -12050,6 +12068,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                                     onChange={e => {
                                       const val = e.target.value;
                                       setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, date: val } : it));
+                                      setIsCustomInstallment(true);
                                     }}
                                     className="w-full p-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
                                     style={getFontFamily()}
@@ -12064,6 +12083,7 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                                     onChange={e => {
                                       const val = parseFloat(e.target.value) || 0;
                                       setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, amount: val } : it));
+                                      setIsCustomInstallment(true);
                                     }}
                                     className="w-full p-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
                                     style={getFontFamily()}
@@ -16145,9 +16165,22 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                       const val = parseInt(e.target.value) || 1;
                       setEditTotalInstallments(val);
                       if (isCustomInstallment) {
-                        const first = editingGroup ? editingGroup[0] : null;
-                        const startDateStr = first ? first.date : formatLocalDate(new Date());
-                        setCustomSchedules(generateDefaultCustomSchedule(parseFloat(editTotalAmount) || 0, val, startDateStr));
+                        setCustomSchedules(prev => {
+                          if (prev.length === val) return prev;
+                          if (prev.length < val) {
+                            const first = editingGroup ? editingGroup[0] : null;
+                            const startDateStr = first ? first.date : formatLocalDate(new Date());
+                            const totalAmt = parseFloat(editTotalAmount) || 0;
+                            const defaultFull = generateDefaultCustomSchedule(totalAmt, val, startDateStr);
+                            const extra: CustomInstallmentItem[] = [];
+                            for (let i = prev.length + 1; i <= val; i++) {
+                              extra.push(defaultFull[i - 1] || { installment: i, date: getCorrectInstallmentDate(startDateStr, i), amount: 0 });
+                            }
+                            return [...prev, ...extra];
+                          } else {
+                            return prev.slice(0, val);
+                          }
+                        });
                       }
                     }}
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-black text-lg text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
@@ -16180,7 +16213,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                     onClick={() => {
                       const nextState = !isCustomInstallment;
                       setIsCustomInstallment(nextState);
-                      if (nextState && customSchedules.length !== editTotalInstallments) {
+                      if (nextState && (!customSchedules || customSchedules.length === 0)) {
                         const first = editingGroup ? editingGroup[0] : null;
                         const startDateStr = first ? first.date : formatLocalDate(new Date());
                         setCustomSchedules(generateDefaultCustomSchedule(parseFloat(editTotalAmount) || 0, editTotalInstallments, startDateStr));
@@ -16209,6 +16242,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                               onChange={e => {
                                 const val = e.target.value;
                                 setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, date: val } : it));
+                                setIsCustomInstallment(true);
                               }}
                               className="w-full p-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
                               style={getFontFamily()}
@@ -16223,6 +16257,7 @@ function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, 
                               onChange={e => {
                                 const val = parseFloat(e.target.value) || 0;
                                 setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, amount: val } : it));
+                                setIsCustomInstallment(true);
                               }}
                               className="w-full p-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
                               style={getFontFamily()}
