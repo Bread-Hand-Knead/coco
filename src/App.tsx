@@ -2598,7 +2598,10 @@ export default function App() {
           date: record.date,
           postingDate: dateStr,
           currentInstallment: i,
-          installmentGroupId
+          installmentGroupId,
+          isInstallment: true,
+          isCustomInstallment: Boolean(record.isCustomInstallment),
+          customSchedule: record.isCustomInstallment ? record.customSchedule : undefined
         } as any;
 
         if (batch && user) {
@@ -2740,20 +2743,23 @@ export default function App() {
         const totalAmtAbs = Math.abs(newRecord.amount);
         const baseAmt = Math.floor(totalAmtAbs / total);
         const remainderAmt = totalAmtAbs - (baseAmt * total);
-        const startDate = new Date(newRecord.date);
+        const startDateStr = newRecord.date;
         
         const batch = user ? writeBatch(db) : null;
         const newParts: Transaction[] = [];
 
         for (let i = 1; i <= total; i++) {
-          const targetYear = startDate.getFullYear();
-          const targetMonth = startDate.getMonth() + (i - 1);
-          const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
-          const targetDay = Math.min(startDate.getDate(), maxDays);
-          const currentDate = new Date(targetYear, targetMonth, targetDay);
-          const dateStr = formatLocalDate(currentDate);
-          
-          const currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+          let dateStr: string;
+          let currentAmtAbs: number;
+
+          if (newRecord.isCustomInstallment && newRecord.customSchedule && newRecord.customSchedule.length >= i) {
+            dateStr = newRecord.customSchedule[i - 1].date;
+            currentAmtAbs = Math.abs(newRecord.customSchedule[i - 1].amount);
+          } else {
+            dateStr = getCorrectInstallmentDate(startDateStr, i);
+            currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+          }
+
           const finalAmt = (newRecord.type === 'expense' || newRecord.type === 'transfer') ? -currentAmtAbs : currentAmtAbs;
 
           const id = `${installmentGroupId}-${i}`;
@@ -2762,11 +2768,14 @@ export default function App() {
             id,
             amount: finalAmt,
             note: newRecord.note?.trim(),
-            date: newRecord.date,
+            date: startDateStr,
             postingDate: dateStr,
             currentInstallment: i,
             totalInstallments: total,
-            installmentGroupId
+            installmentGroupId,
+            isInstallment: true,
+            isCustomInstallment: Boolean(newRecord.isCustomInstallment),
+            customSchedule: newRecord.isCustomInstallment ? newRecord.customSchedule : undefined
           } as any;
 
           if (batch && user) {
@@ -2812,10 +2821,84 @@ export default function App() {
         if (oldInstallmentId) {
           setInstallments(prev => prev.filter(inst => inst.id !== oldInstallmentId));
         }
+      } else if (wasInstallment && isInstallment) {
+        // Updating an existing installment transaction / group
+        const targetGroupId = oldGroupId || newRecord.installmentGroupId;
+        if (targetGroupId) {
+          const groupRecords = (Array.isArray(records) ? records : []).filter(r => r.installmentGroupId === targetGroupId || r.id.startsWith(`${targetGroupId}-`));
+          const first = groupRecords[0] || oldRecord;
+          const totalTerms = newRecord.totalInstallments || groupRecords.length || 12;
+          const totalAmtAbs = Math.abs(newRecord.amount || 0);
+          const baseAmt = Math.floor(totalAmtAbs / totalTerms);
+          const remainderAmt = totalAmtAbs - (baseAmt * totalTerms);
+          const startDateStr = newRecord.date || first.date;
+
+          const batch = user ? writeBatch(db) : null;
+          if (batch && user && groupRecords.length > 0) {
+            groupRecords.forEach(r => {
+              batch.delete(doc(db, 'users', user.uid, 'transactions', r.id));
+            });
+          }
+
+          const newParts: Transaction[] = [];
+
+          for (let i = 1; i <= totalTerms; i++) {
+            let dateStr: string;
+            let currentAmtAbs: number;
+
+            if (newRecord.isCustomInstallment && newRecord.customSchedule && newRecord.customSchedule.length >= i) {
+              dateStr = newRecord.customSchedule[i - 1].date;
+              currentAmtAbs = Math.abs(newRecord.customSchedule[i - 1].amount);
+            } else {
+              dateStr = getCorrectInstallmentDate(startDateStr, i);
+              currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
+            }
+
+            const finalAmt = (newRecord.type === 'expense' || newRecord.type === 'transfer') ? -currentAmtAbs : currentAmtAbs;
+            const id = `${targetGroupId}-${i}`;
+
+            const newPart: Transaction = {
+              ...first,
+              ...newRecord,
+              id,
+              amount: finalAmt,
+              note: newRecord.note?.trim(),
+              date: startDateStr,
+              postingDate: dateStr,
+              currentInstallment: i,
+              totalInstallments: totalTerms,
+              installmentGroupId: targetGroupId,
+              isInstallment: true,
+              isCustomInstallment: Boolean(newRecord.isCustomInstallment),
+              customSchedule: newRecord.isCustomInstallment ? newRecord.customSchedule : undefined
+            } as any;
+
+            if (batch && user) {
+              batch.set(doc(db, 'users', user.uid, 'transactions', id), cleanData(newPart));
+            } else {
+              newParts.push(newPart);
+            }
+          }
+
+          if (batch && user) {
+            await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/transactions'));
+          } else {
+            setRecords(prev => {
+              const filtered = prev.filter(r => r.installmentGroupId !== targetGroupId && !r.id.startsWith(`${targetGroupId}-`));
+              return [...filtered, ...newParts];
+            });
+          }
+        } else {
+          if (user) {
+            await syncToCloud('transactions', cleanData(newRecord), newRecord.id);
+          } else {
+            setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+          }
+        }
       } else {
-        // Just update this single transaction (includes existing installment records and normal records)
+        // Just update this single transaction (includes non-installment records)
         if (user) {
-          await syncToCloud('transactions', newRecord, newRecord.id);
+          await syncToCloud('transactions', cleanData(newRecord), newRecord.id);
         } else {
           setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
         }
@@ -2855,12 +2938,7 @@ export default function App() {
             dateStr = customSchedule[i - 1].date;
             currentAmtAbs = Math.abs(customSchedule[i - 1].amount);
           } else {
-            const targetYear = startDate.getFullYear();
-            const targetMonth = startDate.getMonth() + (i - 1);
-            const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
-            const targetDay = Math.min(startDate.getDate(), maxDays);
-            const currentDate = new Date(targetYear, targetMonth, targetDay);
-            dateStr = formatLocalDate(currentDate);
+            dateStr = getCorrectInstallmentDate(first.date, i);
             currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
           }
 
@@ -2876,7 +2954,10 @@ export default function App() {
             postingDate: dateStr,
             currentInstallment: i,
             totalInstallments: newTotalInstallments,
-            installmentGroupId: groupId
+            installmentGroupId: groupId,
+            isInstallment: true,
+            isCustomInstallment: Boolean(customSchedule && customSchedule.length > 0),
+            customSchedule: (customSchedule && customSchedule.length > 0) ? customSchedule : undefined
           } as any;
           
           batch.set(doc(db, 'users', user.uid, 'transactions', id), cleanData(newPart));
@@ -2899,12 +2980,7 @@ export default function App() {
         dateStr = customSchedule[i - 1].date;
         currentAmtAbs = Math.abs(customSchedule[i - 1].amount);
       } else {
-        const targetYear = startDate.getFullYear();
-        const targetMonth = startDate.getMonth() + (i - 1);
-        const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
-        const targetDay = Math.min(startDate.getDate(), maxDays);
-        const currentDate = new Date(targetYear, targetMonth, targetDay);
-        dateStr = formatLocalDate(currentDate);
+        dateStr = getCorrectInstallmentDate(first.date, i);
         currentAmtAbs = i <= remainderAmt ? (baseAmt + 1) : baseAmt;
       }
 
@@ -2920,7 +2996,10 @@ export default function App() {
         postingDate: dateStr,
         currentInstallment: i,
         totalInstallments: newTotalInstallments,
-        installmentGroupId: groupId
+        installmentGroupId: groupId,
+        isInstallment: true,
+        isCustomInstallment: Boolean(customSchedule && customSchedule.length > 0),
+        customSchedule: (customSchedule && customSchedule.length > 0) ? customSchedule : undefined
       } as any;
       newParts.push(newPart);
     }
@@ -10901,15 +10980,41 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
     const targetType = edited.type || 'expense';
     return cats.filter(c => c.type === targetType);
   }, [categories, edited.type]);
+  const groupRecords = useMemo(() => {
+    if (!record.installmentGroupId) return [];
+    return (Array.isArray(records) ? records : [])
+      .filter(r => r.installmentGroupId === record.installmentGroupId)
+      .sort((a, b) => (a.currentInstallment || 0) - (b.currentInstallment || 0));
+  }, [records, record.installmentGroupId]);
+
   const [isInstallment, setIsInstallment] = useState(() => !!record.isInstallment || !!record.installmentGroupId || !!record.installmentId);
-  const [totalInstallments, setTotalInstallments] = useState(() => record.totalInstallments || 12);
-  const [isCustomInstallment, setIsCustomInstallment] = useState(() => !!record.isCustomInstallment);
+  const [totalInstallments, setTotalInstallments] = useState(() => record.totalInstallments || groupRecords.length || 12);
+  const [isCustomInstallment, setIsCustomInstallment] = useState(() => {
+    if (record.isCustomInstallment !== undefined) return record.isCustomInstallment;
+    if (record.customSchedule && record.customSchedule.length > 0) return true;
+    if (groupRecords.some(r => r.isCustomInstallment || (r.customSchedule && r.customSchedule.length > 0))) return true;
+    return false;
+  });
   const [customSchedules, setCustomSchedules] = useState<CustomInstallmentItem[]>(() => {
     if (record.customSchedule && record.customSchedule.length > 0) {
       return record.customSchedule;
     }
+    const siblingWithSchedule = groupRecords.find(r => r.customSchedule && r.customSchedule.length > 0);
+    if (siblingWithSchedule?.customSchedule && siblingWithSchedule.customSchedule.length > 0) {
+      return siblingWithSchedule.customSchedule;
+    }
+    if (groupRecords.length > 0) {
+      return groupRecords.map((r, idx) => ({
+        installment: r.currentInstallment || (idx + 1),
+        date: r.postingDate || r.date,
+        amount: Math.abs(r.amount)
+      }));
+    }
+    const totalAmt = record.totalAmount && record.totalAmount > 0 
+      ? record.totalAmount 
+      : Math.abs(record.amount || 0) * (record.totalInstallments || 12);
     return generateDefaultCustomSchedule(
-      Math.abs(record.amount || 0),
+      totalAmt,
       record.totalInstallments || 12,
       record.date || formatLocalDate(new Date())
     );
