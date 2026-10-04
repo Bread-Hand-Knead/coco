@@ -245,6 +245,7 @@ interface Transaction {
   date: string;        // 消費日 YYYY-MM-DD
   time?: string;       // 交易時間 HH:MM
   postingDate?: string; // 入帳日 YYYY-MM-DD
+  postingOrder?: number | null; // 入帳序號 / 帳單排序
   isPending?: boolean;  // 待入帳
   type: 'income' | 'expense' | 'transfer';
   accountId: string;   // 來源帳戶
@@ -9017,13 +9018,25 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
       } else if (sortMode === 'posting-desc') {
-        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        const pDateA = a.postingDate || a.date;
+        const pDateB = b.postingDate || b.date;
+        if (pDateB !== pDateA) return pDateB.localeCompare(pDateA);
+        const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
+        const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
+        if (orderA !== orderB) return orderA - orderB;
+        const ptsA = getTimestamp(pDateA, a.time);
+        const ptsB = getTimestamp(pDateB, b.time);
         if (ptsB !== ptsA) return ptsB - ptsA;
         return b.amount - a.amount;
       } else { // 'posting-asc'
-        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        const pDateA = a.postingDate || a.date;
+        const pDateB = b.postingDate || b.date;
+        if (pDateA !== pDateB) return pDateA.localeCompare(pDateB);
+        const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
+        const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
+        if (orderA !== orderB) return orderA - orderB;
+        const ptsA = getTimestamp(pDateA, a.time);
+        const ptsB = getTimestamp(pDateB, b.time);
         if (ptsA !== ptsB) return ptsA - ptsB;
         return a.amount - b.amount;
       }
@@ -9060,13 +9073,25 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           if (tsA !== tsB) return tsA - tsB;
           return a.amount - b.amount;
         } else if (sortMode === 'posting-desc') {
-          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+          const pDateA = a.postingDate || a.date;
+          const pDateB = b.postingDate || b.date;
+          if (pDateB !== pDateA) return pDateB.localeCompare(pDateA);
+          const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
+          const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
+          if (orderA !== orderB) return orderA - orderB;
+          const ptsA = getTimestamp(pDateA, a.time);
+          const ptsB = getTimestamp(pDateB, b.time);
           if (ptsB !== ptsA) return ptsB - ptsA;
           return b.amount - a.amount;
         } else { // 'posting-asc'
-          const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-          const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+          const pDateA = a.postingDate || a.date;
+          const pDateB = b.postingDate || b.date;
+          if (pDateA !== pDateB) return pDateA.localeCompare(pDateB);
+          const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
+          const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
+          if (orderA !== orderB) return orderA - orderB;
+          const ptsA = getTimestamp(pDateA, a.time);
+          const ptsB = getTimestamp(pDateB, b.time);
           if (ptsA !== ptsB) return ptsA - ptsB;
           return a.amount - b.amount;
         }
@@ -9113,13 +9138,25 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
         if (tsA !== tsB) return tsA - tsB;
         return a.amount - b.amount;
       } else if (sortMode === 'posting-desc') {
-        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        const pDateA = a.postingDate || a.date;
+        const pDateB = b.postingDate || b.date;
+        if (pDateB !== pDateA) return pDateB.localeCompare(pDateA);
+        const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
+        const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
+        if (orderA !== orderB) return orderA - orderB;
+        const ptsA = getTimestamp(pDateA, a.time);
+        const ptsB = getTimestamp(pDateB, b.time);
         if (ptsB !== ptsA) return ptsB - ptsA;
         return b.amount - a.amount;
       } else { // 'posting-asc'
-        const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-        const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+        const pDateA = a.postingDate || a.date;
+        const pDateB = b.postingDate || b.date;
+        if (pDateA !== pDateB) return pDateA.localeCompare(pDateB);
+        const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
+        const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
+        if (orderA !== orderB) return orderA - orderB;
+        const ptsA = getTimestamp(pDateA, a.time);
+        const ptsB = getTimestamp(pDateB, b.time);
         if (ptsA !== ptsB) return ptsA - ptsB;
         return a.amount - b.amount;
       }
@@ -9347,13 +9384,25 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
             if (tsA !== tsB) return tsA - tsB;
             return a.amount - b.amount;
           } else if (sortMode === 'posting-desc') {
-            const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-            const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+            const pDateA = a.postingDate || a.date;
+            const pDateB = b.postingDate || b.date;
+            if (pDateB !== pDateA) return pDateB.localeCompare(pDateA);
+            const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
+            const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
+            if (orderA !== orderB) return orderA - orderB;
+            const ptsA = getTimestamp(pDateA, a.time);
+            const ptsB = getTimestamp(pDateB, b.time);
             if (ptsB !== ptsA) return ptsB - ptsA;
             return b.amount - a.amount;
           } else { // 'posting-asc'
-            const ptsA = getTimestamp(a.postingDate || a.date, a.time);
-            const ptsB = getTimestamp(b.postingDate || b.date, b.time);
+            const pDateA = a.postingDate || a.date;
+            const pDateB = b.postingDate || b.date;
+            if (pDateA !== pDateB) return pDateA.localeCompare(pDateB);
+            const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
+            const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
+            if (orderA !== orderB) return orderA - orderB;
+            const ptsA = getTimestamp(pDateA, a.time);
+            const ptsB = getTimestamp(pDateB, b.time);
             if (ptsA !== ptsB) return ptsA - ptsB;
             return a.amount - b.amount;
           }
@@ -9525,7 +9574,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                       {/* 第二層（日期時間）：完整單行呈現時間，移除 truncate 省略號 */}
                       <div className="text-xs font-bold text-stone-400 whitespace-nowrap block leading-none">
                         {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
-                          ? `入帳: ${record.postingDate}` 
+                          ? `入帳: ${record.postingDate}${record.postingOrder ? ` [序號 ${record.postingOrder}]` : ''}` 
                           : `轉帳: ${record.date}`}
                         {record.time && ` ${formatTime24(record.time)}`}
                       </div>
@@ -9548,8 +9597,8 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                   {/* 第二層（日期時間）：完整單行呈現消費日與時間，移除過嚴的省略號截斷 */}
                   <div className="text-xs font-bold text-stone-500 whitespace-nowrap block leading-none">
                     {((sortMode === 'posting-desc' || sortMode === 'posting-asc') && record.postingDate) 
-                      ? `入帳: ${record.postingDate}` 
-                      : `消費: ${record.date}`}
+                      ? `入帳: ${record.postingDate}${record.postingOrder ? ` [序號 ${record.postingOrder}]` : ''}` 
+                      : `消費: ${record.date}${record.postingOrder ? ` [序號 ${record.postingOrder}]` : ''}`}
                     {record.time && ` ${formatTime24(record.time)}`}
                   </div>
 
@@ -9708,7 +9757,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                 <div className="flex items-center gap-2.5 w-full">
                   <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">交易日期:</span>
                   <div className="flex-1 min-w-0 font-black text-stone-600 text-xs sm:text-[13px] whitespace-nowrap overflow-x-auto">
-                    {record.date} {record.time ? `${formatTime24(record.time)} ` : ''}{record.postingDate ? `(入帳: ${record.postingDate})` : ''}
+                    {record.date} {record.time ? `${formatTime24(record.time)} ` : ''}{record.postingDate ? `(入帳: ${record.postingDate}${record.postingOrder ? ` [序號 ${record.postingOrder}]` : ''})` : ''}
                   </div>
                 </div>
                 
@@ -12001,16 +12050,35 @@ function EditRecordModal({ record, records = [], accounts, projects, categories 
                 </div>
               </div>
               <div className={`flex flex-col gap-1 transition-opacity ${edited.isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-                <label className="text-[10px] font-bold text-stone-300 uppercase flex items-center gap-1">
-                  <Banknote size={10} /> 入帳日 (信用卡結算)
-                </label>
-                <input 
-                  type="date"
-                  value={edited.postingDate || edited.date}
-                  onChange={e => setEdited({ ...edited, postingDate: e.target.value, isPending: false })}
-                  className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
-                  style={getFontFamily()}
-                />
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-stone-300 uppercase flex items-center gap-1">
+                    <Banknote size={10} /> 入帳日 (信用卡結算)
+                  </label>
+                  <label className="text-[10px] font-bold text-stone-300 uppercase">
+                    帳單序號
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="date"
+                    value={edited.postingDate || edited.date}
+                    onChange={e => setEdited({ ...edited, postingDate: e.target.value, isPending: false })}
+                    className="w-[70%] p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all"
+                    style={getFontFamily()}
+                  />
+                  <input 
+                    type="number"
+                    min="1"
+                    placeholder="序號"
+                    value={edited.postingOrder ?? ''}
+                    onChange={e => {
+                      const val = e.target.value === '' ? null : parseInt(e.target.value, 10);
+                      setEdited({ ...edited, postingOrder: (val !== null && !isNaN(val)) ? val : null });
+                    }}
+                    className="w-[30%] p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F] transition-all text-center"
+                    style={getFontFamily()}
+                  />
+                </div>
               </div>
               <div className="flex items-center justify-end gap-2 pr-2">
                 <span className="text-[11px] font-bold text-stone-400">待入帳 (暫不計入本月結餘)</span>
@@ -21888,6 +21956,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     }
     return selectedDate;
   });
+  const [postingOrder, setPostingOrder] = useState<number | undefined | null>(initialRecord?.postingOrder);
   const [consumptionTime, setConsumptionTime] = useState(() => {
     const now = new Date();
     const hh = String(now.getHours()).padStart(2, '0');
@@ -21943,6 +22012,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
       const todayStr = `${yyyy}-${MM}-${dd}`;
       setConsumptionDate(todayStr);
       setPostingDate(todayStr);
+      setPostingOrder(initialRecord.postingOrder);
       setConsumptionTime(`${hh}:${mm}`);
       setShowCalculator(true);
     }
@@ -22739,6 +22809,7 @@ ${categoriesString}
     setTotalInstallments(1);
     setConsumptionDate(selectedDate);
     setPostingDate(selectedDate);
+    setPostingOrder(undefined);
     setIsPending(false);
     setSelectedProjectId(initialProjectId || 'p1');
   };
@@ -22804,6 +22875,7 @@ ${categoriesString}
         date: consumptionDate,
         time: consumptionTime,
         postingDate: isPending ? undefined : postingDate,
+        postingOrder: isPending ? undefined : postingOrder,
         isPending: isPending,
         isInstallment,
         isPrepay: (tab === 'expense' || tab === 'income') ? isPrepay : undefined,
@@ -23045,6 +23117,23 @@ ${categoriesString}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
             </label>
+          )}
+          {!isPending && (
+            <div className="flex items-center gap-1 ml-2 shrink-0">
+              <span className="text-[10px] text-stone-400">序號:</span>
+              <input 
+                type="number"
+                min="1"
+                placeholder="序號"
+                value={postingOrder ?? ''}
+                onChange={e => {
+                  const val = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
+                  setPostingOrder((val !== undefined && !isNaN(val)) ? val : undefined);
+                }}
+                className="w-12 px-1 py-0.5 bg-white border border-stone-200 rounded text-center text-xs font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                style={getFontFamily()}
+              />
+            </div>
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0 ml-2">

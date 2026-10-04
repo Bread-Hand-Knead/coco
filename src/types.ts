@@ -28,6 +28,7 @@ export interface Transaction {
   date: string;
   time?: string;
   postingDate?: string;
+  postingOrder?: number | null;
   isPending?: boolean;
   type: 'income' | 'expense' | 'transfer';
   accountId: string;
