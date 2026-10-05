@@ -8802,33 +8802,18 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   const [sortMode, setSortMode] = useState<SortMode>('date-desc');
 
   const compareCreditCardRecords = (a: Transaction, b: Transaction, mode: SortMode) => {
-    // 1. 第一順位：依據「入帳日（或消費日）」排序
+    // 1. 第一層：依消費日 (date) 排序
     let dateCompare = 0;
-    if (mode === 'date-desc') {
-      dateCompare = (b.date || '').localeCompare(a.date || '');
-    } else if (mode === 'date-asc') {
+    if (mode === 'date-asc' || mode === 'posting-asc' || mode === 'billing-cycle') {
       dateCompare = (a.date || '').localeCompare(b.date || '');
-    } else if (mode === 'posting-desc') {
-      const pDateA = a.postingDate || a.date || '';
-      const pDateB = b.postingDate || b.date || '';
-      dateCompare = pDateB.localeCompare(pDateA);
-    } else if (mode === 'posting-asc') {
-      const pDateA = a.postingDate || a.date || '';
-      const pDateB = b.postingDate || b.date || '';
-      dateCompare = pDateA.localeCompare(pDateB);
     } else {
-      // mode === 'billing-cycle' 依入帳日/消費日（帳單內由舊到新排序）
-      const pDateA = a.postingDate || a.date || '';
-      const pDateB = b.postingDate || b.date || '';
-      dateCompare = pDateA.localeCompare(pDateB);
+      // mode === 'date-desc' 或 'posting-desc'
+      dateCompare = (b.date || '').localeCompare(a.date || '');
     }
 
     if (dateCompare !== 0) return dateCompare;
 
-    // 2. 第二順位（同日交易時）：
-    // - 若兩筆皆有填寫 postingOrder（序號）：嚴格由小到大排序（序號 1 ➔ 序號 2 ➔ 序號 3）
-    // - 若其中一筆有序號、一筆無序號：有填寫序號者排在前面
-    // - 若皆無填寫序號：才退回使用交易時間（time）比較
+    // 2. 第二層：同一天消費日，依 [序號] 由小到大排序 (序號 1 ➔ 序號 2 ➔ 序號 3)
     const parseOrder = (val: any): number | null => {
       if (val === undefined || val === null || val === '') return null;
       const num = Number(val);
@@ -8846,7 +8831,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
       return 1;  // b 有序號，排在前面
     }
 
-    // 3. 都無序號則比交易時間 (time)
+    // 3. 第三層：同日且都無序號時，依交易時間 (time) 排序
     const isDesc = (mode === 'date-desc' || mode === 'posting-desc');
     const timeA = a.time || '';
     const timeB = b.time || '';
