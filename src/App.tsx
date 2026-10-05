@@ -1839,37 +1839,33 @@ export default function App() {
   }, [records, user, authLoading]);
 
   // One-time migration for installment date month-overflow bug
+  // 注意：useRef 每次重新整理頁面都會重設，必須搭配 localStorage 旗標才是真正的「一次性」
+  const INSTALLMENT_MIGRATION_KEY = 'coco_migrated_installment_dates_v1';
   const hasMigratedRef = useRef(false);
   useEffect(() => {
     if (hasMigratedRef.current || records.length === 0 || authLoading) return;
     hasMigratedRef.current = true;
+    if (localStorage.getItem(INSTALLMENT_MIGRATION_KEY) === 'done') return;
 
-    const getCorrectInstallmentDate = (startDateStr: string, currentInstallment: number) => {
-      const startDate = new Date(startDateStr);
-      if (isNaN(startDate.getTime())) return null;
-      
-      const targetYear = startDate.getFullYear();
-      const targetMonth = startDate.getMonth() + (currentInstallment - 1);
-      
-      const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
-      const targetDay = Math.min(startDate.getDate(), maxDays);
-      
-      const currentDate = new Date(targetYear, targetMonth, targetDay);
-      return formatLocalDate(currentDate);
-    };
+    // 收集含自訂明細的分期群組，整組跳過，嚴禁覆蓋使用者手動設定的日期
+    const customGroupIds = new Set(
+      records
+        .filter(r => r.installmentGroupId && (r.isCustomInstallment || (r.customSchedule && r.customSchedule.length > 0)))
+        .map(r => r.installmentGroupId as string)
+    );
 
     let changed = false;
     const updated = records.map(r => {
-      if (r.isInstallment && r.installmentGroupId && r.currentInstallment) {
-        const correctDate = getCorrectInstallmentDate(r.date, r.currentInstallment);
-        if (correctDate && r.postingDate !== correctDate) {
-          changed = true;
-          const updatedRec = { ...r, postingDate: correctDate };
-          if (user) {
-            setDoc(doc(db, 'users', user.uid, 'transactions', r.id), cleanData(updatedRec)).catch(console.error);
-          }
-          return updatedRec;
+      if (!r.isInstallment || !r.installmentGroupId || !r.currentInstallment) return r;
+      if (customGroupIds.has(r.installmentGroupId)) return r;
+      const correctDate = getCorrectInstallmentDate(r.date, r.currentInstallment);
+      if (correctDate && r.postingDate !== correctDate) {
+        changed = true;
+        const updatedRec = { ...r, postingDate: correctDate };
+        if (user) {
+          setDoc(doc(db, 'users', user.uid, 'transactions', r.id), cleanData(updatedRec)).catch(console.error);
         }
+        return updatedRec;
       }
       return r;
     });
@@ -1878,6 +1874,7 @@ export default function App() {
       setRecords(updated);
       console.log('Successfully migrated credit card installment dates.');
     }
+    localStorage.setItem(INSTALLMENT_MIGRATION_KEY, 'done');
   }, [records, user, authLoading]);
 
   // --- Offline-First Sync Queue Architecture ---
@@ -8803,6 +8800,63 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   type SortMode = 'date-desc' | 'date-asc' | 'posting-desc' | 'posting-asc' | 'billing-cycle';
   const [sortMode, setSortMode] = useState<SortMode>('date-desc');
+
+  const compareCreditCardRecords = (a: Transaction, b: Transaction, mode: SortMode) => {
+    // 1. 第一順位：依據「入帳日（或消費日）」排序
+    let dateCompare = 0;
+    if (mode === 'date-desc') {
+      dateCompare = (b.date || '').localeCompare(a.date || '');
+    } else if (mode === 'date-asc') {
+      dateCompare = (a.date || '').localeCompare(b.date || '');
+    } else if (mode === 'posting-desc') {
+      const pDateA = a.postingDate || a.date || '';
+      const pDateB = b.postingDate || b.date || '';
+      dateCompare = pDateB.localeCompare(pDateA);
+    } else if (mode === 'posting-asc') {
+      const pDateA = a.postingDate || a.date || '';
+      const pDateB = b.postingDate || b.date || '';
+      dateCompare = pDateA.localeCompare(pDateB);
+    } else {
+      // mode === 'billing-cycle' 依入帳日/消費日（帳單內由舊到新排序）
+      const pDateA = a.postingDate || a.date || '';
+      const pDateB = b.postingDate || b.date || '';
+      dateCompare = pDateA.localeCompare(pDateB);
+    }
+
+    if (dateCompare !== 0) return dateCompare;
+
+    // 2. 第二順位（同日交易時）：
+    // - 若兩筆皆有填寫 postingOrder（序號）：嚴格由小到大排序（序號 1 ➔ 序號 2 ➔ 序號 3）
+    // - 若其中一筆有序號、一筆無序號：有填寫序號者排在前面
+    // - 若皆無填寫序號：才退回使用交易時間（time）比較
+    const parseOrder = (val: any): number | null => {
+      if (val === undefined || val === null || val === '') return null;
+      const num = Number(val);
+      return isNaN(num) ? null : num;
+    };
+
+    const orderA = parseOrder(a.postingOrder);
+    const orderB = parseOrder(b.postingOrder);
+
+    if (orderA !== null && orderB !== null) {
+      if (orderA !== orderB) return orderA - orderB;
+    } else if (orderA !== null) {
+      return -1; // a 有序號，排在前面
+    } else if (orderB !== null) {
+      return 1;  // b 有序號，排在前面
+    }
+
+    // 3. 都無序號則比交易時間 (time)
+    const isDesc = (mode === 'date-desc' || mode === 'posting-desc');
+    const timeA = a.time || '';
+    const timeB = b.time || '';
+    if (timeA !== timeB) {
+      return isDesc ? timeB.localeCompare(timeA) : timeA.localeCompare(timeB);
+    }
+
+    // 4. 若時間亦相同，比金額
+    return isDesc ? (b.amount - a.amount) : (a.amount - b.amount);
+  };
   const [isSortModalOpen, setIsSortModalOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => {
     const d = new Date(selectedDate);
@@ -9080,46 +9134,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     
     const merged = getMergedRecords(raw, accounts);
     
-    return merged.sort((a, b) => {
-      if (sortMode === 'billing-cycle') {
-        const tsA = getTimestamp(a.date, a.time);
-        const tsB = getTimestamp(b.date, b.time);
-        if (tsA !== tsB) return tsA - tsB;
-        return a.amount - b.amount;
-      } else if (sortMode === 'date-desc') {
-        const tsA = getTimestamp(a.date, a.time);
-        const tsB = getTimestamp(b.date, b.time);
-        if (tsB !== tsA) return tsB - tsA;
-        return b.amount - a.amount;
-      } else if (sortMode === 'date-asc') {
-        const tsA = getTimestamp(a.date, a.time);
-        const tsB = getTimestamp(b.date, b.time);
-        if (tsA !== tsB) return tsA - tsB;
-        return a.amount - b.amount;
-      } else if (sortMode === 'posting-desc') {
-        const pDateA = a.postingDate || a.date;
-        const pDateB = b.postingDate || b.date;
-        if (pDateB !== pDateA) return pDateB.localeCompare(pDateA);
-        const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
-        const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
-        if (orderA !== orderB) return orderA - orderB;
-        const ptsA = getTimestamp(pDateA, a.time);
-        const ptsB = getTimestamp(pDateB, b.time);
-        if (ptsB !== ptsA) return ptsB - ptsA;
-        return b.amount - a.amount;
-      } else { // 'posting-asc'
-        const pDateA = a.postingDate || a.date;
-        const pDateB = b.postingDate || b.date;
-        if (pDateA !== pDateB) return pDateA.localeCompare(pDateB);
-        const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
-        const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
-        if (orderA !== orderB) return orderA - orderB;
-        const ptsA = getTimestamp(pDateA, a.time);
-        const ptsB = getTimestamp(pDateB, b.time);
-        if (ptsA !== ptsB) return ptsA - ptsB;
-        return a.amount - b.amount;
-      }
-    });
+    return merged.sort((a, b) => compareCreditCardRecords(a, b, sortMode));
   }, [records, accounts, dateRangeStrings.filter, targetIds, sortMode, billingCycleRange]);
 
   const calculatedBalance = useMemo(() => { 
@@ -9135,46 +9150,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
   const { paymentRecords, normalRecords } = useMemo(() => {
     if (account.type !== 'credit') {
       const sortedNormals = [...accountRecords];
-      sortedNormals.sort((a, b) => {
-        if (sortMode === 'billing-cycle') {
-          const tsA = getTimestamp(a.date, a.time);
-          const tsB = getTimestamp(b.date, b.time);
-          if (tsA !== tsB) return tsA - tsB;
-          return a.amount - b.amount;
-        } else if (sortMode === 'date-desc') {
-          const tsA = getTimestamp(a.date, a.time);
-          const tsB = getTimestamp(b.date, b.time);
-          if (tsB !== tsA) return tsB - tsA;
-          return b.amount - a.amount;
-        } else if (sortMode === 'date-asc') {
-          const tsA = getTimestamp(a.date, a.time);
-          const tsB = getTimestamp(b.date, b.time);
-          if (tsA !== tsB) return tsA - tsB;
-          return a.amount - b.amount;
-        } else if (sortMode === 'posting-desc') {
-          const pDateA = a.postingDate || a.date;
-          const pDateB = b.postingDate || b.date;
-          if (pDateB !== pDateA) return pDateB.localeCompare(pDateA);
-          const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
-          const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
-          if (orderA !== orderB) return orderA - orderB;
-          const ptsA = getTimestamp(pDateA, a.time);
-          const ptsB = getTimestamp(pDateB, b.time);
-          if (ptsB !== ptsA) return ptsB - ptsA;
-          return b.amount - a.amount;
-        } else { // 'posting-asc'
-          const pDateA = a.postingDate || a.date;
-          const pDateB = b.postingDate || b.date;
-          if (pDateA !== pDateB) return pDateA.localeCompare(pDateB);
-          const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
-          const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
-          if (orderA !== orderB) return orderA - orderB;
-          const ptsA = getTimestamp(pDateA, a.time);
-          const ptsB = getTimestamp(pDateB, b.time);
-          if (ptsA !== ptsB) return ptsA - ptsB;
-          return a.amount - b.amount;
-        }
-      });
+      sortedNormals.sort((a, b) => compareCreditCardRecords(a, b, sortMode));
       return { paymentRecords: [], normalRecords: sortedNormals };
     }
     
@@ -9200,46 +9176,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     });
 
     // Apply sortMode to normalRecords
-    normalRecords.sort((a, b) => {
-      if (sortMode === 'billing-cycle') {
-        const tsA = getTimestamp(a.date, a.time);
-        const tsB = getTimestamp(b.date, b.time);
-        if (tsA !== tsB) return tsA - tsB;
-        return a.amount - b.amount;
-      } else if (sortMode === 'date-desc') {
-        const tsA = getTimestamp(a.date, a.time);
-        const tsB = getTimestamp(b.date, b.time);
-        if (tsB !== tsA) return tsB - tsA;
-        return b.amount - a.amount;
-      } else if (sortMode === 'date-asc') {
-        const tsA = getTimestamp(a.date, a.time);
-        const tsB = getTimestamp(b.date, b.time);
-        if (tsA !== tsB) return tsA - tsB;
-        return a.amount - b.amount;
-      } else if (sortMode === 'posting-desc') {
-        const pDateA = a.postingDate || a.date;
-        const pDateB = b.postingDate || b.date;
-        if (pDateB !== pDateA) return pDateB.localeCompare(pDateA);
-        const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
-        const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
-        if (orderA !== orderB) return orderA - orderB;
-        const ptsA = getTimestamp(pDateA, a.time);
-        const ptsB = getTimestamp(pDateB, b.time);
-        if (ptsB !== ptsA) return ptsB - ptsA;
-        return b.amount - a.amount;
-      } else { // 'posting-asc'
-        const pDateA = a.postingDate || a.date;
-        const pDateB = b.postingDate || b.date;
-        if (pDateA !== pDateB) return pDateA.localeCompare(pDateB);
-        const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
-        const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
-        if (orderA !== orderB) return orderA - orderB;
-        const ptsA = getTimestamp(pDateA, a.time);
-        const ptsB = getTimestamp(pDateB, b.time);
-        if (ptsA !== ptsB) return ptsA - ptsB;
-        return a.amount - b.amount;
-      }
-    });
+    normalRecords.sort((a, b) => compareCreditCardRecords(a, b, sortMode));
     
     return { paymentRecords, normalRecords };
   }, [accountRecords, account.type, targetIds, sortMode]);
@@ -9451,41 +9388,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
         if (groupRecords.length === 0) return null;
 
-        const sortedRecords = getMergedRecords(groupRecords, accounts).sort((a, b) => {
-          if (sortMode === 'date-desc') {
-            const tsA = getTimestamp(a.date, a.time);
-            const tsB = getTimestamp(b.date, b.time);
-            if (tsB !== tsA) return tsB - tsA;
-            return b.amount - a.amount;
-          } else if (sortMode === 'date-asc') {
-            const tsA = getTimestamp(a.date, a.time);
-            const tsB = getTimestamp(b.date, b.time);
-            if (tsA !== tsB) return tsA - tsB;
-            return a.amount - b.amount;
-          } else if (sortMode === 'posting-desc') {
-            const pDateA = a.postingDate || a.date;
-            const pDateB = b.postingDate || b.date;
-            if (pDateB !== pDateA) return pDateB.localeCompare(pDateA);
-            const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
-            const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
-            if (orderA !== orderB) return orderA - orderB;
-            const ptsA = getTimestamp(pDateA, a.time);
-            const ptsB = getTimestamp(pDateB, b.time);
-            if (ptsB !== ptsA) return ptsB - ptsA;
-            return b.amount - a.amount;
-          } else { // 'posting-asc'
-            const pDateA = a.postingDate || a.date;
-            const pDateB = b.postingDate || b.date;
-            if (pDateA !== pDateB) return pDateA.localeCompare(pDateB);
-            const orderA = (a.postingOrder !== undefined && a.postingOrder !== null) ? a.postingOrder : 999999;
-            const orderB = (b.postingOrder !== undefined && b.postingOrder !== null) ? b.postingOrder : 999999;
-            if (orderA !== orderB) return orderA - orderB;
-            const ptsA = getTimestamp(pDateA, a.time);
-            const ptsB = getTimestamp(pDateB, b.time);
-            if (ptsA !== ptsB) return ptsA - ptsB;
-            return a.amount - b.amount;
-          }
-        });
+        const sortedRecords = getMergedRecords(groupRecords, accounts).sort((a, b) => compareCreditCardRecords(a, b, sortMode));
 
         // 帳單金額加總：統計該帳單卡片中包含的當月符合交易款項，確保頂部金額與明細列表總額 100% 一致
         let bal = 0;
@@ -9537,11 +9440,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
     statementList.sort((a, b) => b.key.localeCompare(a.key));
 
     if (transferPayments.length > 0) {
-      const sortedPayments = getMergedRecords(transferPayments, accounts).sort((a, b) => {
-        const dateDiff = b.date.localeCompare(a.date);
-        if (dateDiff !== 0) return dateDiff;
-        return b.amount - a.amount;
-      });
+      const sortedPayments = getMergedRecords(transferPayments, accounts).sort((a, b) => compareCreditCardRecords(a, b, sortMode));
 
       let paymentTotal = 0;
       sortedPayments.forEach(r => {
