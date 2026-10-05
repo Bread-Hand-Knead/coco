@@ -54,7 +54,9 @@ export interface Transaction {
   totalInstallments?: number;
   totalAmount?: number;
   isCustomInstallment?: boolean;
+  isCustomSchedule?: boolean;
   customSchedule?: CustomInstallmentItem[];
+  installmentList?: CustomInstallmentItem[];
   projectId?: string;
   projectName?: string;
   isDeleted?: boolean;

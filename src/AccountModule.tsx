@@ -598,7 +598,11 @@ export function EditRecordModal({ record, accounts, onClose, onSave, onDelete }:
               onClick={() => onSave({
                 ...edited,
                 isInstallment,
-                totalInstallments: isInstallment ? totalInstallments : undefined
+                totalInstallments: isInstallment ? totalInstallments : undefined,
+                isCustomInstallment: edited.isCustomInstallment || edited.isCustomSchedule,
+                isCustomSchedule: edited.isCustomInstallment || edited.isCustomSchedule,
+                customSchedule: edited.customSchedule || edited.installmentList,
+                installmentList: edited.customSchedule || edited.installmentList
               })} 
               className="w-full py-5 bg-[#5D4037] text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
             >
