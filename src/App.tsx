@@ -8867,6 +8867,66 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
   const [selectedCardFilterId, setSelectedCardFilterId] = useState<string | null>(null);
 
+  // 依卡片分組顯示（卡片分區依序排列）：開關與卡片順序皆以 account.id 為鍵持久化於 LocalStorage
+  const cardGroupEnabledKey = `coco_card_group_enabled_${account.id}`;
+  const cardGroupOrderKey = `coco_card_group_order_${account.id}`;
+  const [groupByCard, setGroupByCardState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(cardGroupEnabledKey) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [cardOrder, setCardOrderState] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(cardGroupOrderKey) || '[]');
+      return Array.isArray(parsed) ? parsed.filter((v: unknown) => typeof v === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const setGroupByCard = (enabled: boolean) => {
+    setGroupByCardState(enabled);
+    try {
+      localStorage.setItem(cardGroupEnabledKey, enabled ? '1' : '0');
+    } catch {
+      /* 無痕模式或容量不足時忽略 */
+    }
+  };
+  const setCardOrder = (order: string[]) => {
+    setCardOrderState(order);
+    try {
+      localStorage.setItem(cardGroupOrderKey, JSON.stringify(order));
+    } catch {
+      /* 無痕模式或容量不足時忽略 */
+    }
+  };
+
+  // 依使用者設定順序排列子卡；新增的卡片（尚未出現在順序中）自動附加於最後
+  const orderedChildCards = useMemo<Account[]>(() => {
+    const children: Account[] = Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : [];
+    const rank = new Map(cardOrder.map((id, i) => [id, i]));
+    return children
+      .map((c, i) => ({ c, i }))
+      .sort((a, b) => {
+        const ra = rank.has(a.c.id) ? rank.get(a.c.id)! : cardOrder.length + a.i;
+        const rb = rank.has(b.c.id) ? rank.get(b.c.id)! : cardOrder.length + b.i;
+        return ra - rb;
+      })
+      .map(x => x.c);
+  }, [account, cardOrder]);
+
+  const moveCard = (index: number, delta: -1 | 1) => {
+    const ids = orderedChildCards.map(c => c.id);
+    const target = index + delta;
+    if (target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    setCardOrder(ids);
+  };
+
+  const isCardGroupingActive =
+    account.type === 'credit' && !!account.isBrandGroup && groupByCard && !selectedCardFilterId && orderedChildCards.length > 1;
+
   const childrenIds = useMemo(() => {
     if (account.isBrandGroup && (account as any).childAccounts) {
       return (Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).map((c: any) => c.id);
@@ -9515,6 +9575,95 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
     return getRecursiveBalance(account.id);
   }, [account, accounts, records, dateRangeStrings.filter, creditCardStatements]);
+
+  // 單筆交易對信用卡應繳金額的影響（與帳單金額加總邏輯一致）
+  const getCardBillChange = (r: Transaction, ids: string[]) => {
+    const isFromCard = ids.includes(r.accountId);
+    const isToCard = Boolean(r.toAccountId && ids.includes(r.toAccountId));
+    if (!isFromCard && !isToCard) return 0;
+    if (isFromCard && isToCard) return 0;
+    const noteLower = ((r.note || '') + (r.remark || '') + (r.category || '')).toLowerCase();
+    const isFeedback =
+      ['回饋', '返現', '紅利', '折抵', 'cashback', 'reward'].some(k => noteLower.includes(k)) ||
+      r.type === 'income' ||
+      r.category === '回饋' ||
+      r.category === '退款';
+    const isTransfer = r.type === 'transfer';
+    if (isTransfer && isToCard && !isFeedback) return 0;
+    const amt = Math.abs(Number(r.amount || 0));
+    let change = 0;
+    if (r.type === 'expense' || (isTransfer && isFromCard)) change = amt;
+    else if (isFeedback) change = -amt;
+    if (r.fee && isFromCard) change += Math.abs(Number(r.fee || 0));
+    return change;
+  };
+
+  // 依卡片分組渲染明細；未啟用分組時維持原本的平鋪清單
+  const renderRecordList = (list: Transaction[], emptyText: string) => {
+    if (list.length === 0) {
+      return <div className="text-center py-4 text-xs font-bold text-stone-300">{emptyText}</div>;
+    }
+    if (!isCardGroupingActive) return list.map(renderRecord);
+
+    const childIdSet = new Set(orderedChildCards.map(c => c.id));
+    const buckets = new Map<string, Transaction[]>();
+    list.forEach(r => {
+      const cid = childIdSet.has(r.accountId)
+        ? r.accountId
+        : r.toAccountId && childIdSet.has(r.toAccountId)
+          ? r.toAccountId
+          : '__other__';
+      const bucket = buckets.get(cid);
+      if (bucket) bucket.push(r);
+      else buckets.set(cid, [r]);
+    });
+
+    // list 已依目前排序模式（消費日 / 入帳日 + 序號）排好，分桶時保留原相對順序
+    const sections = [
+      ...orderedChildCards.map(c => ({ id: c.id, name: c.name, icon: c.icon as string | undefined })),
+      { id: '__other__', name: '其他明細', icon: undefined },
+    ]
+      .filter(s => (buckets.get(s.id)?.length || 0) > 0)
+      .map(s => {
+        const items = buckets.get(s.id)!;
+        const subtotal = items.reduce((sum, r) => sum + getCardBillChange(r, targetIds), 0);
+        return { ...s, items, subtotal };
+      });
+    const grandTotal = sections.reduce((sum, s) => sum + s.subtotal, 0);
+
+    return (
+      <>
+        {sections.map((s, idx) => (
+          <div key={s.id} className={`flex flex-col ${idx > 0 ? 'mt-3 pt-3 border-t-2 border-dashed border-stone-100' : ''}`}>
+            <div
+              className="sticky top-0 z-10 flex items-center justify-between gap-2 px-3 py-2.5 mb-1 rounded-2xl bg-[#FFF9E3] border border-[#F5E6B8]"
+              style={getFontFamily()}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[#5D4037] text-white text-[11px] font-black flex items-center justify-center">
+                  {idx + 1}
+                </span>
+                {s.icon ? <AccountIcon icon={s.icon} sizeClassName="w-6 h-6" /> : <CreditCard size={18} className="text-[#5D4037] flex-shrink-0" />}
+                <span className="font-black text-sm text-[#5D4037] truncate">{s.name}</span>
+                <span className="text-[11px] font-bold text-stone-400 flex-shrink-0">{s.items.length} 筆</span>
+              </div>
+              <span className="text-xs font-bold text-stone-400 flex-shrink-0">
+                本期小計：<span className="font-black text-sm text-[#5D4037]">${Math.abs(s.subtotal).toLocaleString()}</span>
+              </span>
+            </div>
+            {s.items.map(renderRecord)}
+          </div>
+        ))}
+        <div
+          className="mt-3 flex items-center justify-between px-4 py-3 rounded-2xl bg-[#5D4037] text-white"
+          style={getFontFamily()}
+        >
+          <span className="font-black text-sm">全部卡片應繳總計</span>
+          <span className="font-black text-base">${grandTotal.toLocaleString()}</span>
+        </div>
+      </>
+    );
+  };
 
   const renderRecord = (record: Transaction) => {
     const isExpanded = expandedRecordId === record.id;
@@ -10347,13 +10496,9 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
 
                     {/* Statement Transactions Container */}
                     <div className="bg-white rounded-[32px] p-4 shadow-sm border-2 border-white flex flex-col gap-2">
-                      {stmt.records.length > 0 ? (
-                        stmt.records.map(renderRecord)
-                      ) : (
-                        <div className="text-center py-4 text-xs font-bold text-stone-300">
-                          本期無任何交易紀錄
-                        </div>
-                      )}
+                      {stmt.key === '9999-99-payments'
+                        ? stmt.records.map(renderRecord)
+                        : renderRecordList(stmt.records, '本期無任何交易紀錄')}
                     </div>
                   </div>
                 ))}
@@ -10396,13 +10541,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     </div>
                   )}
                   <div className="bg-white rounded-[32px] p-4 shadow-sm border-2 border-white flex flex-col gap-2">
-                    {normalRecords.length > 0 ? (
-                      normalRecords.map(renderRecord)
-                    ) : (
-                      <div className="text-center py-4 text-xs font-bold text-stone-300">
-                        本月無任何消費明細紀錄
-                      </div>
-                    )}
+                    {renderRecordList(normalRecords, '本月無任何消費明細紀錄')}
                   </div>
                 </div>
                 <div className="h-[40px] w-full" />
@@ -10420,7 +10559,7 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
           ) : (
             normalRecords.length > 0 ? (
               <div className="overflow-y-auto p-6 space-y-4">
-                {normalRecords.map(renderRecord)}
+                {renderRecordList(normalRecords, '尚無明細紀錄')}
                 {/* Bottom Buffer inside scroll area */}
                 <div className="h-[40px] w-full" />
               </div>
@@ -10527,6 +10666,63 @@ function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onU
                     </button>
                   ))}
                 </div>
+
+                {account.type === 'credit' && account.isBrandGroup && orderedChildCards.length > 1 && (
+                  <div className="border-t border-stone-100 pt-3 flex flex-col gap-2" style={getFontFamily()}>
+                    <div className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">卡片分區 (GROUP BY CARD)</div>
+                    <button
+                      onClick={() => setGroupByCard(!groupByCard)}
+                      className={`w-full py-4 px-5 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 flex items-center justify-between gap-2 ${groupByCard ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
+                    >
+                      <span>🗂️ 依卡片分組顯示（卡片分區依序排列）</span>
+                      <span
+                        className={`flex-shrink-0 w-10 h-6 rounded-full p-0.5 transition-colors ${groupByCard ? 'bg-[#FBC02D]' : 'bg-stone-200'}`}
+                      >
+                        <span
+                          className={`block w-5 h-5 rounded-full bg-white shadow transition-transform ${groupByCard ? 'translate-x-4' : 'translate-x-0'}`}
+                        />
+                      </span>
+                    </button>
+
+                    {groupByCard && (
+                      <div className="flex flex-col gap-1.5 bg-white rounded-2xl border border-stone-100 p-2">
+                        <div className="text-[11px] font-bold text-stone-400 px-2 pt-1">調整卡片排列順序（由上而下顯示）</div>
+                        {orderedChildCards.map((card, idx) => (
+                          <div
+                            key={card.id}
+                            className="flex items-center gap-2 px-2 py-2 rounded-xl bg-[#FFFDF5] border border-stone-100"
+                          >
+                            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#5D4037] text-white text-[10px] font-black flex items-center justify-center">
+                              {idx + 1}
+                            </span>
+                            <span className="flex-1 min-w-0 text-xs font-black text-[#5D4037] truncate">{card.name}</span>
+                            <button
+                              onClick={() => moveCard(idx, -1)}
+                              disabled={idx === 0}
+                              className="p-1 rounded-lg hover:bg-stone-100 disabled:opacity-25 disabled:cursor-not-allowed"
+                              title="上移"
+                            >
+                              <ChevronUp size={16} className="text-[#5D4037]" />
+                            </button>
+                            <button
+                              onClick={() => moveCard(idx, 1)}
+                              disabled={idx === orderedChildCards.length - 1}
+                              className="p-1 rounded-lg hover:bg-stone-100 disabled:opacity-25 disabled:cursor-not-allowed"
+                              title="下移"
+                            >
+                              <ChevronDown size={16} className="text-[#5D4037]" />
+                            </button>
+                          </div>
+                        ))}
+                        {selectedCardFilterId && (
+                          <div className="text-[11px] font-bold text-amber-600 px-2 pb-1">
+                            目前已篩選單一卡片，請切換為「全部卡片明細」以顯示分區。
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {account.isBrandGroup && (account as any).childAccounts && (account as any).childAccounts.length > 0 && (
                   <div className="border-t border-stone-100 pt-3 flex flex-col gap-2">
