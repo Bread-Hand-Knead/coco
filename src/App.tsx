@@ -3901,12 +3901,13 @@ export default function App() {
             {currentView === 'categoryManage' && <CategoryManagePage categories={categories} onSave={handleUpdateCategories} onBack={() => setCurrentView('categories')} onMoveSubCategory={handleMoveSubCategory} />}
             {currentView === 'prepayments' && (
               <PrepaymentsView 
-                records={records}
+                records={activeRecords}
                 accounts={accounts}
                 projects={projects}
                 categories={categories}
                 onBack={() => setCurrentView('more')}
                 onUpdateRecord={handleUpdateRecord}
+                onDeleteRecord={handleDeleteRecord}
                 onDuplicateRecord={handleDuplicateTransaction}
               />
             )}
@@ -24651,19 +24652,25 @@ function PrepaymentsView({
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
 
-  // Filter prepay transactions
+  // Filter prepay transactions (排除已軟刪除與已被合併為子項目的紀錄，避免重複或殘留)
   const prepayRecords = useMemo(() => {
-    return records.filter(r => r.isPrepay === true || getRecordPrepayAmount(r) > 0).sort((a, b) => b.date.localeCompare(a.date));
+    return records
+      .filter(r => !r.isDeleted && !r.isMergedChild && !r.parentId && !r.parentTransactionId && !r.isChildTransaction)
+      .filter(r => r.isPrepay === true || getRecordPrepayAmount(r) > 0)
+      .sort((a, b) => b.date.localeCompare(a.date));
   }, [records]);
 
   const totalReceivable = useMemo(() => {
     return records
+      .filter(r => !r.isDeleted && !r.isMergedChild && !r.parentId && !r.parentTransactionId && !r.isChildTransaction)
       .filter(r => r.type === 'expense' && !r.isSettled)
       .reduce((sum, r) => sum + getRecordPrepayAmount(r), 0);
   }, [records]);
 
   const pendingCount = useMemo(() => {
-    return records.filter(r => r.type === 'expense' && !r.isSettled && getRecordPrepayAmount(r) > 0).length;
+    return records
+      .filter(r => !r.isDeleted && !r.isMergedChild && !r.parentId && !r.parentTransactionId && !r.isChildTransaction)
+      .filter(r => r.type === 'expense' && !r.isSettled && getRecordPrepayAmount(r) > 0).length;
   }, [records]);
 
   return (
@@ -24772,6 +24779,9 @@ function PrepaymentsView({
               setEditingRecord(null);
             }}
             onDelete={() => {
+              if (editingRecord) {
+                onDeleteRecord?.(editingRecord);
+              }
               setEditingRecord(null);
             }}
             onDuplicate={(rec) => {
