@@ -17,8 +17,6 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
-  Train,
-  Smartphone,
   Coins,
   Settings2,
   Check,
@@ -30,7 +28,6 @@ import {
   Edit3,
   Pencil,
   History,
-  ArrowLeft,
   AlertCircle,
   Eye,
   EyeOff,
@@ -41,18 +38,7 @@ import {
   PieChart,
   Layers,
   Search,
-  Star,
   Sparkles,
-  Mic,
-  Gift,
-  Lightbulb,
-  Heart,
-  Utensils,
-  ShoppingCart,
-  Bus,
-  Home as HomeIcon,
-  Banknote as BanknoteIcon,
-  Diamond,
   Database,
   Download,
   Upload,
@@ -70,8 +56,6 @@ import {
   FileText,
   Tag,
   TrendingUp,
-  TrendingDown,
-  CheckCircle2,
   FileSpreadsheet,
   Save,
 } from 'lucide-react';
@@ -91,8 +75,7 @@ import {
   getDocFromServer,
   writeBatch,
   serverTimestamp,
-  getDocs,
-  getDoc
+  getDocs
 } from 'firebase/firestore';
 import { 
   PieChart as RePieChart, 
@@ -104,11 +87,10 @@ import {
   XAxis, 
   YAxis, 
   Tooltip, 
-  Legend,
   LineChart,
   Line
 } from 'recharts';
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, isSameMonth, parseISO } from 'date-fns';
+import { startOfMonth, endOfMonth, subMonths, parseISO } from 'date-fns';
 import { db, auth, googleProvider } from './lib/firebase';
 
 // --- Firebase Error Handling ---
@@ -1004,27 +986,6 @@ export function SafeAccountIcon({
   return <span className="mr-2 text-base">{icon}</span>;
 }
 
-export const renderGroupedAccountOptions = (accountsList: Account[]) => {
-  const filtered = (Array.isArray(accountsList) ? accountsList : []).filter(
-    a => a.type === 'bank' || a.type === 'cash' || a.type === 'investment' || a.type === 'points'
-  );
-  const grouped = groupAccountsByInstitution(filtered);
-
-  return grouped.map(g => (
-    <optgroup key={g.groupName} label={g.groupName}>
-      {g.accounts.map(a => {
-        const hasImg = a.icon && isImageIconString(a.icon);
-        const iconPrefix = hasImg ? '🏦 ' : (a.icon ? `${a.icon} ` : '');
-        return (
-          <option key={a.id} value={a.id}>
-            {iconPrefix}{a.name} ({a.type === 'points' ? '點數' : a.currency})
-          </option>
-        );
-      })}
-    </optgroup>
-  ));
-};
-
 interface GroupedAccountDropdownProps {
   accounts: Account[];
   value: string;
@@ -1459,7 +1420,6 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isCategoryActionMenuOpen, setIsCategoryActionMenuOpen] = useState(false);
-  const [isProjectActionMenuOpen, setIsProjectActionMenuOpen] = useState(false);
   const [isAccountEditModalOpen, setIsAccountEditModalOpen] = useState(false);
   const [isAccountSortModalOpen, setIsAccountSortModalOpen] = useState(false);
   const [isProjectEditModalOpen, setIsProjectEditModalOpen] = useState(false);
@@ -1535,7 +1495,6 @@ export default function App() {
   });
 
   const activeRecords = useMemo(() => (Array.isArray(records) ? records : []).filter(r => !r.isDeleted), [records]);
-  const activeStocks = useMemo(() => (Array.isArray(stocks) ? stocks : []).filter(s => !s.isDeleted), [stocks]);
 
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null);
   const undoToastTimerRef = useRef<any>(null);
@@ -2149,30 +2108,8 @@ export default function App() {
     }
   };
 
-  const handleUpdateProjects = async (newProjects: Project[]) => {
-    if (user) {
-      try {
-        const batch = writeBatch(db);
-        const deletedProjects = projects.filter(oldP => !newProjects.some(newP => newP.id === oldP.id));
-        deletedProjects.forEach(p => {
-          batch.delete(doc(db, 'users', user.uid, 'projects', p.id));
-        });
-        newProjects.forEach(p => {
-          batch.set(doc(db, 'users', user.uid, 'projects', p.id), cleanData(p));
-        });
-        await batch.commit();
-      } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, 'batch/projects');
-        alert("專案更新失敗。");
-      }
-    } else {
-      setProjects(newProjects);
-    }
-  };
-
   const checkFixedRecords = async () => {
     const today = new Date();
-    const todayStr = formatLocalDate(today);
     
     let updatedFixed = [...fixedRecords];
     let recordsToSync: Transaction[] = [];
@@ -2376,35 +2313,6 @@ export default function App() {
     return result;
   }, [accounts, records]);
 
-  // Provide a way to get ONLY the account's own balance (without children) for detail view logic if needed
-  const ownBalances = useMemo(() => {
-    const mergedRecords = getMergedRecords(records, accounts);
-    const balances: Record<string, number> = {};
-    accounts.forEach(acc => {
-      let bal = acc.initialBalance || 0;
-      if (acc.type === 'credit' && !acc.initialBalance) {
-        bal = 0;
-      }
-      mergedRecords.forEach(r => {
-        if (r.category === '初始資金') return;
-        if (acc.type === 'credit' && (!r.postingDate || r.isPending)) return;
-        if (r.accountId === acc.id) {
-          if (r.type === 'transfer') {
-            bal -= Math.abs(r.amount);
-          } else {
-            bal += r.amount;
-          }
-          if (r.fee) bal -= r.fee;
-        }
-        if (r.type === 'transfer') {
-          bal += getTransferInAmountForAccount(r, acc.id);
-        }
-      });
-      balances[acc.id] = bal;
-    });
-    return balances;
-  }, [accounts, records]);
-
   const { netAssets, totalAssets, totalLiabilities } = useMemo(() => {
     let assets = 0;
     let liabilities = 0;
@@ -2444,7 +2352,6 @@ export default function App() {
   const stats = useMemo(() => {
     const monthStr = selectedDate.substring(0, 7);
     const yearStr = selectedDate.substring(0, 4);
-    const todayStr = new Date().toISOString().split('T')[0];
     
     // Calculate week range (Monday to Sunday)
     const base = parseLocalDate(selectedDate);
@@ -2570,7 +2477,6 @@ export default function App() {
       const totalTerms = record.totalInstallments;
       const baseAmt = Math.floor(totalAmtAbs / totalTerms);
       const remainderAmt = totalAmtAbs - (baseAmt * totalTerms);
-      const startDate = new Date(record.date);
       
       const schedule = record.customSchedule || record.installmentList;
       const isCustom = Boolean(record.isCustomInstallment || record.isCustomSchedule || (schedule && schedule.length > 0));
@@ -6418,7 +6324,6 @@ function InvestmentSection({
   // states for dividend operation
   const [dividendingStock, setDividendingStock] = useState<Stock | null>(null);
   const [dividendAmount, setDividendAmount] = useState('');
-  const [dividendHash, setDividendHash] = useState('');
   const [dividendDate, setDividendDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
@@ -6441,12 +6346,6 @@ function InvestmentSection({
       return s;
     });
   }, [stocks, accounts]);
-
-  // filtered stocks by broker filter
-  const filteredStocks = useMemo(() => {
-    if (selectedBrokerFilter === 'all') return calibratedStocks;
-    return calibratedStocks.filter(s => s.linkedAccount === selectedBrokerFilter);
-  }, [calibratedStocks, selectedBrokerFilter]);
 
   // aggregated / filtered stock groups by broker filter
   const displayStockGroups = useMemo<AggregatedStockGroup[]>(() => {
@@ -12733,24 +12632,6 @@ function AccountEditModal({ account, accounts, records, onClose, onSave, onDelet
       ? '' 
       : (account.initialBalance !== undefined ? account.initialBalance : ((Array.isArray(records) ? records : []).find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)).toString()
   );
-
-  const otherRecordsSum = useMemo(() => {
-    const mergedRecords = getMergedRecords(records, accounts);
-    let sum = 0;
-    mergedRecords.forEach(r => {
-      if (r.category === '初始資金') return;
-      if (r.accountId === account.id) {
-        sum += r.amount;
-        if (r.fee) sum -= r.fee;
-      }
-      if (r.type === 'transfer') {
-        sum += getTransferInAmountForAccount(r, account.id);
-      }
-    });
-    return sum;
-  }, [records, account.id, accounts]);
-
-  const currentTotal = (editedAcc.initialBalance || 0) + otherRecordsSum;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const prevParentId = useRef(editedAcc.parentId);
   const prevBankKey = useRef<string | null>(null);
@@ -14275,7 +14156,7 @@ function AccountSortModal({ accounts, onClose, onSave }: {
         const nextParentStart = end + 1;
         if (nextParentStart >= newCatAccounts.length) return;
         
-        const [targetStart, targetEnd] = getSubtreeRange(nextParentStart);
+        const [, targetEnd] = getSubtreeRange(nextParentStart);
         const group = newCatAccounts.splice(start, groupLength);
         const insertAt = targetEnd - groupLength + 1;
         newCatAccounts.splice(insertAt, 0, ...group);
@@ -15047,62 +14928,6 @@ function CategoryManagementPage({ categories, selectedCategoryIdProp, onSelectCa
   const selectedCategory = useMemo(() => 
     (Array.isArray(categories) ? categories : []).find(c => c.id === selectedCategoryId)
   , [categories, selectedCategoryId]);
-
-  const moveCategory = (id: string, direction: 'up' | 'down') => {
-    const idx = filtered.findIndex(c => c.id === id);
-    if (idx === -1) return;
-    if (direction === 'up' && idx === 0) return;
-    if (direction === 'down' && idx === filtered.length - 1) return;
-
-    const otherIdx = direction === 'up' ? idx - 1 : idx + 1;
-    const catA = filtered[idx];
-    const catB = filtered[otherIdx];
-
-    const updatedCategories = categories.map(c => {
-      if (c.id === catA.id) return { ...c, order: otherIdx + 1 };
-      if (c.id === catB.id) return { ...c, order: idx + 1 };
-      // Also ensure others have an order if they don't
-      if (c.type === tab && c.order === undefined) {
-          const cIdx = filtered.findIndex(fc => fc.id === c.id);
-          return { ...c, order: cIdx + 1 };
-      }
-      return c;
-    });
-
-    onSave(updatedCategories);
-  };
-
-  const moveSubByIndex = (catId: string, idx: number, direction: 'up' | 'down') => {
-    const cat = (Array.isArray(categories) ? categories : []).find(c => c.id === catId);
-    if (!cat || !cat.sub) return;
-    if (direction === 'up' && idx === 0) return;
-    if (direction === 'down' && idx === cat.sub.length - 1) return;
-
-    const otherIdx = direction === 'up' ? idx - 1 : idx + 1;
-    const newSub = [...cat.sub];
-    [newSub[idx], newSub[otherIdx]] = [newSub[otherIdx], newSub[idx]];
-    
-    onSave(categories.map(c => c.id === catId ? { ...c, sub: newSub } : c));
-  };
-
-  const moveSubToCategory = (catId: string, subIdx: number, targetCatId: string) => {
-    const sourceCat = (Array.isArray(categories) ? categories : []).find(c => c.id === catId);
-    if (!sourceCat) return;
-    const subName = sourceCat.sub[subIdx];
-    
-    const updatedCategories = categories.map(c => {
-      if (c.id === sourceCat.id) {
-        return { ...c, sub: c.sub.filter((_, i) => i !== subIdx) };
-      }
-      if (c.id === targetCatId) {
-        return { ...c, sub: [...c.sub, subName] };
-      }
-      return c;
-    });
-
-    onSave(updatedCategories);
-    alert(`已將「${subName}」搬移至目標分類`);
-  };
 
   useEffect(() => {
     const handleAdd = () => {
@@ -18625,51 +18450,6 @@ function BudgetManagementPage({
   );
 }
 
-function PlaceholderView({ title, icon, onBack, content }: { title: string, icon: React.ReactNode, onBack: () => void, content?: React.ReactNode }) {
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-      className="flex flex-col h-full bg-[#FFF9E3]"
-      style={getFontFamily()}
-    >
-      <div className="flex-1 overflow-y-auto px-4 py-10">
-        <div className="bg-white/80 backdrop-blur-sm rounded-[40px] shadow-sm border-2 border-white p-10 flex flex-col items-center justify-center gap-6 text-center">
-          <div className="w-24 h-24 bg-[#FFFDF5] rounded-[30px] flex items-center justify-center text-[#FFD54F] shadow-sm border border-white">
-            {icon}
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-black text-[#5D4037]">{title}</h2>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-black text-[#FFD54F] uppercase tracking-widest">Coming Soon</span>
-              <p className="text-sm font-bold text-stone-300 leading-relaxed">
-                此功能正在開發中<br />將在下個版本提供專業級的分析與管理！
-              </p>
-            </div>
-          </div>
-          
-          {content}
-
-          <div className="w-full max-w-[200px] h-1.5 bg-stone-100 rounded-full overflow-hidden">
-            <motion.div 
-              initial={{ x: '-100%' }}
-              animate={{ x: '100%' }}
-              transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-              className="w-1/2 h-full bg-[#FFD54F]"
-            />
-          </div>
-
-          <button 
-            onClick={onBack}
-            className="mt-4 px-8 py-3 bg-[#5D4037] text-white rounded-full font-bold shadow-lg active:scale-95 transition-transform"
-          >
-            返回首頁
-          </button>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
 function HistoryView({ records, accounts, categories, projects, filter, currencyMode, onBack, onUpdateRecord, onDeleteRecord, onReorder, onDuplicateRecord }: { 
   records: Transaction[], 
   accounts: Account[], 
@@ -19123,15 +18903,6 @@ function CategoryDetailModal({
 
   const catObj = useMemo(() => (Array.isArray(categories) ? categories : []).find(c => c.name === categoryName), [categories, categoryName]);
   const isParentCat = useMemo(() => !!catObj && Array.isArray(catObj.sub) && catObj.sub.length > 0, [catObj]);
-
-  const childSubNames = useMemo(() => {
-    if (isParentCat && catObj) {
-      const definedSubs = catObj.sub || [];
-      const fallbacks = SEMANTIC_CATEGORY_MAP[categoryName] || [];
-      return Array.from(new Set([...definedSubs, ...fallbacks]));
-    }
-    return [];
-  }, [isParentCat, catObj, categoryName]);
 
   // Valid period records matching category/subcategory rules
   const matchingRecords = useMemo(() => {
@@ -21791,10 +21562,6 @@ function MoreView({
               destAccName = '';
             }
 
-            const cleanAccName = (s: string) => {
-              return String(s).replace(/\s+/g, '').replace(/[-_@()（）]/g, '').trim().toLowerCase();
-            };
-
             const sourceAcc = findAccByName(sourceAccName);
             const destAcc = findAccByName(destAccName);
             const mainAcc = findAccByName(currentAccName);
@@ -21909,7 +21676,7 @@ function MoreView({
           }
 
           Object.keys(txsByAccountName).forEach(cleanedNameKey => {
-            const { rawName, transactions: list } = txsByAccountName[cleanedNameKey];
+            const { transactions: list } = txsByAccountName[cleanedNameKey];
             
             list.sort((a, b) => {
               const dateComp = a.date.localeCompare(b.date);
@@ -23090,7 +22857,7 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
     return `${hh}:${mm}`;
   });
   const [isPending, setIsPending] = useState(false);
-  const [isDateExpanded, setIsDateExpanded] = useState(true);
+  const [, setIsDateExpanded] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
     initialRecord?.projectId || initialProjectId || 'p1'
   );
@@ -23166,61 +22933,6 @@ function RecordModal({ accounts, categories, templates, projects, initialProject
 
   // For Header Collapsible Bar (Narrow / Split-screen mode)
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
-
-  const parseTaiwanEInvoiceQR = (qrText: string) => {
-    try {
-      // Taiwan E-invoice QR code format:
-      // CW18757179115072112340000002a0000002a0000000056801904XXXXXXXX...**品名:數量:金額
-      const match = qrText.match(/^([A-Z]{2}[0-9]{8})([0-9]{7})([0-9]{4})([0-9a-fA-F]{8})([0-9a-fA-F]{8})([0-9]{8})([0-9]{8})/);
-      if (!match) return null;
-
-      const invNum = match[1];
-      const rocDateStr = match[2];
-      const rocYear = parseInt(rocDateStr.substring(0, 3));
-      const month = rocDateStr.substring(3, 5);
-      const day = rocDateStr.substring(5, 7);
-      const year = rocYear + 1911;
-      const date = `${year}-${month}-${day}`;
-
-      const totalHex = match[5];
-      const amount = parseInt(totalHex, 16);
-
-      let note = '';
-      const parts = qrText.split('**');
-      if (parts.length > 1) {
-        const prodPart = parts[1].trim();
-        const tokens = prodPart.split(':');
-        const items: { name: string; qty: number; price: number }[] = [];
-        
-        for (let i = 0; i < tokens.length; i += 3) {
-          if (tokens[i] && tokens[i+1] && tokens[i+2]) {
-            items.push({
-              name: tokens[i].trim(),
-              qty: parseInt(tokens[i+1]) || 1,
-              price: parseFloat(tokens[i+2]) || 0
-            });
-          }
-        }
-
-        if (items.length > 0) {
-          if (items.length === 1) {
-            note = items[0].name;
-          } else {
-            note = `${items[0].name} 等 ${items.length} 項商品`;
-          }
-        }
-      }
-
-      if (!note) {
-        note = `電子發票 ${invNum}`;
-      }
-
-      return { date, amount, note };
-    } catch (err) {
-      console.error("QR Parse error", err);
-      return null;
-    }
-  };
 
 
 
@@ -25937,20 +25649,6 @@ function AiSplitModal({ isOpen, initialTab = 'expense', presetData, onClose, acc
     return list.length > 0 ? list : ['其他'];
   }, [categories, targetType]);
 
-  const groupedAccountOptions = useMemo(() => {
-    const list = Array.isArray(accounts) ? accounts : [];
-    const grouped = groupAccountsByInstitution(list);
-    return grouped.map(g => (
-      <optgroup key={g.groupName} label={g.groupName}>
-        {g.accounts.map(a => (
-          <option key={a.id} value={a.id}>
-            {a.icon ? `${a.icon} ` : ''}{a.name}
-          </option>
-        ))}
-      </optgroup>
-    ));
-  }, [accounts]);
-
   const [parsedItems, setParsedItems] = useState<{ name: string; amount: number; category: string; projectId?: string; isPrepay: boolean }[]>(() => {
     if (presetData?.items && presetData.items.length > 0) {
       return presetData.items.map((item: any) => {
@@ -26211,7 +25909,7 @@ ${categoriesString}
     ]);
   };
 
-  const { personalExpenses, prepayTotal, totalDeduction } = useMemo(() => {
+  const { prepayTotal, totalDeduction } = useMemo(() => {
     let prepay = 0;
     const personalMap: Record<string, number> = {};
     
