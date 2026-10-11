@@ -68,6 +68,9 @@ import { RecordModal } from './views/RecordModal';
 import { PrepaymentsView } from './views/PrepaymentsView';
 import { AiSplitModal } from './views/AiSplitModal';
 
+// 分期付款中，每一期各自獨立的欄位：重建整組分期時不可以互相覆蓋
+const PER_INSTALLMENT_FIELDS = ['transferredDate', 'isPending', 'postingOrder', 'isSettled', 'isCompleted', 'isDeleted', 'deletedAt'] as const;
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1322,7 +1325,24 @@ export default function App() {
       const oldGroupId = oldRecord.installmentGroupId || (oldRecord.id.includes('-') && !oldRecord.id.startsWith('rec_') ? oldRecord.id.split('-')[0] : null);
       const oldInstallmentId = oldRecord.installmentId;
 
-      if (isInstallment && !wasInstallment) {
+      // 只改了「這一期」的內容（例如標記已轉帳、改入帳日），沒有動到分期本身的設定
+      // （總額、期數、消費日、自訂分期表）時，只更新這一筆，不要重建整組分期。
+      // 編輯視窗儲存分期時送來的金額是「總額」，和單期金額不同，所以仍會走整組重建。
+      const scheduleOf = (r: Transaction) => JSON.stringify(r.customSchedule || (r as any).installmentList || null);
+      const isSinglePartEdit = wasInstallment && isInstallment
+        && newRecord.amount === oldRecord.amount
+        && (newRecord.totalInstallments || null) === (oldRecord.totalInstallments || null)
+        && newRecord.date === oldRecord.date
+        && !!newRecord.isCustomInstallment === !!oldRecord.isCustomInstallment
+        && scheduleOf(newRecord) === scheduleOf(oldRecord);
+
+      if (isSinglePartEdit) {
+        if (user) {
+          await syncToCloud('transactions', cleanData(newRecord), newRecord.id);
+        } else {
+          setRecords(prev => prev.map(r => r.id === newRecord.id ? newRecord : r));
+        }
+      } else if (isInstallment && !wasInstallment) {
         // Converting a normal transaction to a new installment group
         if (user) {
           await deleteFromCloud('transactions', oldRecord.id);
@@ -1472,6 +1492,17 @@ export default function App() {
               customSchedule: isCustom ? schedule : undefined,
               installmentList: isCustom ? schedule : undefined
             } as any;
+
+            // 每一期各自的狀態（是否已轉帳、待入帳、帳單排序、是否已刪除）保留原本的值，
+            // 只有正在編輯的那一期才套用新的值。
+            const oldPart = groupRecords.find(r => r.id === id || r.currentInstallment === i);
+            const isEditedPart = oldPart ? oldPart.id === oldRecord.id : oldRecord.currentInstallment === i;
+            if (oldPart && !isEditedPart) {
+              for (const key of PER_INSTALLMENT_FIELDS) {
+                if ((oldPart as any)[key] !== undefined) (newPart as any)[key] = (oldPart as any)[key];
+                else delete (newPart as any)[key];
+              }
+            }
 
             if (batch && user) {
               batch.set(doc(db, 'users', user.uid, 'transactions', id), cleanData(newPart));
