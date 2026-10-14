@@ -45,6 +45,7 @@ import { formatLocalDate, parseLocalDate } from './lib/dateUtils';
 import { convertCurrency, getLatestExchangeRate, getMergedRecords, getTransferInAmountForAccount } from './lib/recordUtils';
 import { checkAreAccountsSameBank, isAccountExcludedFromNetWorth } from './lib/accountUtils';
 import { DrawerItem, NavButton } from './components/Common';
+import { HelpBubble } from './components/HelpBubble';
 import { HomeView } from './views/HomeView';
 import { AccountsView } from './views/AccountsView';
 import { ExchangeRateModal } from './views/ExchangeRateModal';
@@ -2683,6 +2684,13 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* 右下角「？」使用說明泡泡（專案明細和分類細項的右下角已有按鈕，所以往上移） */}
+        <HelpBubble
+          key={currentView === 'projects' && selectedProjectId ? 'projectDetail' : currentView}
+          view={currentView === 'projects' && selectedProjectId ? 'projectDetail' : currentView}
+          raised={(currentView === 'projects' && !!selectedProjectId) || currentView === 'categories'}
+        />
 
         {/* Bottom Nav */}
         <nav className="bg-white/90 backdrop-blur-md border-t border-stone-100 h-20 flex items-center justify-around px-4 z-40 flex-shrink-0">
