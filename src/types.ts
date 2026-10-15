@@ -155,6 +155,7 @@ export interface Account {
   interestLimit?: number;
   benefits?: string;
   excludeFromNetWorth?: boolean; // 是否不計入個人總資產與淨資產
+  hideInPicker?: boolean; // 記帳時不顯示在帳戶選單（只當資料夾用、或已不再使用的帳戶）
   isBrandGroup?: boolean;
   childAccounts?: Account[];
   rateHistory?: RateHistoryItem[];

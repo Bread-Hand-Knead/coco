@@ -383,6 +383,29 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
               </button>
             </div>
 
+            {/* Hide In Record Picker Toggle Switch */}
+            <div className="p-4 bg-white border-2 border-stone-50 rounded-2xl flex items-center justify-between shadow-sm">
+              <div className="flex flex-col gap-0.5 pr-2">
+                <span className="font-black text-sm text-[#5D4037]" style={getFontFamily()}>記帳時不顯示</span>
+                <span className="text-[11px] font-bold text-stone-400 leading-tight" style={getFontFamily()}>
+                  開啟後，記一筆時的帳戶選單不會出現這個帳戶（適合只用來裝子帳戶的帳戶，例如實體戶，或已經不用的帳戶）。帳戶列表仍會顯示。
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditedAcc({ ...editedAcc, hideInPicker: !editedAcc.hideInPicker })}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  editedAcc.hideInPicker ? 'bg-[#5D4037]' : 'bg-stone-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    editedAcc.hideInPicker ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
             {/* Credit Card Fields */}
             {editedAcc.type === 'credit' && (
               <>
