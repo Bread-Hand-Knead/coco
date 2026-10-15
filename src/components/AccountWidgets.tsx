@@ -194,10 +194,21 @@ export function AccountSelector({
   const [subTabState, setSubTabState] = useState<{ [bankName: string]: 'bank' | 'credit' }>({});
   const { groupedList, singleList } = getGroupedAndUngrouped(accounts);
 
-  // 母帳戶（底下有子帳戶的帳戶，例如台新Richart 底下有子帳戶）本身也可以有收支，
-  // 所以和子帳戶一樣都可以選。
-  const leafSingles = singleList;
-  const tempGrouped = groupedList.filter(g => g.accounts.length > 0);
+  // 母帳戶（底下有子帳戶的帳戶）分兩種：
+  // - 自己也有錢的（有自己的明細或初始金額，例如台新Richart、國泰KOKO）→ 可以選
+  // - 只是拿來裝子帳戶的「資料夾」（例如國泰世華實體戶，本身是 0）→ 不列出來
+  const isFolderOnlyParent = (acc: Account) => {
+    if (!accounts.some(a => a.parentId === acc.id)) return false; // 沒有子帳戶，不是母帳戶
+    if (acc.id === currentSelectedId) return false; // 目前選中的照樣顯示
+    if (acc.initialBalance) return false;
+    const recs = Array.isArray(records) ? records : [];
+    return !recs.some(r => !r.isDeleted && (r.accountId === acc.id || r.toAccountId === acc.id));
+  };
+  const leafSingles = singleList.filter(acc => !isFolderOnlyParent(acc));
+  const tempGrouped = groupedList.map(g => ({
+    ...g,
+    accounts: g.accounts.filter(acc => !isFolderOnlyParent(acc))
+  })).filter(g => g.accounts.length > 0);
 
   // 若群組內過濾後只剩下一個帳戶，則將其提升至單一帳戶列表，避免多點擊一次
   const finalSingles = [...leafSingles];
