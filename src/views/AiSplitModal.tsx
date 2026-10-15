@@ -767,7 +767,7 @@ ${categoriesString}
                     <div className="grid grid-cols-5 gap-2 pr-6">
                       {/* Name */}
                       <div className="col-span-3 flex flex-col gap-1">
-                        <label className="text-[9px] font-bold text-stone-400">品項名稱</label>
+                        <label className="text-[11px] font-bold text-stone-500">品項名稱</label>
                         <input
                           type="text"
                           value={item.name}
@@ -777,7 +777,7 @@ ${categoriesString}
                       </div>
                       {/* Amount */}
                       <div className="col-span-2 flex flex-col gap-1">
-                        <label className="text-[9px] font-bold text-stone-400">金額</label>
+                        <label className="text-[11px] font-bold text-stone-500">金額</label>
                         <NumberInput
                           integer
                           value={item.amount}
@@ -790,7 +790,7 @@ ${categoriesString}
                     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2.5">
                       {/* Category select */}
                       <div className="flex items-center gap-1 min-w-0">
-                        <span className="text-[9px] font-bold text-stone-400 shrink-0">分類：</span>
+                        <span className="text-[11px] font-bold text-stone-500 shrink-0">分類：</span>
                         <select
                           value={item.category}
                           onChange={e => handleUpdateItem(index, 'category', e.target.value)}
@@ -805,7 +805,7 @@ ${categoriesString}
 
                       {/* Project select */}
                       <div className="flex items-center gap-1 min-w-0 z-10 relative">
-                        <span className="text-[9px] font-bold text-stone-400 shrink-0">專案：</span>
+                        <span className="text-[11px] font-bold text-stone-500 shrink-0">專案：</span>
                         <select
                           value={item.projectId || 'p1'}
                           onChange={e => {

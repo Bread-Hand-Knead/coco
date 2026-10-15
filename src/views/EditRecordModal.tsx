@@ -739,7 +739,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">金額</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">金額</label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
                 <input 
@@ -762,7 +762,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分類</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">分類</label>
               <button
                 type="button"
                 onClick={() => {
@@ -785,7 +785,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">備註 (買了什麼？)</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">備註 (買了什麼？)</label>
               <textarea 
                 rows={2}
                 value={edited.note || ''}
@@ -802,7 +802,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
 
             {/* Project Picker */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">所屬專案</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">所屬專案</label>
               <div 
                 onClick={() => setIsProjectPickerOpen(true)}
                 className="w-full p-4 bg-white border-2 border-[#FFD54F]/30 rounded-2xl flex items-center gap-3 cursor-pointer hover:bg-stone-50 transition-all shadow-sm"
@@ -905,7 +905,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                             <div className="space-y-2 pr-5">
                               <div className="grid grid-cols-5 gap-2">
                                 <div className="col-span-3 flex flex-col gap-1">
-                                  <label className="text-[9px] font-bold text-stone-400">轉入卡別 / 帳戶</label>
+                                  <label className="text-[11px] font-bold text-stone-500">轉入卡別 / 帳戶</label>
                                   <select
                                     value={subItem.toAccountId || edited.toAccountId || ''}
                                     onChange={e => {
@@ -928,7 +928,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                   </select>
                                 </div>
                                 <div className="col-span-2 flex flex-col gap-1">
-                                  <label className="text-[9px] font-bold text-stone-400">金額 ($)</label>
+                                  <label className="text-[11px] font-bold text-stone-500">金額 ($)</label>
                                   <NumberInput value={subItem.amount}
                                     onValueChange={amtVal => {
                                       handleUpdateSubItemAmount(idx, amtVal);
@@ -938,7 +938,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 </div>
                               </div>
                               <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-stone-400">備註說明</label>
+                                <label className="text-[11px] font-bold text-stone-500">備註說明</label>
                                 <input
                                   type="text"
                                   value={subItem.name}
@@ -956,7 +956,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                             <>
                               <div className="grid grid-cols-5 gap-2 pr-5">
                                 <div className="col-span-3 flex flex-col gap-1">
-                                  <label className="text-[9px] font-bold text-stone-400">品項名稱</label>
+                                  <label className="text-[11px] font-bold text-stone-500">品項名稱</label>
                                   <input
                                     type="text"
                                     value={subItem.name}
@@ -969,7 +969,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                   />
                                 </div>
                                 <div className="col-span-2 flex flex-col gap-1">
-                                  <label className="text-[9px] font-bold text-stone-400">金額 ($)</label>
+                                  <label className="text-[11px] font-bold text-stone-500">金額 ($)</label>
                                   <NumberInput value={subItem.amount}
                                     onValueChange={amtVal => {
                                       handleUpdateSubItemAmount(idx, amtVal);
@@ -1417,7 +1417,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                               <div key={idx} className="flex items-center gap-2 bg-white/90 p-2.5 rounded-xl border border-stone-200/80 shadow-2xs">
                                 <span className="text-xs font-black text-[#5D4037] w-14 shrink-0">第 {item.installment} 期</span>
                                 <div className="flex-1 space-y-1">
-                                  <label className="text-[9px] font-bold text-stone-400 block">扣款/入帳日期</label>
+                                  <label className="text-[11px] font-bold text-stone-500 block">扣款/入帳日期</label>
                                   <input
                                     type="date"
                                     value={item.date}
@@ -1431,7 +1431,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                   />
                                 </div>
                                 <div className="w-28 shrink-0 space-y-1">
-                                  <label className="text-[9px] font-bold text-stone-400 block">本期金額</label>
+                                  <label className="text-[11px] font-bold text-stone-500 block">本期金額</label>
                                   <NumberInput
                                     min="0"
                                     value={item.amount}
@@ -1594,7 +1594,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
             )}
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">幣別</label>
               <select 
                 value={edited.currency || 'TWD'}
                 onChange={e => setEdited({ ...edited, currency: e.target.value })}
@@ -1616,7 +1616,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
             )}
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1" style={getFontFamily()}>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1" style={getFontFamily()}>
                 {edited.type === 'transfer' ? '轉出帳戶' : '帳戶'}
               </label>
               <select 
@@ -1647,7 +1647,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
             {edited.type === 'transfer' && (
               <>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1" style={getFontFamily()}>轉入帳戶</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1" style={getFontFamily()}>轉入帳戶</label>
                   <select 
                     value={edited.toAccountId || ''}
                     onChange={e => {
@@ -1674,7 +1674,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">{editRateLabel}</label>
+                    <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">{editRateLabel}</label>
                     <input 
                       type="number"
                       value={edited.exchangeRate || 1}
@@ -1696,7 +1696,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">實收金額 ({toAcc?.currency})</label>
+                    <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">實收金額 ({toAcc?.currency})</label>
                     <input 
                       type="number"
                       value={edited.toAmount !== undefined ? edited.toAmount : (() => {

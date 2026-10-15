@@ -294,7 +294,7 @@ export function CategoryManagementPage({ categories, selectedCategoryIdProp, onS
 
               <div className="flex-1 overflow-y-auto p-8 pt-2 space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類名稱</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">主分類名稱</label>
                   <input 
                     value={newCat.name}
                     onChange={e => setNewCat({ ...newCat, name: e.target.value })}
@@ -304,7 +304,7 @@ export function CategoryManagementPage({ categories, selectedCategoryIdProp, onS
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類圖示</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">主分類圖示</label>
                   
                   {/* 自訂 Emoji 輸入框 */}
                   <div className="mb-4">
@@ -418,7 +418,7 @@ export function CategoryManagementPage({ categories, selectedCategoryIdProp, onS
               </div>
               
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">名稱</label>
+                <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">名稱</label>
                 <input 
                   autoFocus
                   value={newSubName}
@@ -713,12 +713,12 @@ export function CategoryManagePage({ categories, onSave, onBack, onMoveSubCatego
 
               <div className="flex-1 overflow-y-auto p-8 pt-2 space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">名稱</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">名稱</label>
                   <input value={newCat.name} onChange={e => setNewCat({ ...newCat, name: e.target.value })} className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]" placeholder="輸入主分類名稱" />
                 </div>
                 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">主分類圖示</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">主分類圖示</label>
                   
                   {/* 自訂 Emoji 輸入框 */}
                   <div className="mb-4">
