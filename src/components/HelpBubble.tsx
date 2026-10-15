@@ -143,6 +143,7 @@ export const HELP_CONTENT: Record<string, { title: string; tips: string[] }> = {
     tips: [
       '記帳時標記為「代墊」的明細會出現在這裡，例如幫家人或朋友先付的錢。',
       '方便你追蹤還有哪些錢還沒收回來。',
+      '收到錢之後，按明細右邊的「待收」按鈕，那筆明細就會變成灰色，表示已經拿到錢了。',
     ],
   },
   recycleBin: {
