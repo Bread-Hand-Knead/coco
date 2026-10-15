@@ -463,17 +463,11 @@ export function AccountsView({
                               <div className="w-3 h-0.5 bg-[#5D4037]/10 flex-shrink-0" />
                               
                               <div 
-                                onClick={() => hasLevel3 ? toggleGroup(l2acc.id) : onAccountClick(l2acc)}
+                                onClick={() => onAccountClick(l2acc)}
                                 className="flex-1 bg-white/80 p-3 sm:p-4 rounded-[24px] border border-white flex flex-col gap-1 cursor-pointer active:scale-95 transition-all shadow-sm overflow-hidden"
                               >
                                 <div className="flex flex-row items-center gap-2 sm:gap-3 w-full">
                                   <div 
-                                    onClick={(e) => {
-                                      if (hasLevel3) {
-                                        e.stopPropagation();
-                                        onAccountClick(l2acc);
-                                      }
-                                    }}
                                     className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-xl flex-shrink-0 flex items-center justify-center text-lg sm:text-xl shadow-inner active:scale-90 transition-transform"
                                   >
                                     <AccountIcon icon={l2acc.icon} sizeClassName="w-5 h-5 sm:w-6 sm:h-6" />
