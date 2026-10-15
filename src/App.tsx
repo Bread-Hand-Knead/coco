@@ -2019,6 +2019,12 @@ export default function App() {
       // In a real app, you'd batch delete related records or use a Cloud Function
       // For now, let's just delete the account. The records will technically be orpaned.
       await deleteFromCloud('accounts', id);
+      // 底下的子帳戶改成獨立的主帳戶，避免留下指向已刪除帳戶的失效連結
+      // （否則它們無法再被選為「所屬主帳戶」）
+      for (const child of accounts.filter(a => a.parentId === id)) {
+        const { parentId: _removed, ...rest } = child;
+        await syncToCloud('accounts', cleanData(rest), child.id);
+      }
     } else {
       setAccounts(prev => prev.filter(a => a.id !== id && a.parentId !== id));
       setRecords(prev => prev.filter(r => r.accountId !== id && r.toAccountId !== id));
