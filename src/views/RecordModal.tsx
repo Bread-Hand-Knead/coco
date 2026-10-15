@@ -1886,7 +1886,7 @@ ${categoriesString}
                   className="bg-white border-2 border-[#FFD54F] rounded-[20px] p-4 flex items-center justify-between shadow-inner cursor-pointer shrink-0"
                 >
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別</label>
+                    <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">幣別</label>
                     <select 
                       value={currency}
                       onChange={(e) => setCurrency(e.target.value)}

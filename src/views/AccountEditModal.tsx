@@ -14,6 +14,20 @@ import type { Account, Transaction } from '../types';
 import { convertCurrency } from '../lib/recordUtils';
 import { checkAreAccountsSameBank, getBankKeyword } from '../lib/accountUtils';
 import { HorizontalScrollArea } from '../components/Common';
+import { defaultTypeOrder } from '../lib/defaults';
+
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  cash: '💵 現金',
+  bank: '🏦 銀行',
+  credit: '💳 信用卡',
+  'e-payment': '📱 電子支付',
+  'e-ticket': '🚌 電子票證',
+  investment: '📈 投資',
+  deposit: '🔒 定存',
+  insurance: '🛡️ 保險',
+  points: '⭐ 點數 / 虛擬資產',
+  other: '📦 其他',
+};
 
 export function AccountEditModal({ account, accounts, records, onClose, onSave, onDelete, onViewDetail }: { 
   account: Account, 
@@ -155,7 +169,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
           <div className="space-y-6">
             {/* Name */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">帳戶名稱</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">帳戶名稱</label>
               <input 
                 value={editedAcc.name}
                 onChange={e => setEditedAcc({ ...editedAcc, name: e.target.value })}
@@ -167,7 +181,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
 
             {/* Initial Amount */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">初始金額</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">初始金額</label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg">$</span>
                 <input 
@@ -187,7 +201,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
 
             {/* Type Selection */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1" style={getFontFamily()}>帳戶類型</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1" style={getFontFamily()}>帳戶類型</label>
               <div className="flex flex-wrap gap-2">
                 {accountTypes.map(t => {
                   const labelMap: Record<Account['type'], string> = {
@@ -224,7 +238,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
             </div>
 
             <div className="space-y-4">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">幣別 (Currency)</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">幣別 (Currency)</label>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { id: 'TWD', label: '台幣' },
@@ -246,7 +260,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
 
             {/* Icon Selection */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">選擇圖示</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">選擇圖示</label>
               <HorizontalScrollArea className="px-1">
                 <div className="flex gap-2">
                   {/* Upload Custom Image Icon */}
@@ -308,7 +322,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
 
             {/* Parent Selection */}
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">所屬主帳戶</label>
+              <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">所屬主帳戶</label>
               <div className="relative">
                 <select 
                   value={editedAcc.parentId || ''}
@@ -316,12 +330,29 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
                   className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl text-sm font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
                 >
                   <option value="">無 (作為主帳戶)</option>
-                  {accounts
-                    .filter(a => !a.parentId && a.id !== editedAcc.id)
-                    .sort((a, b) => (a.order || 0) - (b.order || 0))
-                    .map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
+                  {/* 依帳戶類型分組（現金、銀行、信用卡…），順序和帳戶列表一致 */}
+                  {defaultTypeOrder.map(type => {
+                    const group = accounts
+                      .filter(a => !a.parentId && a.id !== editedAcc.id && a.type === type)
+                      .sort((a, b) => (a.order || 0) - (b.order || 0));
+                    if (group.length === 0) return null;
+                    return (
+                      <optgroup key={type} label={ACCOUNT_TYPE_LABELS[type] || type}>
+                        {group.map(a => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
+                  {(() => {
+                    // 類型不在清單裡的帳戶（理論上不會有），放在最後避免消失
+                    const rest = accounts.filter(a => !a.parentId && a.id !== editedAcc.id && !defaultTypeOrder.includes(a.type));
+                    return rest.length > 0 ? (
+                      <optgroup label="其他">
+                        {rest.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </optgroup>
+                    ) : null;
+                  })()}
                 </select>
                 <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
               </div>
@@ -355,7 +386,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
               <>
                 {/* Credit Limit */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用總額度 (Credit Limit)</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">信用總額度 (Credit Limit)</label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg" style={getFontFamily()}>$</span>
                     <input 
@@ -370,12 +401,12 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
                       style={getFontFamily()}
                     />
                   </div>
-                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定總額度以計算可用信用額度與進度條</p>
+                  <p className="text-[11px] font-bold text-stone-500 px-1" style={getFontFamily()}>設定總額度以計算可用信用額度與進度條</p>
                 </div>
 
                 {/* Credit Card Closing Day / Statement Date */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡結帳日</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">信用卡結帳日</label>
                   <div className="relative">
                     <input 
                       type="number"
@@ -395,12 +426,12 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
                       <span className="text-sm font-black" style={getFontFamily()}>日</span>
                     </div>
                   </div>
-                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定結帳日以利後續計算帳單週期</p>
+                  <p className="text-[11px] font-bold text-stone-500 px-1" style={getFontFamily()}>設定結帳日以利後續計算帳單週期</p>
                 </div>
 
                 {/* Credit Card Due Date */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">每月繳款日</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">每月繳款日</label>
                   <div className="relative">
                     <input 
                       type="number"
@@ -420,12 +451,12 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
                       <span className="text-sm font-black" style={getFontFamily()}>日</span>
                     </div>
                   </div>
-                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定繳款日以利帳單提醒</p>
+                  <p className="text-[11px] font-bold text-stone-500 px-1" style={getFontFamily()}>設定繳款日以利帳單提醒</p>
                 </div>
 
                 {/* Credit Card Benefits */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">信用卡優惠備忘</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">信用卡優惠備忘</label>
                   <textarea 
                     value={editedAcc.benefits || ''}
                     onChange={e => setEditedAcc({ ...editedAcc, benefits: e.target.value })}
@@ -442,7 +473,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
               <>
                 {/* Interest Rate */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">存款年利率 (%)</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">存款年利率 (%)</label>
                   <div className="relative">
                     <input 
                       type="number"
@@ -461,12 +492,12 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
                       <span className="text-sm font-black" style={getFontFamily()}>%</span>
                     </div>
                   </div>
-                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定年利率以自動估算每月利息</p>
+                  <p className="text-[11px] font-bold text-stone-500 px-1" style={getFontFamily()}>設定年利率以自動估算每月利息</p>
                 </div>
 
                 {/* Interest Limit */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">高利活存額度上限</label>
+                  <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">高利活存額度上限</label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-stone-300 text-lg" style={getFontFamily()}>$</span>
                     <input 
@@ -482,7 +513,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
                       style={getFontFamily()}
                     />
                   </div>
-                  <p className="text-[10px] font-bold text-stone-300 px-1" style={getFontFamily()}>設定最高計息額度上限（選填）</p>
+                  <p className="text-[11px] font-bold text-stone-500 px-1" style={getFontFamily()}>設定最高計息額度上限（選填）</p>
                 </div>
               </>
             )}

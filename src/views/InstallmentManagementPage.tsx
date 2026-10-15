@@ -439,7 +439,7 @@ export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettl
                         <div key={idx} className="flex items-center gap-2 bg-white/90 p-2.5 rounded-2xl border border-stone-200/80 shadow-2xs">
                           <span className="text-xs font-black text-[#5D4037] w-14 shrink-0">第 {item.installment} 期</span>
                           <div className="flex-1 space-y-1">
-                            <label className="text-[9px] font-bold text-stone-400 block">扣款/入帳日期</label>
+                            <label className="text-[11px] font-bold text-stone-500 block">扣款/入帳日期</label>
                             <input
                               type="date"
                               value={item.date}
@@ -453,7 +453,7 @@ export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettl
                             />
                           </div>
                           <div className="w-28 shrink-0 space-y-1">
-                            <label className="text-[9px] font-bold text-stone-400 block">本期金額</label>
+                            <label className="text-[11px] font-bold text-stone-500 block">本期金額</label>
                             <NumberInput
                               min="0"
                               value={item.amount}

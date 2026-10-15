@@ -1900,7 +1900,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
 
                 {account.type === 'credit' && account.isBrandGroup && orderedChildCards.length > 1 && (
                   <div className="border-t border-stone-100 pt-3 flex flex-col gap-2" style={getFontFamily()}>
-                    <div className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">卡片分區 (GROUP BY CARD)</div>
+                    <div className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">卡片分區 (GROUP BY CARD)</div>
                     <button
                       onClick={() => setGroupByCard(!groupByCard)}
                       className={`w-full py-4 px-5 rounded-2xl font-bold text-left text-sm transition-all active:scale-98 flex items-center justify-between gap-2 ${groupByCard ? 'bg-[#5D4037] text-white shadow-md' : 'bg-white hover:bg-stone-50 text-[#5D4037] border border-stone-100 shadow-sm'}`}
@@ -1957,7 +1957,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
 
                 {account.isBrandGroup && (account as any).childAccounts && (account as any).childAccounts.length > 0 && (
                   <div className="border-t border-stone-100 pt-3 flex flex-col gap-2">
-                    <div className="text-[10px] font-black text-stone-300 uppercase tracking-widest px-1">分卡別篩選 (FILTER BY CARD)</div>
+                    <div className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">分卡別篩選 (FILTER BY CARD)</div>
                     <div className="flex flex-col gap-2">
                       <button
                         onClick={() => {
