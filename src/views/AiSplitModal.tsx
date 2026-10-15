@@ -1,5 +1,6 @@
 import { getFontFamily } from '../lib/financeUtils';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { NumberInput } from '../components/NumberInput';
 import {
   Calendar as CalendarIcon,
   Check,
@@ -777,10 +778,10 @@ ${categoriesString}
                       {/* Amount */}
                       <div className="col-span-2 flex flex-col gap-1">
                         <label className="text-[9px] font-bold text-stone-400">金額</label>
-                        <input
-                          type="number"
+                        <NumberInput
+                          integer
                           value={item.amount}
-                          onChange={e => handleUpdateItem(index, 'amount', parseInt(e.target.value) || 0)}
+                          onValueChange={v => handleUpdateItem(index, 'amount', v)}
                           className="w-full px-2 py-1.5 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none"
                         />
                       </div>

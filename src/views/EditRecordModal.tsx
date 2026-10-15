@@ -1,5 +1,6 @@
 import { CustomInstallmentItem, generateDefaultCustomSchedule, getCategoryIcon, getCorrectInstallmentDate, getFontFamily } from '../lib/financeUtils';
 import { useMemo, useRef, useState } from 'react';
+import { NumberInput } from '../components/NumberInput';
 import {
   Banknote,
   Calendar as CalendarIcon,
@@ -928,11 +929,8 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 </div>
                                 <div className="col-span-2 flex flex-col gap-1">
                                   <label className="text-[9px] font-bold text-stone-400">金額 ($)</label>
-                                  <input
-                                    type="number"
-                                    value={subItem.amount}
-                                    onChange={e => {
-                                      const amtVal = parseFloat(e.target.value) || 0;
+                                  <NumberInput value={subItem.amount}
+                                    onValueChange={amtVal => {
                                       handleUpdateSubItemAmount(idx, amtVal);
                                     }}
                                     className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
@@ -972,11 +970,8 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 </div>
                                 <div className="col-span-2 flex flex-col gap-1">
                                   <label className="text-[9px] font-bold text-stone-400">金額 ($)</label>
-                                  <input
-                                    type="number"
-                                    value={subItem.amount}
-                                    onChange={e => {
-                                      const amtVal = parseFloat(e.target.value) || 0;
+                                  <NumberInput value={subItem.amount}
+                                    onValueChange={amtVal => {
                                       handleUpdateSubItemAmount(idx, amtVal);
                                     }}
                                     className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
@@ -1437,12 +1432,10 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 </div>
                                 <div className="w-28 shrink-0 space-y-1">
                                   <label className="text-[9px] font-bold text-stone-400 block">本期金額</label>
-                                  <input
-                                    type="number"
+                                  <NumberInput
                                     min="0"
                                     value={item.amount}
-                                    onChange={e => {
-                                      const val = parseFloat(e.target.value) || 0;
+                                    onValueChange={val => {
                                       setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, amount: val } : it));
                                       setIsCustomInstallment(true);
                                     }}

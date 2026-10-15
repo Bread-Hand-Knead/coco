@@ -1,5 +1,6 @@
 import { CustomInstallmentItem, generateDefaultCustomSchedule, getCorrectInstallmentDate, getFontFamily } from '../lib/financeUtils';
 import { useEffect, useMemo, useState } from 'react';
+import { NumberInput } from '../components/NumberInput';
 import { CreditCard, Pencil, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Transaction } from '../types';
@@ -453,12 +454,10 @@ export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettl
                           </div>
                           <div className="w-28 shrink-0 space-y-1">
                             <label className="text-[9px] font-bold text-stone-400 block">本期金額</label>
-                            <input
-                              type="number"
+                            <NumberInput
                               min="0"
                               value={item.amount}
-                              onChange={e => {
-                                const val = parseFloat(e.target.value) || 0;
+                              onValueChange={val => {
                                 setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, amount: val } : it));
                                 setIsCustomInstallment(true);
                               }}
