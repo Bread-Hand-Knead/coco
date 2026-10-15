@@ -3,41 +3,24 @@ import { formatLocalDate } from './dateUtils';
 import { getMergedRecords, getTransferInAmountForAccount, isTransferInForAccount } from './recordUtils';
 
 export const getBankKeyword = (name: string, parentName?: string): string | null => {
-  const banks = [
-    '中國信託', '中信', '國泰世華', '國泰', '玉山', '台北富邦', '富邦', '台新', 
-    '聯邊', '聯邦', '永豐', '星展', 'DBS', '渣打', '匯豐', 'HSBC', '新光', '元大', '華南', 
-    '兆豐', '第一', '一銀', '合作金庫', '合庫', '彰化', '彰銀', '土地', '土銀', 
-    '臺灣銀行', '台銀', '上海', '凱基', '樂天'
+  // [比對用關鍵字, 分組名稱]。英文名稱不分大小寫、忽略空格（LINE BANK、Line Bank、LINEBANK 都算）
+  const banks: [string, string][] = [
+    ['中國信託', '中信'], ['中信', '中信'], ['國泰世華', '國泰'], ['國泰', '國泰'], ['玉山', '玉山'],
+    ['台北富邦', '富邦'], ['富邦', '富邦'], ['台新', '台新'], ['聯邊', '聯邊'], ['聯邦', '聯邦'],
+    ['永豐', '永豐'], ['星展', '星展'], ['DBS', 'DBS'], ['渣打', '渣打'], ['匯豐', '匯豐'], ['HSBC', 'HSBC'],
+    ['新光', '新光'], ['元大', '元大'], ['華南', '華南'], ['兆豐', '兆豐'], ['第一', '第一'], ['一銀', '第一'],
+    ['合作金庫', '合庫'], ['合庫', '合庫'], ['彰化', '彰銀'], ['彰銀', '彰銀'], ['土地', '土銀'], ['土銀', '土銀'],
+    ['臺灣銀行', '台銀'], ['台銀', '台銀'], ['上海', '上海'], ['凱基', '凱基'], ['樂天', '樂天'],
+    ['LINEBANK', 'LINE BANK'], ['連線銀行', 'LINE BANK'], ['將來', '將來'], ['王道', '王道'],
+    ['京城', '京城'], ['郵局', '郵局'], ['中華郵政', '郵局'],
   ];
-  for (const b of banks) {
-    if (name.includes(b)) {
-      if (b === '中國信託' || b === '中信') return '中信';
-      if (b === '國泰世華' || b === '國泰') return '國泰';
-      if (b === '台北富邦' || b === '富邦') return '富邦';
-      if (b === '一銀' || b === '第一') return '第一';
-      if (b === '合作金庫' || b === '合庫') return '合庫';
-      if (b === '彰化' || b === '彰銀') return '彰銀';
-      if (b === '土地' || b === '土銀') return '土銀';
-      if (b === '臺灣銀行' || b === '台銀') return '台銀';
-      return b;
-    }
-  }
-  if (parentName) {
-    for (const b of banks) {
-      if (parentName.includes(b)) {
-        if (b === '中國信託' || b === '中信') return '中信';
-        if (b === '國泰世華' || b === '國泰') return '國泰';
-        if (b === '台北富邦' || b === '富邦') return '富邦';
-        if (b === '一銀' || b === '第一') return '第一';
-        if (b === '合作金庫' || b === '合庫') return '合庫';
-        if (b === '彰化' || b === '彰銀') return '彰銀';
-        if (b === '土地' || b === '土銀') return '土銀';
-        if (b === '臺灣銀行' || b === '台銀') return '台銀';
-        return b;
-      }
-    }
-  }
-  return null;
+  const norm = (s: string) => s.toUpperCase().replace(/\s+/g, '');
+  const find = (text: string) => {
+    const t = norm(text);
+    const hit = banks.find(([k]) => t.includes(norm(k)));
+    return hit ? hit[1] : null;
+  };
+  return find(name) || (parentName ? find(parentName) : null);
 };
 
 export const getGroupedAndUngrouped = (accountsList: Account[]) => {
