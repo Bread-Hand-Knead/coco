@@ -357,8 +357,13 @@ export default function App() {
     }
   };
 
+  // 雲端是否已經回傳過帳戶／專案資料（不是手機裡的暫存）。
+  // 登入後在雲端資料抵達之前，帳戶清單會短暫是空的；這時不能誤以為「沒有帳戶」而自動建立預設帳戶。
+  const [cloudLoaded, setCloudLoaded] = useState({ accounts: false, projects: false });
+
   // Real-time synchronization with Cache-First Stale-While-Revalidate
   useEffect(() => {
+    setCloudLoaded({ accounts: false, projects: false });
     if (!user) return;
 
     const unsubRecords = onSnapshot(collection(db, 'users', user.uid, 'transactions'), (snapshot) => {
@@ -372,6 +377,7 @@ export default function App() {
       const sortedData = data.sort((a, b) => (a.order || 0) - (b.order || 0));
       setAccounts(sortedData);
       try { localStorage.setItem('coco_accounts_cache', JSON.stringify(sortedData)); } catch (e) {}
+      if (!snapshot.metadata.fromCache) setCloudLoaded(prev => prev.accounts ? prev : { ...prev, accounts: true });
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/accounts`));
 
     const unsubCategories = onSnapshot(collection(db, 'users', user.uid, 'categories'), (snapshot) => {
@@ -397,6 +403,7 @@ export default function App() {
       const hierarchized = ensureProjectHierarchy(res);
       setProjects(hierarchized);
       try { localStorage.setItem('coco_projects_cache', JSON.stringify(hierarchized)); } catch (e) {}
+      if (!snapshot.metadata.fromCache) setCloudLoaded(prev => prev.projects ? prev : { ...prev, projects: true });
     }, (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/projects`));
 
     const unsubFixed = onSnapshot(collection(db, 'users', user.uid, 'fixedRecords'), (snapshot) => {
@@ -450,17 +457,18 @@ export default function App() {
     // Only proceed if loading is finished, user is present, and NO accounts exist.
     // We add a tiny delay or check a flag if necessary, but checking accounts.length usually suffices
     // as long as the snapshot listener has had a chance to run.
-    if (user && !authLoading && accounts.length === 0) {
+    // 只有在雲端確認過「真的沒有任何帳戶」時才建立預設的現金帳戶
+    if (user && !authLoading && cloudLoaded.accounts && accounts.length === 0) {
       // Check if we are currently importing to avoid race conditions
       // (Though length won't be 0 if import started, but safety first)
       const defaultAcc: Account = { id: 'cash', name: '現金', type: 'cash', icon: '💰', currency: 'TWD', order: 1 };
       setDoc(doc(db, 'users', user.uid, 'accounts', 'cash'), cleanData(defaultAcc)).catch(console.error);
     }
-    if (user && !authLoading && projects.length === 0) {
+    if (user && !authLoading && cloudLoaded.projects && projects.length === 0) {
       const defaultProject: Project = { id: 'p1', name: '預設專案', icon: '📂', color: 'bg-stone-100', description: '系統預設專案' };
       setDoc(doc(db, 'users', user.uid, 'projects', 'p1'), cleanData(defaultProject)).catch(console.error);
     }
-  }, [user, authLoading, accounts.length, projects.length]);
+  }, [user, authLoading, accounts.length, projects.length, cloudLoaded]);
 
   // One-time migration for fixed/recurring transactions with positive amount bug
   const hasMigratedFixedRef = useRef(false);
