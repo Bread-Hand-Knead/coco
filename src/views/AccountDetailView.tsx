@@ -1185,16 +1185,17 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                                 {personalItems.map((item, idx) => {
                                   const subProjectName = item.projectName || (item.projectId && (Array.isArray(projects) ? projects : []).find(p => p.id === item.projectId)?.name);
                                   return (
-                                    <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-stone-700">
-                                      <span className="truncate max-w-[240px] text-stone-800 flex items-center gap-1">
-                                        <span>• {item.name} {item.category ? `(${item.category})` : ''}</span>
+                                    <div key={item.id || idx} className="flex items-start justify-between gap-2 text-xs font-bold text-stone-700">
+                                      {/* 手機：一行顯示，太長可以左右滑動；電腦：自動換行，完整顯示 */}
+                                      <span className="flex-1 min-w-0 overflow-x-auto whitespace-nowrap md:overflow-visible md:whitespace-normal text-stone-800 flex items-center md:flex-wrap gap-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" onClick={e => e.stopPropagation()}>
+                                        <span className="shrink-0 md:shrink">• {item.name} {item.category ? `(${item.category})` : ''}</span>
                                         {subProjectName && (
-                                          <span className="text-[10px] text-amber-800 bg-amber-100/90 px-1.5 py-0.2 rounded font-black border border-amber-300/40">
+                                          <span className="shrink-0 text-[10px] text-amber-800 bg-amber-100/90 px-1.5 py-0.2 rounded font-black border border-amber-300/40">
                                             📁 {subProjectName}
                                           </span>
                                         )}
                                       </span>
-                                      <span className={`font-black ${item.amount < 0 ? 'text-emerald-600' : 'text-[#5D4037]'}`}>
+                                      <span className={`shrink-0 font-black ${item.amount < 0 ? 'text-emerald-600' : 'text-[#5D4037]'}`}>
                                         {item.amount < 0 ? '-' : ''}${Math.abs(item.amount).toLocaleString()}
                                       </span>
                                     </div>
@@ -1224,16 +1225,16 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                                 {prepayItems.map((item, idx) => {
                                   const subProjectName = item.projectName || (item.projectId && (Array.isArray(projects) ? projects : []).find(p => p.id === item.projectId)?.name);
                                   return (
-                                    <div key={item.id || idx} className="flex items-center justify-between text-xs font-bold text-amber-900/90">
-                                      <span className="truncate max-w-[240px] flex items-center gap-1">
-                                        <span>• {item.name} {item.category ? `(${item.category})` : ''}</span>
+                                    <div key={item.id || idx} className="flex items-start justify-between gap-2 text-xs font-bold text-amber-900/90">
+                                      <span className="flex-1 min-w-0 overflow-x-auto whitespace-nowrap md:overflow-visible md:whitespace-normal flex items-center md:flex-wrap gap-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" onClick={e => e.stopPropagation()}>
+                                        <span className="shrink-0 md:shrink">• {item.name} {item.category ? `(${item.category})` : ''}</span>
                                         {subProjectName && (
-                                          <span className="text-[10px] text-amber-900 bg-amber-200/80 px-1.5 py-0.2 rounded font-black border border-amber-300/60">
+                                          <span className="shrink-0 text-[10px] text-amber-900 bg-amber-200/80 px-1.5 py-0.2 rounded font-black border border-amber-300/60">
                                             📁 {subProjectName}
                                           </span>
                                         )}
                                       </span>
-                                      <span className={`font-black ${item.amount < 0 ? 'text-emerald-700' : 'text-amber-950'}`}>
+                                      <span className={`shrink-0 font-black ${item.amount < 0 ? 'text-emerald-700' : 'text-amber-950'}`}>
                                         {item.amount < 0 ? '-' : ''}${Math.abs(item.amount).toLocaleString()}
                                       </span>
                                     </div>
