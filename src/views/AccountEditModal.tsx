@@ -57,6 +57,8 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
       : (account.initialBalance !== undefined ? account.initialBalance : ((Array.isArray(records) ? records : []).find(r => r.accountId === account.id && r.category === '初始資金')?.amount || 0)).toString()
   );
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // 可以當主帳戶的帳戶：沒有上層帳戶，或是上層帳戶已經被刪除（舊資料留下的失效連結）
+  const isTopLevelAccount = (a: Account) => !a.parentId || !accounts.some(p => p.id === a.parentId);
   const prevParentId = useRef(editedAcc.parentId);
   const prevBankKey = useRef<string | null>(null);
 
@@ -333,7 +335,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
                   {/* 依帳戶類型分組（現金、銀行、信用卡…），順序和帳戶列表一致 */}
                   {defaultTypeOrder.map(type => {
                     const group = accounts
-                      .filter(a => !a.parentId && a.id !== editedAcc.id && a.type === type)
+                      .filter(a => isTopLevelAccount(a) && a.id !== editedAcc.id && a.type === type)
                       .sort((a, b) => (a.order || 0) - (b.order || 0));
                     if (group.length === 0) return null;
                     return (
@@ -346,7 +348,7 @@ export function AccountEditModal({ account, accounts, records, onClose, onSave, 
                   })}
                   {(() => {
                     // 類型不在清單裡的帳戶（理論上不會有），放在最後避免消失
-                    const rest = accounts.filter(a => !a.parentId && a.id !== editedAcc.id && !defaultTypeOrder.includes(a.type));
+                    const rest = accounts.filter(a => isTopLevelAccount(a) && a.id !== editedAcc.id && !defaultTypeOrder.includes(a.type));
                     return rest.length > 0 ? (
                       <optgroup label="其他">
                         {rest.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
