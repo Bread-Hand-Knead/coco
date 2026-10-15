@@ -198,8 +198,9 @@ export function AccountSelector({
   // - 自己也有錢的（有自己的明細或初始金額，例如台新Richart、國泰KOKO）→ 可以選
   // - 只是拿來裝子帳戶的「資料夾」（例如國泰世華實體戶，本身是 0）→ 不列出來
   const isFolderOnlyParent = (acc: Account) => {
-    if (!accounts.some(a => a.parentId === acc.id)) return false; // 沒有子帳戶，不是母帳戶
     if (acc.id === currentSelectedId) return false; // 目前選中的照樣顯示
+    if (acc.hideInPicker) return true; // 在編輯帳戶裡設定了「記帳時不顯示」
+    if (!accounts.some(a => a.parentId === acc.id)) return false; // 沒有子帳戶，不是母帳戶
     if (acc.initialBalance) return false;
     const recs = Array.isArray(records) ? records : [];
     return !recs.some(r => !r.isDeleted && (r.accountId === acc.id || r.toAccountId === acc.id));
