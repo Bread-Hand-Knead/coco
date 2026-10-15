@@ -194,15 +194,10 @@ export function AccountSelector({
   const [subTabState, setSubTabState] = useState<{ [bankName: string]: 'bank' | 'credit' }>({});
   const { groupedList, singleList } = getGroupedAndUngrouped(accounts);
 
-  // 判斷帳戶是否為父層母帳戶（即是否有其他帳戶以它為 parentId）
-  const isParentAccount = (accId: string) => accounts.some(a => a.parentId === accId);
-
-  // 過濾掉母帳戶，僅保留最底層子帳戶及無子帳戶之獨立帳戶
-  const leafSingles = singleList.filter(acc => !isParentAccount(acc.id));
-  const tempGrouped = groupedList.map(g => ({
-    ...g,
-    accounts: g.accounts.filter(acc => !isParentAccount(acc.id))
-  })).filter(g => g.accounts.length > 0);
+  // 母帳戶（底下有子帳戶的帳戶，例如台新Richart 底下有子帳戶）本身也可以有收支，
+  // 所以和子帳戶一樣都可以選。
+  const leafSingles = singleList;
+  const tempGrouped = groupedList.filter(g => g.accounts.length > 0);
 
   // 若群組內過濾後只剩下一個帳戶，則將其提升至單一帳戶列表，避免多點擊一次
   const finalSingles = [...leafSingles];
