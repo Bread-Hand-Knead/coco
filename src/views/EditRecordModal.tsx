@@ -372,9 +372,11 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
         amount: Math.abs(r.amount)
       }));
     }
+    // 原本不是分期的紀錄，金額本身就是總額；原本是分期的，金額是單期金額
+    const wasInstallment = !!record.isInstallment || !!record.installmentGroupId || !!record.installmentId;
     const totalAmt = record.totalAmount && record.totalAmount > 0 
       ? record.totalAmount 
-      : Math.abs(record.amount || 0) * (record.totalInstallments || 12);
+      : Math.abs(record.amount || 0) * (wasInstallment ? (record.totalInstallments || 12) : 1);
     return generateDefaultCustomSchedule(
       totalAmt,
       record.totalInstallments || 12,
@@ -390,6 +392,27 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
     const amt = Math.abs(record.amount);
     return amt === 0 ? '' : amt.toString();
   });
+
+  // 分期表是否是使用者自己填過的（或原本就存在的）。
+  // 不是的話，改期數或打開「自訂每期明細」時，直接依目前的總額與期數重新平均分配。
+  const scheduleTouchedRef = useRef<boolean>(
+    !!(record.customSchedule && record.customSchedule.length > 0) ||
+    !!(record.installmentList && record.installmentList.length > 0) ||
+    groupRecords.length > 0
+  );
+  const buildSchedule = (prev: CustomInstallmentItem[], count: number): CustomInstallmentItem[] => {
+    const startDate = edited.date || formatLocalDate(new Date());
+    const totalAmt = parseFloat(amountStr) || Math.abs(edited.amount || 0);
+    if (!scheduleTouchedRef.current) return generateDefaultCustomSchedule(totalAmt, count, startDate);
+    if (prev.length === count) return prev;
+    if (prev.length > count) return prev.slice(0, count);
+    const defaultFull = generateDefaultCustomSchedule(totalAmt, count, startDate);
+    const extra: CustomInstallmentItem[] = [];
+    for (let i = prev.length + 1; i <= count; i++) {
+      extra.push(defaultFull[i - 1] || { installment: i, date: getCorrectInstallmentDate(startDate, i), amount: 0 });
+    }
+    return [...prev, ...extra];
+  };
 
   const handleToggleInstallment = (nextVal: boolean) => {
     setIsInstallment(nextVal);
@@ -1349,32 +1372,16 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
-                        <input 
-                          type="number"
-                          min="1"
-                          max="36"
+                        <NumberInput
+                          integer
+                          minValue={1}
+                          maxValue={36}
                           value={totalInstallments}
-                          onChange={e => {
-                            const val = parseInt(e.target.value) || 1;
+                          onValueChange={val => {
                             setTotalInstallments(val);
                             setEdited(prev => ({ ...prev, totalInstallments: val }));
-                            if (isCustomInstallment) {
-                              setCustomSchedules(prev => {
-                                if (prev.length === val) return prev;
-                                if (prev.length < val) {
-                                  const startDate = edited.date || formatLocalDate(new Date());
-                                  const totalAmt = parseFloat(amountStr) || Math.abs(edited.amount || 0) * val;
-                                  const defaultFull = generateDefaultCustomSchedule(totalAmt, val, startDate);
-                                  const extra: CustomInstallmentItem[] = [];
-                                  for (let i = prev.length + 1; i <= val; i++) {
-                                    extra.push(defaultFull[i - 1] || { installment: i, date: getCorrectInstallmentDate(startDate, i), amount: 0 });
-                                  }
-                                  return [...prev, ...extra];
-                                } else {
-                                  return prev.slice(0, val);
-                                }
-                              });
-                            }
+                            // 不論有沒有打開自訂明細，都讓分期表的期數跟著改，打開時才不會出現舊的期數
+                            setCustomSchedules(prev => buildSchedule(prev, val));
                           }}
                           className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-sm text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
                         />
@@ -1396,9 +1403,9 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                           onClick={() => {
                             const nextVal = !isCustomInstallment;
                             setIsCustomInstallment(nextVal);
-                            if (nextVal && (!customSchedules || customSchedules.length === 0)) {
-                              const totalAmt = parseFloat(amountStr) || Math.abs(edited.amount || 0) * totalInstallments;
-                              setCustomSchedules(generateDefaultCustomSchedule(totalAmt, totalInstallments, edited.date));
+                            if (nextVal) {
+                              // 打開時，分期表一定和目前的期數一致
+                              setCustomSchedules(prev => buildSchedule(prev || [], totalInstallments));
                             }
                           }}
                           className={`w-12 h-6 rounded-full transition-all relative ${isCustomInstallment ? 'bg-[#5D4037]' : 'bg-stone-200'}`}
@@ -1423,6 +1430,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                     value={item.date}
                                     onChange={e => {
                                       const val = e.target.value;
+                                      scheduleTouchedRef.current = true;
                                       setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, date: val } : it));
                                       setIsCustomInstallment(true);
                                     }}
@@ -1436,6 +1444,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                     min="0"
                                     value={item.amount}
                                     onValueChange={val => {
+                                      scheduleTouchedRef.current = true;
                                       setCustomSchedules(prev => prev.map((it, i) => i === idx ? { ...it, amount: val } : it));
                                       setIsCustomInstallment(true);
                                     }}

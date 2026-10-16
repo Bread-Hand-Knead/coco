@@ -360,13 +360,12 @@ export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettl
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-xs font-black text-stone-500 uppercase tracking-widest px-1">分期期數 (1-36)</label>
-                  <input 
-                    type="number"
-                    min="1"
-                    max="36"
+                  <NumberInput
+                    integer
+                    minValue={1}
+                    maxValue={36}
                     value={editTotalInstallments}
-                    onChange={e => {
-                      const val = parseInt(e.target.value) || 1;
+                    onValueChange={val => {
                       setEditTotalInstallments(val);
                       if (isCustomInstallment) {
                         setCustomSchedules(prev => {
