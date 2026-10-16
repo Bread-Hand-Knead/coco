@@ -1,5 +1,6 @@
 import { getFontFamily } from '../lib/financeUtils';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { NumberInput } from '../components/NumberInput';
 import {
   ArrowUpDown,
   Banknote,
@@ -1816,12 +1817,12 @@ ${categoriesString}
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
-                            <input 
-                              type="number"
-                              min="1"
-                              max="36"
+                            <NumberInput
+                              integer
+                              minValue={1}
+                              maxValue={36}
                               value={totalInstallments}
-                              onChange={e => setTotalInstallments(parseInt(e.target.value) || 1)}
+                              onValueChange={setTotalInstallments}
                               className="w-full p-3 bg-white border-2 border-stone-50 rounded-xl font-bold text-[18px] text-[#000000] outline-none shadow-sm focus:border-[#FFD54F]"
                             />
                           </div>
