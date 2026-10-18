@@ -1,5 +1,6 @@
 import { getCategoryIcon, getFontFamily } from '../lib/financeUtils';
 import { useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
   BarChart3,
   Briefcase,
@@ -83,33 +84,39 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
     return `${format(start)} - ${format(end)}`;
   }, [currentMonth]);
 
+  // 某筆紀錄（或其中某個拆分品項）是否屬於這個專案
+  const matchesProjectId = (itemPid: string | undefined, recordPid: string | undefined) => {
+    const pid = itemPid || recordPid || 'p1';
+    return project.id === 'p1' ? (!itemPid && !recordPid) || targetProjectIds.includes(pid) : targetProjectIds.includes(pid);
+  };
+  const recordInProject = (r: Transaction) => {
+    if (r.subItems && r.subItems.length > 0) return r.subItems.some(s => matchesProjectId(s.projectId, r.projectId));
+    const rPid = r.projectId || 'p1';
+    return project.id === 'p1' ? (!r.projectId || targetProjectIds.includes(r.projectId)) : targetProjectIds.includes(rPid);
+  };
+  const sortByTime = (list: Transaction[]) => list.sort((a, b) => {
+    const tsA = getTimestamp(a.date, a.time);
+    const tsB = getTimestamp(b.date, b.time);
+    if (tsB !== tsA) return tsB - tsA;
+    return b.id.localeCompare(a.id);
+  });
+
+  // 這個專案所有期間的明細（匯出「整個專案」用）
+  const allProjectRecords = useMemo(() => {
+    return sortByTime(getMergedRecords(records.filter(recordInProject), accounts));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, project, accounts, targetProjectIds]);
+
   const filteredRecords = useMemo(() => {
     const [y, m] = currentMonth.split('/').map(Number);
     const raw = records.filter(r => {
-      let matchesProject = false;
-      if (r.subItems && r.subItems.length > 0) {
-        matchesProject = r.subItems.some(s => {
-          const sPid = s.projectId || r.projectId || 'p1';
-          return project.id === 'p1' ? (!s.projectId && !r.projectId) || targetProjectIds.includes(sPid) : targetProjectIds.includes(sPid);
-        });
-      } else {
-        const rPid = r.projectId || 'p1';
-        matchesProject = project.id === 'p1' 
-          ? (!r.projectId || targetProjectIds.includes(r.projectId)) 
-          : targetProjectIds.includes(rPid);
-      }
-      if (!matchesProject) return false;
+      if (!recordInProject(r)) return false;
       const pDate = r.postingDate || r.date;
       const d = new Date(pDate);
       return d.getFullYear() === y && (d.getMonth() + 1) === m;
     });
-    const merged = getMergedRecords(raw, accounts);
-    return merged.sort((a, b) => {
-      const tsA = getTimestamp(a.date, a.time);
-      const tsB = getTimestamp(b.date, b.time);
-      if (tsB !== tsA) return tsB - tsA;
-      return b.id.localeCompare(a.id);
-    });
+    return sortByTime(getMergedRecords(raw, accounts));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [records, project, currentMonth, accounts, targetProjectIds]);
 
   const balance = useMemo(() => {
@@ -273,61 +280,105 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
     return Object.values(dayMap);
   }, [filteredRecords, currentMonth]);
 
-  // 匯出當前專案篩選後明細至 CSV 檔案 (UTF-8 with BOM)
-  const handleExportProjectCSV = () => {
-    if (filteredRecords.length === 0) {
-      alert('目前無可匯出的明細資料');
+  // 匯出專案明細成 Excel：可以選「本月」或「整個專案（全部期間）」
+  // 有拆分品項的紀錄，只匯出屬於這個專案的品項，每個品項一列，金額才會和專案統計一致
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const handleExportProject = (scope: 'month' | 'all') => {
+    setShowExportMenu(false);
+    const list = scope === 'month' ? filteredRecords : allProjectRecords;
+    if (list.length === 0) {
+      alert(scope === 'month' ? '這個月沒有可以匯出的明細' : '這個專案還沒有任何明細');
       return;
     }
+    const accName = (id?: string) => (Array.isArray(accounts) ? accounts : []).find(a => a.id === id)?.name || '';
+    const prjName = (id?: string) => (Array.isArray(projects) ? projects : []).find(p => p.id === id)?.name || project.name;
+    const typeStr = (t: Transaction['type']) => (t === 'income' ? '收入' : t === 'transfer' ? '轉帳' : '支出');
 
-    const headers = ['日期', '類型', '分類', '子專案', '金額', '手續費', '扣款帳戶', '備註說明', '是否代墊', '是否結清'];
-    const rows = filteredRecords.map(r => {
-      const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
-      const subPrj = (Array.isArray(projects) ? projects : []).find(p => p.id === r.projectId);
-      const isIncome = r.type === 'income';
-      const typeStr = isIncome ? '收入' : r.type === 'transfer' ? '轉帳' : '支出';
-      const cleanNote = (r.note || '').replace(/\[固定收支\]/g, '').trim();
+    const headers = ['日期', '時間', '類型', '分類', '子專案', '品項／備註', '金額', '手續費', '帳戶', '轉入帳戶', '代墊', '結清'];
+    const rows: (string | number)[][] = [];
+    let expense = 0, income = 0, prepay = 0;
+    const tally = (type: Transaction['type'], amt: number, isPrepay: boolean) => {
+      if (isPrepay) { prepay += amt; return; }
+      if (type === 'expense') expense += amt;
+      else if (type === 'income') income += amt;
+    };
 
-      return [
-        r.date,
-        typeStr,
-        r.category || '',
-        subPrj ? subPrj.name : project.name,
-        Math.abs(r.amount),
-        r.fee || 0,
-        acc ? acc.name : '未知帳戶',
-        cleanNote,
-        r.isPrepay ? '是' : '否',
-        r.isSettled ? '已結清' : '未結清'
-      ];
+    [...list].reverse().forEach(r => { // 由舊到新
+      const note = (r.note || r.remark || '').replace(/\[固定收支\]/g, '').trim();
+      const base = { date: r.date, time: r.time || '', type: typeStr(r.type), acc: accName(r.accountId), to: r.type === 'transfer' ? accName(r.toAccountId) : '' };
+      if (r.subItems && r.subItems.length > 0) {
+        r.subItems.filter(si => matchesProjectId(si.projectId, r.projectId)).forEach((si, i) => {
+          const amt = Math.abs(si.amount || 0);
+          const isPrepay = !!(r.isPrepay || si.isPrepay);
+          tally(r.type, amt, isPrepay);
+          rows.push([base.date, base.time, base.type, si.category || r.category || '', prjName(si.projectId || r.projectId),
+            si.name || note, amt, i === 0 ? (r.fee || 0) : 0, base.acc, base.to, isPrepay ? '是' : '', r.isSettled ? '已結清' : '']);
+        });
+      } else {
+        const amt = Math.abs(r.amount || 0);
+        tally(r.type, amt, !!r.isPrepay);
+        rows.push([base.date, base.time, base.type, r.category || '', prjName(r.projectId),
+          note, amt, r.fee || 0, base.acc, base.to, r.isPrepay ? '是' : '', r.isSettled ? '已結清' : '']);
+      }
     });
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row =>
-        row
-          .map(val => {
-            const str = String(val ?? '');
-            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-              return `"${str.replace(/"/g, '""')}"`;
-            }
-            return str;
-          })
-          .join(',')
-      )
-    ].join('\n');
-
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const safeMonth = currentMonth.replace('/', '-');
-    link.setAttribute('download', `${project.name}_專案明細_${safeMonth}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const summary: (string | number)[][] = [
+      [],
+      ['', '', '', '', '', '支出合計（不含代墊）', expense],
+      ['', '', '', '', '', '收入合計', income],
+      ['', '', '', '', '', '代墊合計', prepay],
+      ['', '', '', '', '', '結餘', income - expense],
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows, ...summary]);
+    sheet['!cols'] = [{ wch: 11 }, { wch: 6 }, { wch: 6 }, { wch: 14 }, { wch: 12 }, { wch: 28 }, { wch: 10 }, { wch: 7 }, { wch: 14 }, { wch: 14 }, { wch: 5 }, { wch: 7 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, '專案明細');
+    const safeName = project.name.replace(/[\\/:*?"<>|]/g, '_');
+    const suffix = scope === 'month' ? currentMonth.replace('/', '-') : '全部';
+    try {
+      XLSX.writeFile(wb, `${safeName}_專案明細_${suffix}.xlsx`);
+    } catch (err) {
+      console.error('Failed to export project Excel:', err);
+      alert('匯出失敗，請再試一次。');
+    }
   };
+
+  const exportMenu = (
+    <AnimatePresence>
+      {showExportMenu && (
+        <motion.div
+          className="fixed inset-0 z-[150] bg-black/40 flex items-end md:items-center justify-center"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          onClick={() => setShowExportMenu(false)}
+        >
+          <motion.div
+            className="w-full max-w-md bg-[#FFF9E3] rounded-t-[32px] md:rounded-[32px] p-6 pb-8 space-y-3 shadow-2xl"
+            initial={{ y: 60 }} animate={{ y: 0 }} exit={{ y: 60 }}
+            onClick={e => e.stopPropagation()}
+            style={getFontFamily()}
+          >
+            <h3 className="text-lg font-black text-[#5D4037]">匯出「{project.name}」明細</h3>
+            <p className="text-xs font-bold text-stone-500">會下載一個 Excel 檔（.xlsx），最後幾列有支出、收入、代墊合計。</p>
+            <button
+              onClick={() => handleExportProject('month')}
+              className="w-full p-4 bg-white rounded-2xl shadow-sm flex items-center justify-between font-black text-[#5D4037] active:scale-95 transition-transform"
+            >
+              <span>只匯出 {currentMonth}</span>
+              <span className="text-xs text-stone-500">{filteredRecords.length} 筆</span>
+            </button>
+            <button
+              onClick={() => handleExportProject('all')}
+              className="w-full p-4 bg-white rounded-2xl shadow-sm flex items-center justify-between font-black text-[#5D4037] active:scale-95 transition-transform"
+            >
+              <span>匯出整個專案（全部期間）</span>
+              <span className="text-xs text-stone-500">{allProjectRecords.length} 筆</span>
+            </button>
+            <button onClick={() => setShowExportMenu(false)} className="w-full py-3 text-stone-500 font-bold">取消</button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 
   // Prepayment Statistics
   const prepayStats = useMemo(() => {
@@ -510,7 +561,15 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
 
         {/* 項目筆數與結餘統計 */}
         <div className="flex justify-between px-6 py-2.5 border-b border-stone-100 text-sm font-bold text-stone-500 bg-[#FFFDF8] flex-shrink-0">
-          <span>項目：<strong className="text-[#5D4037]">{filteredRecords.length}</strong> 筆</span>
+          <span className="flex items-center gap-2">
+            <span>項目：<strong className="text-[#5D4037]">{filteredRecords.length}</strong> 筆</span>
+            <button
+              onClick={() => setShowExportMenu(true)}
+              className="md:hidden flex items-center gap-1 px-2 py-0.5 bg-white border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] active:scale-95 transition-transform"
+            >
+              <FileSpreadsheet size={13} className="text-emerald-600" /> 匯出
+            </button>
+          </span>
           <span>結餘：<span className={balance >= 0 ? 'text-blue-600 font-black' : 'text-rose-500 font-black'}>${balance < 0 ? '-' : ''}{Math.abs(balance).toLocaleString()}</span></span>
         </div>
 
@@ -684,9 +743,9 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
 
               {/* 匯出專案 CSV 按鈕 */}
               <button
-                onClick={handleExportProjectCSV}
+                onClick={() => setShowExportMenu(true)}
                 className="p-1.5 bg-stone-100 hover:bg-stone-200 text-[#5D4037] rounded-xl text-xs font-black transition-all flex items-center gap-1 px-2.5 active:scale-95"
-                title="匯出專案明細 CSV"
+                title="匯出專案明細 Excel"
               >
                 <FileSpreadsheet size={15} className="text-emerald-600" />
                 <span className="hidden lg:inline">匯出報表</span>
@@ -1227,6 +1286,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
           })()
         )}
       </AnimatePresence>
+      {exportMenu}
     </motion.div>
   );
 }
