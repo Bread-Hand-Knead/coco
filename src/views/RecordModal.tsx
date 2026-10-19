@@ -1027,6 +1027,33 @@ ${categoriesString}
     }
   };
 
+  // 實體鍵盤也能操作計算機（電腦版）：
+  // 數字、小數點、+ - * /、Enter 或 = 計算、Backspace 退一格、Delete 清除、Ctrl/⌘+Enter 直接儲存。
+  // 正在備註、搜尋等輸入框裡打字時不攔截，避免打字被當成金額。
+  const handleKeyRef = useRef(handleKey);
+  handleKeyRef.current = handleKey;
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      if (e.altKey || e.isComposing) return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleKeyRef.current('SAVE'); return; }
+      if (e.ctrlKey || e.metaKey) return;
+      const map: Record<string, string> = {
+        '+': '+', '-': '-', '*': '×', 'x': '×', 'X': '×', '/': '÷',
+        '.': '.', ',': '.', '=': '=', 'Enter': '=',
+        'Backspace': 'BACKSPACE', 'Delete': 'AC',
+      };
+      const key = /^[0-9]$/.test(e.key) ? e.key : map[e.key];
+      if (!key) return;
+      e.preventDefault();
+      handleKeyRef.current(key);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const handleApplyTemplate = (t: Template) => {
     // 1. 自動帶入類型與基本資料
     setTab(t.type);
