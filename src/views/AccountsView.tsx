@@ -377,7 +377,7 @@ export function AccountsView({
                           </div>
                           <div className="flex flex-col flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
-                              <span className="text-[10px] sm:text-xs font-bold text-stone-300 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>
+                              <span className="text-[10px] sm:text-xs font-bold text-stone-500 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>
                                 {isBrandGroup ? `${acc.name}總額` : (acc.type === 'bank' ? `${acc.name}總額` : (acc.type === 'credit' ? '目前未繳金額' : accountTypeLabels[acc.type as Account['type']]))}
                               </span>
                               {acc.excludeFromNetWorth && (
@@ -475,12 +475,12 @@ export function AccountsView({
                                   <div className="flex flex-col flex-1 min-w-0 justify-center">
                                     <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                                       {l2acc.type === 'credit' ? (
-                                        <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>
+                                        <span className="text-[10px] sm:text-[11px] font-bold text-stone-500 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>
                                           目前未繳金額
                                         </span>
                                       ) : (
                                         l2acc.type !== 'e-ticket' && (
-                                          <span className="text-[9px] sm:text-[10px] font-bold text-stone-300 uppercase tracking-widest leading-none truncate">
+                                          <span className="text-[10px] sm:text-[11px] font-bold text-stone-500 uppercase tracking-widest leading-none truncate">
                                             主帳號
                                           </span>
                                         )
@@ -567,10 +567,10 @@ export function AccountsView({
                                           <div className="flex flex-col flex-1 min-w-0 justify-center">
                                             <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                                               {l3acc.type === 'credit' ? (
-                                                <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>目前未繳金額</span>
+                                                <span className="text-[10px] sm:text-[11px] font-bold text-stone-500 uppercase tracking-widest leading-none truncate" style={getFontFamily()}>目前未繳金額</span>
                                               ) : (
                                                 l3acc.type !== 'e-ticket' && (
-                                                  <span className="text-[8px] sm:text-[9px] font-bold text-stone-300 uppercase tracking-widest leading-none truncate">子帳戶</span>
+                                                  <span className="text-[10px] sm:text-[11px] font-bold text-stone-500 uppercase tracking-widest leading-none truncate">子帳戶</span>
                                                 )
                                               )}
                                               {l3acc.excludeFromNetWorth && (

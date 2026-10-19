@@ -1446,7 +1446,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
               <div className="w-6 h-6 bg-stone-50 rounded-lg flex items-center justify-center text-xs border border-white">
                 <AccountIcon icon={account.icon} sizeClassName="w-4 h-4" />
               </div>
-              <span className="text-xs font-bold text-stone-300 uppercase tracking-[0.2em]" style={getFontFamily()}>
+              <span className="text-xs font-bold text-stone-500 uppercase tracking-[0.2em]" style={getFontFamily()}>
                 {account.type === 'credit' ? '目前未繳金額' : '目前餘額'}
               </span>
               {account.excludeFromNetWorth && (
