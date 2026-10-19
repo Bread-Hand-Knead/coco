@@ -16,6 +16,7 @@ import { formatTime24 } from '../lib/dateUtils';
 import { getStockMatchKeywords, resolveBrokerAccount } from '../lib/accountUtils';
 import { GroupedAccountDropdown } from '../components/AccountWidgets';
 import { EditRecordModal } from './EditRecordModal';
+import { PriceHistoryChart } from '../components/PriceHistoryChart';
 
 export function InvestmentSection({
   records,
@@ -1864,6 +1865,9 @@ export function InvestmentSection({
                   <X size={18} />
                 </button>
               </div>
+
+              {/* 折線圖：至少 2 筆記錄才顯示 */}
+              <PriceHistoryChart history={stockPriceHistory} />
 
               {/* History Items List */}
               <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2.5 pr-0.5 min-h-[150px]">
