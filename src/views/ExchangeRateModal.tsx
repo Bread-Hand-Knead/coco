@@ -179,7 +179,7 @@ export function ExchangeRateModal({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-bold text-stone-400">外幣幣別</label>
+                <label className="text-[11px] font-bold text-stone-500">外幣幣別</label>
                 <input
                   type="text"
                   value={curName}
@@ -188,7 +188,7 @@ export function ExchangeRateModal({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-bold text-stone-400">本次匯率 (1 {curName} = ? TWD)</label>
+                <label className="text-[11px] font-bold text-stone-500">本次匯率 (1 {curName} = ? TWD)</label>
                 <input
                   type="number"
                   step="any"
@@ -202,7 +202,7 @@ export function ExchangeRateModal({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-bold text-stone-400">記錄日期</label>
+                <label className="text-[11px] font-bold text-stone-500">記錄日期</label>
                 <input
                   type="date"
                   value={dateInput}
@@ -211,7 +211,7 @@ export function ExchangeRateModal({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-bold text-stone-400">記錄時間</label>
+                <label className="text-[11px] font-bold text-stone-500">記錄時間</label>
                 <input
                   type="time"
                   value={timeInput}
@@ -222,7 +222,7 @@ export function ExchangeRateModal({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-bold text-stone-400">備註說明 (選填)</label>
+              <label className="text-[11px] font-bold text-stone-500">備註說明 (選填)</label>
               <input
                 type="text"
                 value={noteInput}

@@ -2254,7 +2254,7 @@ export default function App() {
                       <span className="text-xl font-black text-[#5D4037] leading-tight" style={getFontFamily()}>
                         {user ? user.displayName : '訪客模式'}
                       </span>
-                      <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">
+                      <span className="text-[10px] font-bold text-stone-500 uppercase tracking-widest">
                         {user ? '雲端同步中' : '未登入'}
                       </span>
                       <div 

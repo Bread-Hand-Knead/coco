@@ -1816,7 +1816,7 @@ ${categoriesString}
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 overflow-hidden">
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
+                            <label className="text-xs font-bold text-stone-500 uppercase">分期期數 (1-36)</label>
                             <NumberInput
                               integer
                               minValue={1}
@@ -1827,7 +1827,7 @@ ${categoriesString}
                             />
                           </div>
                           <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-stone-300 uppercase">每期金額</label>
+                            <label className="text-xs font-bold text-stone-500 uppercase">每期金額</label>
                             <div className="w-full p-3 bg-stone-50 border-2 border-transparent rounded-xl font-bold text-[18px] text-[#000000]">
                               {Math.round(parseFloat(amount) / totalInstallments)}
                             </div>
@@ -1845,7 +1845,7 @@ ${categoriesString}
                       {currentAccount?.currency !== currentToAccount?.currency && (
                         <>
                           <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-stone-300 uppercase">{rateLabel}</label>
+                            <label className="text-xs font-bold text-stone-500 uppercase">{rateLabel}</label>
                             <input 
                               type="number"
                               value={exchangeRate}
@@ -1854,7 +1854,7 @@ ${categoriesString}
                             />
                           </div>
                           <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-stone-300 uppercase">實收金額 ({currentToAccount?.currency})</label>
+                            <label className="text-xs font-bold text-stone-500 uppercase">實收金額 ({currentToAccount?.currency})</label>
                             <input 
                               type="number"
                               value={toAmount}
@@ -1867,7 +1867,7 @@ ${categoriesString}
                       
                       {/* Fee Input */}
                       <div className="col-span-2 space-y-2">
-                        <label className="text-[12px] font-bold text-stone-300 uppercase px-1">手續費 ({currentAccount?.currency})</label>
+                        <label className="text-xs font-bold text-stone-500 uppercase px-1">手續費 ({currentAccount?.currency})</label>
                         <input 
                           type="number"
                           value={fee}

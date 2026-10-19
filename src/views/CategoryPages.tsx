@@ -179,7 +179,7 @@ export function CategoryManagementPage({ categories, selectedCategoryIdProp, onS
                     </div>
                     <div className="flex flex-col min-w-0">
                       <span className="font-black text-[#5D4037] text-lg md:text-base truncate break-all leading-tight">{cat.name}</span>
-                      <span className="text-xs md:text-[10px] font-bold text-stone-400 md:text-stone-300 uppercase tracking-widest truncate mt-0.5">
+                      <span className="text-xs md:text-[10px] font-bold text-stone-500 uppercase tracking-widest truncate mt-0.5">
                         {cat.sub.length} 個子分類
                       </span>
                     </div>
@@ -587,7 +587,7 @@ export function CategoryManagePage({ categories, onSave, onBack, onMoveSubCatego
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="font-black text-[#5D4037] text-lg md:text-base truncate break-all leading-tight">{cat.name}</span>
-                  <span className="text-xs md:text-[10px] font-bold text-stone-400 md:text-stone-300 uppercase tracking-widest truncate mt-0.5">
+                  <span className="text-xs md:text-[10px] font-bold text-stone-500 uppercase tracking-widest truncate mt-0.5">
                     {cat.sub.length} 個子分類 (點擊管理)
                   </span>
                 </div>

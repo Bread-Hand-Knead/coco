@@ -209,7 +209,7 @@ export function FixedRecordEditModal({ record, accounts, categories, records, on
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-stone-300 uppercase">名稱</label>
+                <label className="text-xs font-bold text-stone-500 uppercase">名稱</label>
                 <input 
                   value={edited.name}
                   onChange={e => setEdited({ ...edited, name: e.target.value })}
@@ -218,7 +218,7 @@ export function FixedRecordEditModal({ record, accounts, categories, records, on
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-stone-300 uppercase">金額</label>
+                <label className="text-xs font-bold text-stone-500 uppercase">金額</label>
                 <input 
                   type="number"
                   placeholder="0"
@@ -235,7 +235,7 @@ export function FixedRecordEditModal({ record, accounts, categories, records, on
 
             {/* 類型三選一：支出 / 收入 / 轉帳 */}
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-stone-300 uppercase">類型</label>
+              <label className="text-xs font-bold text-stone-500 uppercase">類型</label>
               <div className="flex gap-2">
                 {(['expense', 'income', 'transfer'] as const).map(t => (
                   <button 
@@ -272,7 +272,7 @@ export function FixedRecordEditModal({ record, accounts, categories, records, on
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-stone-300 uppercase">週期</label>
+              <label className="text-xs font-bold text-stone-500 uppercase">週期</label>
               <div className="flex gap-2">
                 {['monthly', 'weekly', 'yearly'].map(p => (
                   <button 
@@ -287,7 +287,7 @@ export function FixedRecordEditModal({ record, accounts, categories, records, on
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-stone-300 uppercase">
+              <label className="text-xs font-bold text-stone-500 uppercase">
                 {edited.period === 'monthly' ? '扣款日 (幾號)' : edited.period === 'weekly' ? '扣款日 (星期幾)' : '扣款日'}
               </label>
               {edited.period === 'weekly' ? (
@@ -377,7 +377,7 @@ export function FixedRecordEditModal({ record, accounts, categories, records, on
                 {/* 手續費欄位 (選填) */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold text-stone-300 uppercase">手續費 (選填)</label>
+                    <label className="text-xs font-bold text-stone-500 uppercase">手續費 (選填)</label>
                     <span className="text-[10px] text-stone-400 font-bold">由轉出帳戶額外扣除</span>
                   </div>
                   <div className="relative">
@@ -456,7 +456,7 @@ export function FixedRecordEditModal({ record, accounts, categories, records, on
             )}
 
             <div className="space-y-4">
-              <label className="text-[10px] font-bold text-stone-300 uppercase">備註</label>
+              <label className="text-xs font-bold text-stone-500 uppercase">備註</label>
               <textarea 
                 value={edited.note || ''}
                 onChange={e => setEdited({ ...edited, note: e.target.value })}

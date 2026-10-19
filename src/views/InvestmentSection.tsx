@@ -972,13 +972,13 @@ export function InvestmentSection({
 
         <div className="flex justify-between items-center z-10">
           <div className="flex-1 flex flex-col justify-between gap-1">
-            <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">投資總本金</span>
+            <span className="text-stone-500 font-bold text-xs uppercase tracking-wider">投資總本金</span>
             <span className="text-3xl font-black text-[#FFD54F]">${totalPrincipal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
           <div className="w-[1px] bg-white/10 mx-4 self-stretch" />
           <div className="flex-1 flex flex-col justify-between gap-1 text-right">
             <div className="flex items-center justify-end gap-1.5">
-              <span className="text-stone-300 font-bold text-xs uppercase tracking-wider">預估總市值</span>
+              <span className="text-stone-500 font-bold text-xs uppercase tracking-wider">預估總市值</span>
             </div>
             <span className="text-3xl font-black text-white">${totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>

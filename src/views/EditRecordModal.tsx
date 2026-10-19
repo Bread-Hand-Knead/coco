@@ -1371,7 +1371,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 overflow-hidden">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-stone-300 uppercase">分期期數 (1-36)</label>
+                        <label className="text-xs font-bold text-stone-500 uppercase">分期期數 (1-36)</label>
                         <NumberInput
                           integer
                           minValue={1}
@@ -1387,7 +1387,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-stone-300 uppercase">每期金額</label>
+                        <label className="text-xs font-bold text-stone-500 uppercase">每期金額</label>
                         <div className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl font-bold text-sm text-[#5D4037]">
                           {Math.round(Math.abs(edited.amount) / totalInstallments)}
                         </div>
@@ -1491,7 +1491,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
             <div className="space-y-4 bg-stone-50/50 p-4 rounded-3xl border border-white shadow-sm flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-stone-300 uppercase flex items-center gap-1">
+                  <label className="text-xs font-bold text-stone-500 uppercase flex items-center gap-1">
                     <CalendarIcon size={10} /> 消費日 (實際購買)
                   </label>
                   <input 
@@ -1503,7 +1503,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-stone-300 uppercase flex items-center gap-1">
+                  <label className="text-xs font-bold text-stone-500 uppercase flex items-center gap-1">
                     <Clock size={10} /> 交易時間 (24小時制)
                   </label>
                   <div 
@@ -1539,10 +1539,10 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
               </div>
               <div className={`flex flex-col gap-1 transition-opacity ${edited.isPending ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-stone-300 uppercase flex items-center gap-1">
+                  <label className="text-xs font-bold text-stone-500 uppercase flex items-center gap-1">
                     <Banknote size={10} /> 入帳日 (信用卡結算)
                   </label>
-                  <label className="text-[10px] font-bold text-stone-300 uppercase">
+                  <label className="text-xs font-bold text-stone-500 uppercase">
                     帳單序號
                   </label>
                 </div>
