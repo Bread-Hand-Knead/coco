@@ -772,7 +772,7 @@ export function ReportsView({
                               className="flex items-center justify-between p-2.5 bg-white hover:bg-amber-50/80 rounded-2xl border border-stone-100 text-left transition-all group shadow-2xs"
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-stone-300 group-hover:text-amber-500 font-bold text-xs">└</span>
+                                <span className="text-stone-500 group-hover:text-amber-500 font-bold text-xs">└</span>
                                 <span className="text-xs font-bold text-[#5D4037] truncate">
                                   {sub.name}
                                 </span>

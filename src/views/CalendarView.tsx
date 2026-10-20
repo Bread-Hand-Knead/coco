@@ -123,7 +123,7 @@ export function CalendarView({ records, accounts, categories, onBack }: { record
       <div className="p-4 space-y-4 flex-1 overflow-y-auto">
         <div className="flex justify-between items-center px-2">
           <span className="font-black text-[#5D4037]">{selectedDate.replace(/-/g, '/')} 明細</span>
-          <span className="text-[10px] font-bold text-stone-300 bg-white px-3 py-1 rounded-full border border-stone-100">
+          <span className="text-[11px] font-bold text-stone-500 bg-white px-3 py-1 rounded-full border border-stone-100">
             共 {dayRecords.length} 筆
           </span>
         </div>

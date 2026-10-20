@@ -2032,7 +2032,7 @@ export function MoreView({
         </button>
         <div className="flex items-center justify-between py-3">
           <span className="font-bold text-[#5D4037]">關於 KK 記帳</span>
-          <span className="text-xs text-stone-300">v2.4.0</span>
+          <span className="text-xs text-stone-500">v2.4.0</span>
         </div>
       </div>
 
@@ -2208,7 +2208,7 @@ export function MoreView({
 
       <div className="bg-white rounded-[30px] p-6 shadow-sm border-2 border-white flex flex-col gap-4 mt-2">
         <span className="font-black text-lg text-rose-500">危險區域</span>
-        <p className="text-[10px] font-bold text-stone-300 leading-relaxed">
+        <p className="text-[11px] font-bold text-stone-500 leading-relaxed">
           以下操作將永久移除您的資料，請務必確認已備份重要資訊。
         </p>
 

@@ -574,7 +574,7 @@ export function BudgetManagementPage({
                                 </div>
                               ))
                             ) : (
-                              <span className="text-stone-300 text-xs text-center py-2">本月無消費明細</span>
+                              <span className="text-stone-500 text-xs text-center py-2">本月無消費明細</span>
                             )
                           )}
                         </div>

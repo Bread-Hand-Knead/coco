@@ -831,7 +831,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
   // 依卡片分組渲染明細；未啟用分組時維持原本的平鋪清單
   const renderRecordList = (list: Transaction[], emptyText: string) => {
     if (list.length === 0) {
-      return <div className="text-center py-4 text-xs font-bold text-stone-300">{emptyText}</div>;
+      return <div className="text-center py-4 text-xs font-bold text-stone-500">{emptyText}</div>;
     }
     if (!isCardGroupingActive) return list.map(renderRecord);
 
@@ -1017,7 +1017,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                         <span className={`font-black text-lg sm:text-xl ${colorClass}`} style={getFontFamily()}>
                            {sign} $ {Math.abs(displayAmt).toLocaleString()}
                         </span>
-                        {record.fee ? <span className="text-[10px] text-stone-300 font-bold" style={getFontFamily()}>含手續費 $ {record.fee}</span> : null}
+                        {record.fee ? <span className="text-[11px] text-stone-500 font-bold" style={getFontFamily()}>含手續費 $ {record.fee}</span> : null}
                       </div>
                     );
                   } else if (isTo && !isFrom) {
@@ -1068,7 +1068,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                     isFrom = targetIds.includes(src);
                   }
                   return (
-                    <span className="text-[10px] font-black text-stone-300 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100" style={getFontFamily()}>
+                    <span className="text-[11px] font-black text-stone-500 bg-stone-50 px-2 py-0.5 rounded-lg border border-stone-100" style={getFontFamily()}>
                       {isFrom ? '轉出' : '轉入'}
                     </span>
                   );
@@ -1555,7 +1555,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                 {diagnosticInfo.log.map((item, idx) => (
                   <div key={idx} className="flex justify-between border-b border-stone-50 pb-1">
                     <div>
-                      <span className="text-[10px] text-stone-300 mr-1.5">{item.date}</span>
+                      <span className="text-[11px] text-stone-500 mr-1.5">{item.date}</span>
                       <span>{item.desc}</span>
                     </div>
                     <div className="text-right">

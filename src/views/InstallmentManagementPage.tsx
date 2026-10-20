@@ -192,13 +192,13 @@ export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettl
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col">
-                    <span className="text-xs font-bold text-stone-300">總金額</span>
+                    <span className="text-xs font-bold text-stone-500">總金額</span>
                     <span className="text-[18px] font-black text-[#E91E63]">
                       {totalAmount < 0 ? '-' : ''}${Math.abs(totalAmount).toLocaleString()}
                     </span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-xs font-bold text-stone-300">每期金額</span>
+                    <span className="text-xs font-bold text-stone-500">每期金額</span>
                     <span className="text-[18px] font-black text-[#E91E63]">
                       {perAmountStr}
                     </span>
@@ -207,7 +207,7 @@ export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettl
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-stone-300">還款進度</span>
+                    <span className="text-xs font-bold text-stone-500">還款進度</span>
                     <span className="text-sm font-black text-[#5D4037]">
                       {isSettled ? `第 ${total} / ${total} 期 (已結清)` : `第 ${paidCount} / ${total} 期`}
                     </span>
