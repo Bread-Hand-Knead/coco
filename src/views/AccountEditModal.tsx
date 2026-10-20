@@ -14,20 +14,7 @@ import type { Account, Transaction } from '../types';
 import { convertCurrency } from '../lib/recordUtils';
 import { checkAreAccountsSameBank, getBankKeyword } from '../lib/accountUtils';
 import { HorizontalScrollArea } from '../components/Common';
-import { defaultTypeOrder } from '../lib/defaults';
-
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  cash: '💵 現金',
-  bank: '🏦 銀行',
-  credit: '💳 信用卡',
-  'e-payment': '📱 電子支付',
-  'e-ticket': '🚌 電子票證',
-  investment: '📈 投資',
-  deposit: '🔒 定存',
-  insurance: '🛡️ 保險',
-  points: '⭐ 點數 / 虛擬資產',
-  other: '📦 其他',
-};
+import { ACCOUNT_TYPE_LABELS, defaultTypeOrder } from '../lib/defaults';
 
 export function AccountEditModal({ account, accounts, records, onClose, onSave, onDelete, onViewDetail }: { 
   account: Account, 
