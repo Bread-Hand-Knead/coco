@@ -77,7 +77,7 @@ export function SearchView({
           </div>
         ) : filteredRecords.length > 0 ? (
           <div className="space-y-4">
-            <div className="text-xs font-bold text-stone-300 px-1">找到 {filteredRecords.length} 筆符合的紀錄</div>
+            <div className="text-sm font-bold text-stone-500 px-1">找到 {filteredRecords.length} 筆符合的紀錄</div>
             {filteredRecords.map((record, idx) => (
               <div 
                 key={record.id} 
@@ -120,10 +120,10 @@ export function SearchView({
                     })()
                   ) : (
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-stone-300">
+                      <span className="text-xs font-bold text-stone-500">
                         {record.date}
                       </span>
-                      <span className="text-[10px] font-bold text-stone-300 bg-stone-50 px-2 rounded-full">
+                      <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-full">
                         {(Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name}
                       </span>
                     </div>

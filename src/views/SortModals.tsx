@@ -317,7 +317,7 @@ export function AccountSortModal({ accounts, onClose, onSave }: {
                           );
                         })
                       ) : (
-                        <div className="text-stone-300 text-xs py-3 pl-2 italic">此類型暫無帳戶</div>
+                        <div className="text-stone-500 text-xs py-3 pl-2 italic">此類型暫無帳戶</div>
                       )}
                     </motion.div>
                   )}

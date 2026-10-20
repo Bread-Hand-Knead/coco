@@ -249,7 +249,7 @@ export function HistoryView({ records, accounts, categories, projects, filter, c
                   })()
                 ) : (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-stone-300">
+                    <span className="text-xs font-bold text-stone-500">
                       {record.postingDate ? `入帳: ${record.postingDate}` : `消費: ${record.date}`}
                     </span>
                   {(() => {

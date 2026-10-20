@@ -22,7 +22,7 @@ export function StatCard({ title, date, expense, income, onClick }: { title: str
     >
       <div className="flex flex-col">
         <span className="text-[20px] font-bold text-[#5D4037]">{title}</span>
-        <span className="text-[10px] font-bold text-stone-300">{date}</span>
+        <span className="text-[11px] font-bold text-stone-500">{date}</span>
       </div>
       <div className="flex flex-col items-end">
         <span className="text-[20px] font-bold text-[#E91E63]">- {expense.toLocaleString()}</span>

@@ -1059,7 +1059,7 @@ export function InvestmentSection({
                         <span className="font-bold text-stone-600 min-w-0 flex-1 leading-tight">{item.name}</span>
                         <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                           <span className="font-black text-emerald-600">${item.val.toLocaleString()}</span>
-                          <span className="text-stone-300 text-[10px]">›</span>
+                          <span className="text-stone-500 text-[11px]">›</span>
                         </div>
                       </div>
                     ))
@@ -1085,7 +1085,7 @@ export function InvestmentSection({
                         <span className="font-bold text-stone-600 min-w-0 flex-1 leading-tight">{item.name}</span>
                         <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                           <span className="font-black text-[#5D4037]">${item.val.toLocaleString()}</span>
-                          <span className="text-stone-300 text-[10px]">›</span>
+                          <span className="text-stone-500 text-[11px]">›</span>
                         </div>
                       </div>
                     ))

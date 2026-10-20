@@ -469,7 +469,7 @@ export function FixedRecordEditModal({ record, accounts, categories, records, on
             <div className="flex items-center justify-between p-4 bg-white rounded-2xl border-2 border-stone-50 shadow-sm">
               <div className="flex flex-col">
                 <span className="font-bold text-sm">自動入帳</span>
-                <span className="text-[10px] text-stone-300">日期到了自動新增一筆明細</span>
+                <span className="text-[11px] text-stone-500">日期到了自動新增一筆明細</span>
               </div>
               <button 
                 onClick={() => setEdited({ ...edited, autoEntry: !edited.autoEntry })}
