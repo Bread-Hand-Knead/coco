@@ -225,3 +225,17 @@ export function parseCategoryHierarchy(
     subName: parts.length > 1 ? parts[1] : (safeCats.some(c => c.name === cleanCat) ? '主要 / 直屬' : cleanCat)
   };
 }
+
+// 帳戶類型的顯示名稱（選單分組用），順序請用 defaultTypeOrder
+export const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  cash: '💵 現金',
+  bank: '🏦 銀行',
+  credit: '💳 信用卡',
+  'e-payment': '📱 電子支付',
+  'e-ticket': '🚌 電子票證',
+  investment: '📈 投資',
+  deposit: '🔒 定存',
+  insurance: '🛡️ 保險',
+  points: '⭐ 點數 / 虛擬資產',
+  other: '📦 其他',
+};

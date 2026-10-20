@@ -6,6 +6,7 @@ import type { Account, Transaction } from '../types';
 import { convertCurrency, getLatestExchangeRate } from '../lib/recordUtils';
 import { calculateAccountBalance, checkAreAccountsSameBank, getGroupedAndUngrouped, groupAccountsByInstitution, isImageIconString } from '../lib/accountUtils';
 import { HorizontalScrollArea } from './Common';
+import { ACCOUNT_TYPE_LABELS, defaultTypeOrder } from '../lib/defaults';
 
 export function SafeAccountIcon({
   icon,
@@ -689,5 +690,30 @@ export function CreditLimitBar({ account, accounts, records }: { account: Accoun
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * 帳戶下拉選單的選項，依帳戶類型分組（💵 現金、🏦 銀行、💳 信用卡…），
+ * 組內依使用者設定的帳戶排序。disabledId 的那個帳戶會變灰並加上 disabledSuffix。
+ */
+export function renderAccountOptionsByType(accountsList: Account[], disabledId?: string, disabledSuffix = '') {
+  const list = [...(Array.isArray(accountsList) ? accountsList : [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+  const option = (a: Account) => (
+    <option key={a.id} value={a.id} disabled={a.id === disabledId} style={getFontFamily()}>
+      {a.name}{a.id === disabledId && disabledSuffix ? ` ${disabledSuffix}` : ''}
+    </option>
+  );
+  const groups = defaultTypeOrder
+    .map(type => ({ type, items: list.filter(a => a.type === type) }))
+    .filter(g => g.items.length > 0);
+  const rest = list.filter(a => !defaultTypeOrder.includes(a.type));
+  return (
+    <>
+      {groups.map(g => (
+        <optgroup key={g.type} label={ACCOUNT_TYPE_LABELS[g.type] || g.type}>{g.items.map(option)}</optgroup>
+      ))}
+      {rest.length > 0 && <optgroup label="📦 其他">{rest.map(option)}</optgroup>}
+    </>
   );
 }

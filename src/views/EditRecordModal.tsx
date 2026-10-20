@@ -20,7 +20,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { Account, Category, Project, SubItem, Transaction } from '../types';
 import { INITIAL_CATEGORIES, ensureTransferCategories, findMatchingProjectId } from '../lib/defaults';
 import { formatLocalDate, formatTime24, formatTimeDisplay } from '../lib/dateUtils';
-import { AccountIcon } from '../components/AccountWidgets';
+import { AccountIcon, renderAccountOptionsByType } from '../components/AccountWidgets';
 
 export function EditRecordModal({ record, records = [], accounts, projects, categories = [], onClose, onSave, onDelete, onDuplicate }: {
   record: Transaction,
@@ -1642,14 +1642,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                 className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
                 style={getFontFamily()}
               >
-                {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => {
-                  const isDisabled = edited.type === 'transfer' && a.id === edited.toAccountId;
-                  return (
-                    <option key={a.id} value={a.id} disabled={isDisabled} style={getFontFamily()}>
-                      {a.name} {isDisabled ? '(已選為轉入帳戶)' : ''}
-                    </option>
-                  );
-                })}
+                {renderAccountOptionsByType(accounts, edited.type === 'transfer' ? edited.toAccountId : undefined, '(已選為轉入帳戶)')}
               </select>
             </div>
 
@@ -1671,14 +1664,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                     className="w-full p-4 bg-white border-2 border-stone-50 rounded-2xl font-bold text-[#5D4037] outline-none shadow-sm appearance-none focus:border-[#FFD54F] transition-all"
                     style={getFontFamily()}
                   >
-                    {[...accounts].sort((a, b) => (a.order || 0) - (b.order || 0)).map(a => {
-                      const isDisabled = a.id === edited.accountId;
-                      return (
-                        <option key={a.id} value={a.id} disabled={isDisabled} style={getFontFamily()}>
-                          {a.name} {isDisabled ? '(已選為轉出帳戶)' : ''}
-                        </option>
-                      );
-                    })}
+                    {renderAccountOptionsByType(accounts, edited.accountId, '(已選為轉出帳戶)')}
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
