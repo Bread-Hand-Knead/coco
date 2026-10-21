@@ -33,6 +33,20 @@ export interface SubItem {
   originalRecordId?: string;
 }
 
+/** 帳戶扣款紀錄上的「買股票」資料（記一筆時選股票；股數之後照對帳單補） */
+export interface StockBuyInfo {
+  code: string;              // 股票代號，例如 00878
+  name?: string;             // 名稱，例如 國泰永續高股息
+  stockId?: string;          // 記帳時選的持股
+  brokerAccountId: string;   // 證券交割帳戶（支出＝扣款帳戶；轉帳＝轉入帳戶）
+  shares?: number;           // 買進股數（還沒補 = 待補股數）
+  price?: number;            // 成交單價
+  fee?: number;              // 手續費
+  netCost?: number;          // 客戶淨付（成交金額無條件捨去 + 手續費）
+  tradeDate?: string;        // 成交日期 YYYY-MM-DD
+  appliedStockId?: string;   // 已經加到哪一檔持股（系統自動記錄，用來修改／刪除時扣回）
+}
+
 export interface Transaction {
   id: string;
   amount: number;      // 原始金額 (來源帳戶幣別)
@@ -88,6 +102,8 @@ export interface Transaction {
   _mergedDisplayName?: string;
   isCustomInstallment?: boolean;
   customSchedule?: CustomInstallmentItem[];
+  stockBuy?: StockBuyInfo; // 買股票扣款（同步到投資頁）
+  stockId?: string;          // 連結的持股（投資頁交易紀錄用）
   isDeleted?: boolean;
   deletedAt?: string;
 }

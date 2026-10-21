@@ -45,6 +45,7 @@ import { formatLocalDate, parseLocalDate } from './lib/dateUtils';
 import { convertCurrency, getLatestExchangeRate, getMergedRecords, getTransferInAmountForAccount } from './lib/recordUtils';
 import { checkAreAccountsSameBank, isAccountExcludedFromNetWorth } from './lib/accountUtils';
 import { DrawerItem, NavButton } from './components/Common';
+import { planStockSync } from './lib/stockSync';
 import { HelpBubble } from './components/HelpBubble';
 import { HomeView } from './views/HomeView';
 import { AccountsView } from './views/AccountsView';
@@ -1161,6 +1162,22 @@ export default function App() {
     showUndoToast('股票投資紀錄已移至垃圾桶', () => handleRestoreStock(stockId));
   };
 
+  // 帳戶裡的「買股票」扣款紀錄 ↔ 投資頁持股：紀錄新增／修改／刪除／還原時，持股跟著加減
+  const stocksRef = useRef<Stock[]>(stocks);
+  stocksRef.current = stocks;
+  const applyStockSync = async <T extends Transaction | null>(oldRec: Transaction | null, newRec: T): Promise<T> => {
+    if (!oldRec?.stockBuy && !newRec?.stockBuy) return newRec;
+    const { record, changedStocks } = planStockSync(oldRec, newRec, stocksRef.current, accounts);
+    if (changedStocks.length > 0) {
+      // 先更新參照，連續操作（例如刪除後馬上復原）才會用到最新的持股數字
+      const next = [...stocksRef.current];
+      changedStocks.forEach(c => { const i = next.findIndex(x => x.id === c.id); if (i >= 0) next[i] = c; else next.push(c); });
+      stocksRef.current = next;
+      for (const st of changedStocks) await handleSaveStock(st);
+    }
+    return record as T;
+  };
+
   const handleSaveRecord = async (record: Omit<Transaction, 'id'> & { customSchedule?: CustomInstallmentItem[] }, keepOpen?: boolean) => {
     if (record.isInstallment && record.totalInstallments && record.totalInstallments > 1) {
       const installmentGroupId = Date.now().toString();
@@ -1215,7 +1232,7 @@ export default function App() {
       if (batch) await batch.commit().catch(e => handleFirestoreError(e, OperationType.WRITE, 'batch/transactions'));
     } else {
       const id = Date.now().toString();
-      const newRecord = { ...record, id };
+      const newRecord = await applyStockSync(null, { ...record, id } as Transaction);
       if (user) {
         await syncToCloud('transactions', newRecord, id);
       } else {
@@ -1251,6 +1268,8 @@ export default function App() {
     mergedRecordIdsToDelete?: (string | Transaction)[], 
     restoredRecordIds?: string[]
   ) => {
+    // 買股票扣款：先調整持股，並記住加到哪一檔
+    newRecord = await applyStockSync(oldRecord, newRecord);
     if (mergedRecordIdsToDelete && mergedRecordIdsToDelete.length > 0) {
       if (typeof mergedRecordIdsToDelete[0] === 'string') {
         const idsToDelete = mergedRecordIdsToDelete as string[];
@@ -1743,6 +1762,11 @@ export default function App() {
       }
     }
     
+    for (const tid of targetIds) {
+      const rec = records.find(r => r.id === tid) || (tid === recordToDelete.id ? recordToDelete : null);
+      if (rec?.stockBuy) await applyStockSync(rec, null);
+    }
+
     const primaryId = recordToDelete.id;
     const deletedTargetIds = targetIds;
     setRecordToDelete(null);
@@ -1752,6 +1776,13 @@ export default function App() {
 
   const handleRestoreRecord = async (primaryId: string, targetIds?: string[]) => {
     const idsToRestore = targetIds || [primaryId];
+    for (const tid of idsToRestore) {
+      const rec = records.find(r => r.id === tid);
+      if (rec?.stockBuy) {
+        const restoredRec = { ...rec }; delete restoredRec.isDeleted; delete restoredRec.deletedAt;
+        await applyStockSync({ ...rec, isDeleted: true }, restoredRec);
+      }
+    }
     setRecords(prev => prev.map(r => {
       if (idsToRestore.includes(r.id)) {
         const copy = { ...r };
@@ -2718,6 +2749,7 @@ export default function App() {
           {isRecordModalOpen && (
             <RecordModal 
               accounts={accounts}
+              stocks={stocks}
               categories={categories}
               templates={templates}
               projects={projects}

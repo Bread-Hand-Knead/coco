@@ -23,15 +23,16 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { Account, Category, Project, Template, Transaction } from '../types';
+import type { Account, Category, Project, Stock, StockBuyInfo, Template, Transaction } from '../types';
 import { findMatchingProjectId } from '../lib/defaults';
 import { callGeminiApiWithFallback, filterTaiwanTerms } from '../lib/gemini';
 import { HorizontalScrollArea } from '../components/Common';
 import { AccountIcon, AccountSelector } from '../components/AccountWidgets';
 import { TemplateSortModal } from './SortModals';
 
-export function RecordModal({ accounts, categories, templates, projects, initialProjectId, initialRecord, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate, records, onOpenAiSplit }: { 
+export function RecordModal({ accounts, categories, templates, projects, initialProjectId, initialRecord, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate, records, onOpenAiSplit, stocks = [] }: { 
   accounts: Account[], 
+  stocks?: Stock[],
   categories: Category[],
   templates: Template[], 
   projects: Project[],
@@ -87,6 +88,14 @@ export function RecordModal({ accounts, categories, templates, projects, initial
   const [mainCategory, setMainCategory] = useState<string | null>(() => initialCatParsed.main);
   const [subCategory, setSubCategory] = useState<string | null>(() => initialCatParsed.sub);
   const [note, setNote] = useState(() => initialRecord?.note || '');
+  // 買股票扣款：選哪一檔（'' = 不同步到投資頁；'__new__' = 自己輸入代號）。股數之後在投資頁照對帳單補
+  const [stockPick, setStockPick] = useState<string>(() => {
+    const sb = initialRecord?.stockBuy;
+    if (!sb) return '';
+    return sb.stockId && stocks.some(st => st.id === sb.stockId && !st.isDeleted) ? sb.stockId : '__new__';
+  });
+  const [newStockCode, setNewStockCode] = useState(() => initialRecord?.stockBuy?.code || '');
+  const [newStockName, setNewStockName] = useState(() => initialRecord?.stockBuy?.name || '');
   const [fee, setFee] = useState(() => initialRecord?.fee ? initialRecord.fee.toString() : '0');
   const [exchangeRate, setExchangeRate] = useState(() => initialRecord?.exchangeRate ? initialRecord.exchangeRate.toString() : '1');
   const [toAmount, setToAmount] = useState(() => initialRecord?.toAmount ? initialRecord.toAmount.toString() : '0');
@@ -919,6 +928,19 @@ ${categoriesString}
     setSelectedProjectId(initialProjectId || 'p1');
   };
 
+  // 分類是投資相關（或錢轉進證券戶）時，顯示「買了哪一檔」
+  const showStockPicker = (tab === 'expense' || tab === 'transfer') && (
+    /投資|定期定額|股票|基金|ETF/i.test(`${mainCategory || ''} ${subCategory || ''}`) ||
+    accounts.find(a => a.id === (tab === 'transfer' ? toAccountId : selectedAccountId))?.type === 'investment'
+  );
+  const stockOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return (Array.isArray(stocks) ? stocks : [])
+      .filter(st => !st.isDeleted)
+      .map(st => ({ id: st.id, code: st.code, broker: accounts.find(a => a.id === st.linkedAccount)?.name || '' }))
+      .filter(st => { const k = st.code + '|' + st.broker; if (seen.has(k)) return false; seen.add(k); return true; });
+  }, [stocks, accounts]);
+
   const handleKey = (key: string) => {
     if (key === 'AC') { setAmount('0'); return; }
     if (key === 'BACKSPACE') {
@@ -967,11 +989,28 @@ ${categoriesString}
 
       const finalAmount = (resolvedType === 'expense' || resolvedType === 'transfer') ? -Math.abs(rawAmt) : Math.abs(rawAmt);
       
+      // 買股票扣款（選了股票才帶）：證券帳戶 = 支出的扣款帳戶，或轉帳的轉入帳戶
+      let stockBuy: StockBuyInfo | undefined;
+      if (showStockPicker && stockPick) {
+        const picked = stocks.find(st => st.id === stockPick);
+        const [pCode, ...pName] = (picked?.code || '').trim().split(/\s+/);
+        const code = picked ? pCode : newStockCode.trim().toUpperCase();
+        if (code) {
+          stockBuy = {
+            code,
+            name: picked ? (pName.join(' ') || undefined) : (newStockName.trim() || undefined),
+            stockId: picked?.id,
+            brokerAccountId: resolvedType === 'transfer' ? toAccountId : selectedAccountId,
+          };
+        }
+      }
+
       onSave({ 
+        stockBuy,
         amount: finalAmount, 
         fee: finalFee,
         category: subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他')), 
-        note: note.trim() || undefined,
+        note: note.trim() || (stockBuy ? `投資 ${stockBuy.code}${stockBuy.name ? ' ' + stockBuy.name : ''}` : undefined),
         type: resolvedType, 
         accountId: selectedAccountId, 
         toAccountId: resolvedType === 'transfer' ? toAccountId : undefined, 
@@ -1790,6 +1829,37 @@ ${categoriesString}
 
               {/* Right Column */}
               <div className="flex flex-col gap-5 overflow-y-auto pl-1 md:pl-2 min-h-0">
+                {/* 買股票扣款：同步到投資頁 */}
+                {showStockPicker && (
+                  <div className="space-y-2 bg-white rounded-2xl p-4 shadow-sm border-2 border-[#FFD54F]/40">
+                    <span className="text-[16px] font-bold text-[#5D4037] px-1">📈 買了哪一檔？（同步到投資頁）</span>
+                    <select
+                      value={stockPick}
+                      onChange={e => setStockPick(e.target.value)}
+                      className="w-full p-3 bg-[#FFFDF5] border border-stone-200 rounded-xl font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]"
+                    >
+                      <option value="">不同步（不是買股票）</option>
+                      {stockOptions.map(st => (
+                        <option key={st.id} value={st.id}>{st.code}{st.broker ? `（${st.broker}）` : ''}</option>
+                      ))}
+                      <option value="__new__">＋ 其他股票（自己輸入代號）</option>
+                    </select>
+                    {stockPick === '__new__' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={newStockCode} onChange={e => setNewStockCode(e.target.value)} placeholder="代號，例如 00878"
+                          className="p-3 bg-[#FFFDF5] border border-stone-200 rounded-xl font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]" />
+                        <input value={newStockName} onChange={e => setNewStockName(e.target.value)} placeholder="名稱（選填）"
+                          className="p-3 bg-[#FFFDF5] border border-stone-200 rounded-xl font-bold text-[#5D4037] outline-none focus:border-[#FFD54F]" />
+                      </div>
+                    )}
+                    {stockPick && (
+                      <p className="text-xs font-bold text-stone-500 px-1 leading-relaxed">
+                        股數先不用填。收到證券對帳單或扣款通知後，到「投資」頁的「待補股數」補上股數和成交價，持股就會更新。
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* Note Input */}
                 <div className="space-y-2">
                   <span className="text-[18px] font-bold text-[#000000] uppercase px-2">備註 (買了什麼？)</span>
