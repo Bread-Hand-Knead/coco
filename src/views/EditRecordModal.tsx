@@ -19,7 +19,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Account, Category, Project, SubItem, Transaction } from '../types';
 import { INITIAL_CATEGORIES, ensureTransferCategories, findMatchingProjectId } from '../lib/defaults';
-import { formatLocalDate, formatTime24, formatTimeDisplay } from '../lib/dateUtils';
+import { formatLocalDate, formatTime24 } from '../lib/dateUtils';
 import { AccountIcon, renderAccountOptionsByType } from '../components/AccountWidgets';
 
 export function EditRecordModal({ record, records = [], accounts, projects, categories = [], onClose, onSave, onDelete, onDuplicate }: {
@@ -1517,13 +1517,25 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <Clock size={15} className="text-[#FFD54F] shrink-0" />
-                      <span className="text-xs sm:text-sm font-black text-[#5D4037] truncate whitespace-nowrap">
-                        {formatTimeDisplay(edited.time) || '未設定時間 (點擊設定)'}
+                      <span className={`text-xs sm:text-sm font-black truncate whitespace-nowrap ${edited.time ? 'text-[#5D4037]' : 'text-stone-500'}`}>
+                        {formatTime24(edited.time) || '不填時間'}
                       </span>
                     </div>
-                    <span className="text-[10px] font-black text-amber-800 bg-[#FFF9E3] border border-[#FFD54F]/40 px-2 py-0.5 rounded-lg flex-shrink-0 ml-1">
-                      24H
-                    </span>
+                    {edited.time ? (
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); setEdited({ ...edited, time: undefined }); }}
+                        className="relative z-10 w-6 h-6 shrink-0 ml-1 rounded-full bg-stone-100 text-stone-500 text-xs font-black flex items-center justify-center active:scale-90"
+                        aria-label="不填時間"
+                        title="不填時間"
+                      >
+                        ✕
+                      </button>
+                    ) : (
+                      <span className="text-[10px] font-black text-amber-800 bg-[#FFF9E3] border border-[#FFD54F]/40 px-2 py-0.5 rounded-lg flex-shrink-0 ml-1">
+                        點擊設定
+                      </span>
+                    )}
                     <input 
                       ref={editTimeInputRef}
                       type="time"
