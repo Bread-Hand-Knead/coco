@@ -126,12 +126,12 @@ export function RecordModal({ accounts, categories, templates, projects, initial
     return selectedDate;
   });
   const [postingOrder, setPostingOrder] = useState<number | undefined | null>(initialRecord?.postingOrder);
-  const [consumptionTime, setConsumptionTime] = useState(() => {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
-  });
+  // 時間可以不填（例如照銀行明細記帳時，明細上沒有時間）。
+  // 上次選了「不填時間」的話，下一筆也預設不填，直到再選一個時間為止。
+  const readNoTimePref = () => { try { return localStorage.getItem('coco_record_no_time') === '1'; } catch { return false; } };
+  const writeNoTimePref = (on: boolean) => { try { localStorage.setItem('coco_record_no_time', on ? '1' : '0'); } catch { /* 忽略 */ } };
+  const nowHHMM = () => { const n = new Date(); return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`; };
+  const [consumptionTime, setConsumptionTime] = useState(() => (readNoTimePref() ? '' : nowHHMM()));
   const [isPending, setIsPending] = useState(false);
   const [, setIsDateExpanded] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
@@ -182,7 +182,7 @@ export function RecordModal({ accounts, categories, templates, projects, initial
       setConsumptionDate(todayStr);
       setPostingDate(todayStr);
       setPostingOrder(initialRecord.postingOrder);
-      setConsumptionTime(`${hh}:${mm}`);
+      setConsumptionTime(readNoTimePref() ? '' : `${hh}:${mm}`);
       setShowCalculator(true);
     }
   }, [initialRecord]);
@@ -902,7 +902,7 @@ ${categoriesString}
       toAmount: resolvedType === 'transfer' ? (parseFloat(toAmount) || Math.abs(finalAmount) * rate) : undefined,
       exchangeRate: resolvedType === 'transfer' ? rate : undefined,
       date: consumptionDate,
-      time: consumptionTime,
+      time: consumptionTime || undefined,
       postingDate: isPending ? undefined : postingDate,
       isPending: isPending,
       isInstallment,
@@ -1017,7 +1017,7 @@ ${categoriesString}
         toAmount: resolvedType === 'transfer' ? (parseFloat(toAmount) || Math.abs(finalAmount) * rate) : undefined,
         exchangeRate: resolvedType === 'transfer' ? rate : undefined,
         date: consumptionDate,
-        time: consumptionTime,
+        time: consumptionTime || undefined,
         postingDate: isPending ? undefined : postingDate,
         postingOrder: isPending ? undefined : postingOrder,
         isPending: isPending,
@@ -1220,8 +1220,8 @@ ${categoriesString}
         title="點擊選擇消費時間"
       >
         <Clock size={14} className="text-[#FFD54F] shrink-0" />
-        <span className="text-xs sm:text-sm font-bold text-[#5D4037] truncate whitespace-nowrap">
-          {consumptionTime || '00:00'}
+        <span className={`text-xs sm:text-sm font-bold truncate whitespace-nowrap ${consumptionTime ? 'text-[#5D4037]' : 'text-stone-500'}`}>
+          {consumptionTime || '不填時間'}
         </span>
         <input 
           ref={timeInputRef}
@@ -1230,10 +1230,22 @@ ${categoriesString}
           onChange={e => {
             if (e.target.value) {
               setConsumptionTime(e.target.value);
+              writeNoTimePref(false);
             }
           }}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         />
+        {consumptionTime && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); setConsumptionTime(''); writeNoTimePref(true); }}
+            className="relative z-10 w-5 h-5 shrink-0 rounded-full bg-stone-100 text-stone-500 text-[11px] font-black flex items-center justify-center active:scale-90"
+            aria-label="不填時間"
+            title="不填時間"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* 3. 專案選擇區塊 */}
@@ -1343,7 +1355,7 @@ ${categoriesString}
           <span className="text-stone-300 font-normal">｜</span>
           <span className="flex items-center gap-1 shrink-0 text-[#5D4037]">
             <Clock size={14} className="text-[#FFD54F]" />
-            {consumptionTime || '00:00'}
+            {consumptionTime || '不填時間'}
           </span>
           <span className="text-stone-300 font-normal">｜</span>
           <span className="flex items-center gap-1 truncate text-[#5D4037]">
