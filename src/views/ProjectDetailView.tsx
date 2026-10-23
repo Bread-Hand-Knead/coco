@@ -114,7 +114,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
     if (!r.subItems || r.subItems.length === 0) return r;
     const mine = r.subItems.filter(s => matchesProjectId(s.projectId, r.projectId));
     if (mine.length === r.subItems.length || mine.length === 0) return r;
-    const sum = mine.reduce((acc, s) => acc + Math.abs(s.amount || 0), 0);
+    const sum = mine.reduce((acc, s) => acc + (s.amount || 0), 0);
     const view: ProjectViewRecord = {
       ...r,
       subItems: mine,
@@ -168,8 +168,8 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
           const sPid = s.projectId || r.projectId || 'p1';
           const matches = project.id === 'p1' ? (!s.projectId && !r.projectId) || targetProjectIds.includes(sPid) : targetProjectIds.includes(sPid);
           if (matches) {
-            if (r.type === 'expense') expense += Math.abs(s.amount);
-            else if (r.type === 'income') income += Math.abs(s.amount);
+            if (r.type === 'expense') expense += (s.amount || 0);
+            else if (r.type === 'income') income += (s.amount || 0);
           }
         });
         if (r.fee && r.fee > 0) {
@@ -231,8 +231,8 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
           const matches = project.id === 'p1' ? (!s.projectId && !r.projectId) || targetProjectIds.includes(sPid) : targetProjectIds.includes(sPid);
           if (matches) {
             const cat = normalizeCategoryName(s.category || r.category || '一般支出');
-            catMap[cat] = (catMap[cat] || 0) + Math.abs(s.amount);
-            addItem(cat, r, Math.abs(s.amount));
+            catMap[cat] = (catMap[cat] || 0) + (s.amount || 0);
+            addItem(cat, r, (s.amount || 0));
           }
         });
         if (r.fee && r.fee > 0) {
@@ -261,6 +261,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
         percent: total > 0 ? (value / total) * 100 : 0,
         items: catItems[name] || [],
       }))
+      .filter(c => c.value > 0) // 只有折扣的分類（合計 ≤ 0）畫不進圓餅圖
       .sort((a, b) => b.value - a.value);
   }, [filteredRecords, project.id, targetProjectIds]);
 
@@ -281,8 +282,8 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
           const sPid = s.projectId || r.projectId || 'p1';
           const matches = project.id === 'p1' ? (!s.projectId && !r.projectId) || targetProjectIds.includes(sPid) : targetProjectIds.includes(sPid);
           if (matches) {
-            if (r.type === 'expense') totalExpense += Math.abs(s.amount);
-            else if (r.type === 'income') totalIncome += Math.abs(s.amount);
+            if (r.type === 'expense') totalExpense += (s.amount || 0);
+            else if (r.type === 'income') totalIncome += (s.amount || 0);
           }
         });
         if (r.fee && r.fee > 0 && r.type === 'expense') {
@@ -363,7 +364,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
       const base = { date: r.date, time: r.time || '', type: typeStr(r.type), acc: accName(r.accountId), to: r.type === 'transfer' ? accName(r.toAccountId) : '' };
       if (r.subItems && r.subItems.length > 0) {
         r.subItems.filter(si => matchesProjectId(si.projectId, r.projectId)).forEach((si, i) => {
-          const amt = Math.abs(si.amount || 0);
+          const amt = si.amount || 0; // 折扣是負的，要扣掉
           const isPrepay = !!(r.isPrepay || si.isPrepay);
           tally(r.type, amt, isPrepay);
           rows.push([base.date, base.time, base.type, si.category || r.category || '', prjName(si.projectId || r.projectId),
@@ -445,8 +446,8 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
           const sPid = s.projectId || r.projectId || 'p1';
           const matches = project.id === 'p1' ? (!s.projectId && !r.projectId) || targetProjectIds.includes(sPid) : targetProjectIds.includes(sPid);
           if (matches && s.isPrepay) {
-            totalPrepay += Math.abs(s.amount);
-            if (r.isSettled) settledPrepay += Math.abs(s.amount);
+            totalPrepay += (s.amount || 0);
+            if (r.isSettled) settledPrepay += (s.amount || 0);
           }
         });
       } else {
@@ -510,7 +511,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
         r.subItems.forEach(s => {
           if (s.isPrepay) return;
           const pid = s.projectId || r.projectId || project.id;
-          if (map[pid]) map[pid].amount += Math.abs(s.amount);
+          if (map[pid]) map[pid].amount += (s.amount || 0);
         });
       } else {
         const pid = r.projectId || project.id;
@@ -1094,7 +1095,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                     </span>
                   </span>
                   <span className="text-xs font-bold text-stone-400">
-                    拆分合計: ${selectedRecord.subItems.reduce((acc, curr) => acc + Math.abs(curr.amount), 0).toLocaleString()}
+                    拆分合計: ${selectedRecord.subItems.reduce((acc, curr) => acc + (curr.amount || 0), 0).toLocaleString()}
                   </span>
                 </div>
 
@@ -1135,7 +1136,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
 
                         <div className="text-right flex-shrink-0">
                           <span className="text-sm font-black text-[#5D4037]">
-                            ${Math.abs(sub.amount).toLocaleString()}
+                            {(sub.amount || 0) < 0 ? '-' : ''}${Math.abs(sub.amount || 0).toLocaleString()}
                           </span>
                           <span className="text-[10px] text-stone-400 block font-bold">
                             {subPercent}%
