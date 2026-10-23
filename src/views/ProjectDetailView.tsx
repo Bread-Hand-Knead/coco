@@ -116,9 +116,9 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
     const [y, m] = currentMonth.split('/').map(Number);
     const raw = records.filter(r => {
       if (!recordInProject(r)) return false;
-      const pDate = r.postingDate || r.date;
-      const d = new Date(pDate);
-      return d.getFullYear() === y && (d.getMonth() + 1) === m;
+      // 專案依「消費日」分月（信用卡 1/31 刷、2/2 入帳，算在 1 月）
+      const [ry, rm] = (r.date || '').split('-').map(Number);
+      return ry === y && rm === m;
     });
     return sortByTime(getMergedRecords(raw, accounts));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -979,7 +979,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                 }`}>
                   {selectedRecord.type === 'income' ? '+' : '-'}${Math.abs(selectedRecord.amount).toLocaleString()}
                 </div>
-                {selectedRecord.fee && selectedRecord.fee > 0 && (
+                {!!selectedRecord.fee && selectedRecord.fee > 0 && (
                   <span className="text-[11px] text-stone-400 font-bold block mt-0.5">
                     含手續費 ${selectedRecord.fee}
                   </span>
