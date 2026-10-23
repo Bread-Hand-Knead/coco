@@ -1,5 +1,5 @@
 import { getCategoryIcon, getFontFamily } from '../lib/financeUtils';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   BarChart3,
@@ -60,6 +60,11 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [selectedSubFilter, setSelectedSubFilter] = useState<string>('all');
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const detailCardRef = useRef<HTMLDivElement>(null);
+  // 電腦版點左邊明細時，右邊自動捲到明細卡片（不然它在儀表板下面，要往下滑才看得到）
+  useEffect(() => {
+    if (selectedRecordId) detailCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [selectedRecordId]);
   const [chartType, setChartType] = useState<'pie' | 'bar' | 'trend'>('pie');
   const [inlineNote, setInlineNote] = useState<string>('');
   const [isEditingInlineNote, setIsEditingInlineNote] = useState<boolean>(false);
@@ -682,15 +687,16 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
             ))
           )}
 
-          {/* 浮動記帳按鈕 (+ 記帳按鈕)：在電腦版固定於左側清單底部右下角 */}
-          <button 
-            onClick={onAddRecord}
-            className="fixed bottom-24 right-6 md:absolute md:bottom-6 md:right-6 w-14 h-14 bg-[#5D4037] text-white rounded-full flex items-center justify-center shadow-2xl hover:bg-[#4E342E] active:scale-95 transition-all z-20 group"
-            title="新增明細"
-          >
-            <Plus size={32} className="transition-transform group-hover:rotate-90 duration-200" />
-          </button>
         </div>
+
+        {/* 浮動記帳按鈕：放在捲動區外面，電腦版固定在左側清單右下角，不會跟著明細一起捲動 */}
+        <button 
+          onClick={onAddRecord}
+          className="fixed bottom-24 right-6 md:absolute md:bottom-6 md:right-6 w-14 h-14 bg-[#5D4037] text-white rounded-full flex items-center justify-center shadow-2xl hover:bg-[#4E342E] active:scale-95 transition-all z-20 group"
+          title="新增明細"
+        >
+          <Plus size={32} className="transition-transform group-hover:rotate-90 duration-200" />
+        </button>
       </div>
 
       {/* ===== 右側欄位：詳情檢視 / 專案分析儀表板 (電腦版 52% ~ 55%，手機版隱藏) ===== */}
@@ -922,7 +928,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
         {/* 下半部：明細拆分卡片 或 專案整體統計摘要 */}
         {selectedRecord ? (
           /* 選取單筆明細時：展開商品拆分項目、扣款帳戶、發票備註與快捷操作 */
-          <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-xs flex flex-col gap-4 relative">
+          <div ref={detailCardRef} className="scroll-mt-4 bg-white rounded-3xl p-5 border border-stone-200/70 shadow-xs flex flex-col gap-4 relative">
             <div className="flex items-center justify-between border-b border-stone-100 pb-3">
               <div className="flex items-center gap-2">
                 <span className={`px-2.5 py-1 rounded-full text-xs font-black ${
