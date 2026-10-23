@@ -2432,6 +2432,13 @@ export default function App() {
                   setCurrentView('history');
                 }}
                 monthlyBudget={monthlyBudget}
+                records={records}
+                accounts={accounts}
+                categories={categories}
+                projects={projects}
+                onUpdateRecord={handleUpdateRecord}
+                onDeleteRecord={handleDeleteRecord}
+                onDuplicateRecord={handleDuplicateTransaction}
               />
             )}
             {currentView === 'accounts' && (
