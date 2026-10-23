@@ -25,12 +25,21 @@ import { YearMonthPickerModal } from '../components/Common';
 import { AccountIcon, renderAccountMemoAndInterest } from '../components/AccountWidgets';
 import { EditRecordModal } from './EditRecordModal';
 
-/** 算帳戶餘額時的先後順序：日期 → 時間（沒填當 00:00）→ 編號。餘額和診斷工具共用，兩邊才會對得上 */
+/**
+ * 算帳戶餘額時的先後順序（餘額和診斷工具共用，兩邊才會對得上）：
+ * 日期 → 序號（兩筆都有填時）→ 時間（沒填當 00:00）→ 同一時間先算錢進來、再算錢出去 → 編號
+ * 「先進後出」是因為同一天沒填時間時，通常是先收到錢才把錢領出去，餘額才不會算成先扣再加。
+ */
+const flowRank = (r: Transaction) => (r.type === 'transfer' ? 1 : r.amount > 0 ? 0 : 2);
 const compareByBalanceOrder = (a: Transaction, b: Transaction) => {
   const dateDiff = a.date.localeCompare(b.date);
   if (dateDiff !== 0) return dateDiff;
+  const oa = a.postingOrder, ob = b.postingOrder;
+  if (oa != null && ob != null && Number(oa) !== Number(ob)) return Number(oa) - Number(ob);
   const timeDiff = (a.time || '00:00').localeCompare(b.time || '00:00');
   if (timeDiff !== 0) return timeDiff;
+  const flowDiff = flowRank(a) - flowRank(b);
+  if (flowDiff !== 0) return flowDiff;
   return a.id.localeCompare(b.id);
 };
 
