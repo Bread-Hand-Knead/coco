@@ -40,6 +40,10 @@ import { getMergedRecords, getTransactionTitle, getTransferCounterpartName, getT
 import { YearMonthPickerModal } from '../components/Common';
 import { EditRecordModal } from './EditRecordModal';
 
+/** 分類名稱統一格式：「飲食>午餐」「飲食 ＞ 午餐 」都當成「飲食 > 午餐」，圓餅圖才不會出現兩個一樣的分類 */
+const normalizeCategoryName = (cat: string) =>
+  cat.replace(/＞/g, '>').split('>').map(t => t.trim()).filter(Boolean).join(' > ') || cat;
+
 export function ProjectDetailView({ project, records, accounts, categories, projects, onBack, onUpdateRecord, onDeleteRecord, onAddRecord, onDuplicateRecord }: { 
   project: Project, 
   records: Transaction[], 
@@ -182,6 +186,13 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
   // Overall Statistics & Analytics for Right Column
   const categoryStats = useMemo(() => {
     const catMap: Record<string, number> = {};
+    // 每個分類有哪些明細（點圓餅圖某一塊時列出來）；拆分明細只算這個分類的那幾項金額
+    const catItems: Record<string, { record: Transaction; amount: number }[]> = {};
+    const addItem = (cat: string, record: Transaction, amount: number) => {
+      const list = catItems[cat] || (catItems[cat] = []);
+      const hit = list.find(i => i.record.id === record.id);
+      if (hit) hit.amount += amount; else list.push({ record, amount });
+    };
     filteredRecords.forEach(r => {
       if (r.type !== 'expense') return;
       if (r.subItems && r.subItems.length > 0) {
@@ -190,8 +201,9 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
           const sPid = s.projectId || r.projectId || 'p1';
           const matches = project.id === 'p1' ? (!s.projectId && !r.projectId) || targetProjectIds.includes(sPid) : targetProjectIds.includes(sPid);
           if (matches) {
-            const cat = s.category || r.category || '一般支出';
+            const cat = normalizeCategoryName(s.category || r.category || '一般支出');
             catMap[cat] = (catMap[cat] || 0) + Math.abs(s.amount);
+            addItem(cat, r, Math.abs(s.amount));
           }
         });
         if (r.fee && r.fee > 0) {
@@ -199,14 +211,16 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
           const matches = project.id === 'p1' ? (!r.projectId || targetProjectIds.includes(r.projectId)) : targetProjectIds.includes(rPid);
           if (matches) {
             catMap['手續費'] = (catMap['手續費'] || 0) + r.fee;
+            addItem('手續費', r, r.fee);
           }
         }
       } else {
         const rPid = r.projectId || 'p1';
         const matches = project.id === 'p1' ? (!r.projectId || targetProjectIds.includes(r.projectId)) : targetProjectIds.includes(rPid);
         if (matches) {
-          const cat = r.category || '一般支出';
+          const cat = normalizeCategoryName(r.category || '一般支出');
           catMap[cat] = (catMap[cat] || 0) + Math.abs(r.amount) + (r.fee || 0);
+          addItem(cat, r, Math.abs(r.amount) + (r.fee || 0));
         }
       }
     });
@@ -215,10 +229,17 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
       .map(([name, value]) => ({
         name,
         value,
-        percent: total > 0 ? (value / total) * 100 : 0
+        percent: total > 0 ? (value / total) * 100 : 0,
+        items: catItems[name] || [],
       }))
       .sort((a, b) => b.value - a.value);
   }, [filteredRecords, project.id, targetProjectIds]);
+
+  // 圓餅圖點選的分類（再點一次同一塊就收起來；換月份時清掉）
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  useEffect(() => { setSelectedCategory(null); }, [currentMonth]);
+  const toggleCategory = (name: string) => setSelectedCategory(prev => (prev === name ? null : name));
+  const selectedCategoryStat = selectedCategory ? categoryStats.find(c => c.name === selectedCategory) || null : null;
 
   const monthlyTotals = useMemo(() => {
     let totalExpense = 0;
@@ -783,7 +804,13 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                           dataKey="value"
                         >
                           {categoryStats.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={PIE_COLORS[index % PIE_COLORS.length]}
+                              opacity={selectedCategory && selectedCategory !== entry.name ? 0.35 : 1}
+                              cursor="pointer"
+                              onClick={() => toggleCategory(entry.name)}
+                            />
                           ))}
                         </Pie>
                         <Tooltip 
@@ -796,9 +823,15 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
 
                   {/* 類別排行榜前 4 項 */}
                   <div className="flex-1 flex flex-col gap-2 min-w-0 pr-2">
-                    <span className="text-xs font-black text-stone-400">支出佔比排行：</span>
-                    {categoryStats.slice(0, 4).map((cat, idx) => (
-                      <div key={cat.name} className="flex flex-col gap-1">
+                    <span className="text-xs font-black text-stone-500">支出佔比排行（點一下看明細）：</span>
+                    <div className="flex flex-col gap-1 max-h-44 overflow-y-auto no-scrollbar">
+                    {categoryStats.map((cat, idx) => (
+                      <button
+                        type="button"
+                        key={cat.name}
+                        onClick={() => toggleCategory(cat.name)}
+                        className={`flex flex-col gap-1 text-left rounded-lg px-1.5 py-1 -mx-1.5 transition-colors ${selectedCategory === cat.name ? 'bg-[#FFF4D3]' : 'hover:bg-stone-50'}`}
+                      >
                         <div className="flex items-center justify-between text-xs font-bold text-[#5D4037]">
                           <span className="flex items-center gap-1.5 truncate">
                             <span 
@@ -818,8 +851,9 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                             }} 
                           />
                         </div>
-                      </div>
+                      </button>
                     ))}
+                    </div>
                   </div>
                 </div>
               )
@@ -858,6 +892,34 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
               </div>
             )}
           </div>
+
+          {/* 點圓餅圖某一塊後：列出那個分類的明細，點一筆可以看詳細內容 */}
+          {chartType === 'pie' && selectedCategoryStat && (
+            <div className="bg-[#FFFDF5] rounded-2xl border-2 border-[#FFE082] p-3 flex flex-col gap-1" style={getFontFamily()}>
+              <div className="flex items-center justify-between px-1 pb-1">
+                <span className="text-sm font-black text-[#5D4037]">
+                  {selectedCategoryStat.name}：{selectedCategoryStat.items.length} 筆，共 ${selectedCategoryStat.value.toLocaleString()}
+                </span>
+                <button type="button" onClick={() => setSelectedCategory(null)} aria-label="收起" className="w-7 h-7 rounded-full bg-white flex items-center justify-center text-stone-500 shadow-sm">
+                  <X size={14} />
+                </button>
+              </div>
+              {[...selectedCategoryStat.items]
+                .sort((a, b) => (b.record.date + (b.record.time || '')).localeCompare(a.record.date + (a.record.time || '')))
+                .map(({ record, amount }) => (
+                  <button
+                    type="button"
+                    key={record.id}
+                    onClick={() => handleRecordItemClick(record)}
+                    className={`flex items-center gap-3 px-2 py-2 rounded-xl text-left transition-colors ${selectedRecordId === record.id ? 'bg-[#FFF4D3]' : 'hover:bg-white'}`}
+                  >
+                    <span className="text-xs font-bold text-stone-500 shrink-0 w-12">{record.date.slice(5).replace('-', '/')}</span>
+                    <span className="flex-1 min-w-0 text-sm font-bold text-[#5D4037] truncate">{getTransactionTitle(record)}</span>
+                    <span className="shrink-0 text-sm font-black text-[#E91E63]">-${amount.toLocaleString()}</span>
+                  </button>
+                ))}
+            </div>
+          )}
 
           {/* 指標與達成率卡片 (預算達成率 / 代墊還款進度 / 收支指標) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-stone-100">
