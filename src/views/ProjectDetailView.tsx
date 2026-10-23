@@ -824,7 +824,8 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                   {/* 圓餅圖 */}
                   <div className="w-48 h-44 flex-shrink-0">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RePieChart>
+                      {/* key 跟著資料變：明細改了（金額、分類），圓餅圖整個重畫，不會停在舊的樣子 */}
+                      <RePieChart key={categoryStats.map(c => `${c.name}:${c.value}`).join('|')}>
                         <Pie
                           data={categoryStats}
                           cx="50%"
