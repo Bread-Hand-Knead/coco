@@ -43,9 +43,9 @@ export function ProjectsView({ projects, records, onProjectClick, onEditProject,
           const matches = projectId === 'p1' ? (!s.projectId && !r.projectId) || allIds.includes(sPid) : allIds.includes(sPid);
           if (matches) {
             if (r.type === 'expense' && !s.isPrepay) {
-              expense += Math.abs(s.amount);
+              expense += (s.amount || 0);
             } else if (r.type === 'income' && !s.isPrepay) {
-              income += Math.abs(s.amount);
+              income += (s.amount || 0);
             }
           }
         });
