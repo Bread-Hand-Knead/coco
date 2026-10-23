@@ -1754,8 +1754,25 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
 
                 const finalNote = (edited.note || '').trim();
                 const finalRemark = finalNote || (edited.remark || '').trim();
+                // 上面的分類、專案改了，拆分品項也要跟著改：只有一項時直接跟著；
+                // 好幾項時，原本和整筆一樣的品項才跟著改（另外指定過的不動）
+                const normCat = (c?: string) => (c || '').replace(/＞/g, '>').split('>').map(t => t.trim()).filter(Boolean).join('>');
+                const syncedSubItems = edited.subItems && edited.subItems.length > 0
+                  ? edited.subItems.map(item => {
+                      const single = edited.subItems!.length === 1;
+                      const followCat = edited.category !== record.category && (single || !item.category || normCat(item.category) === normCat(record.category));
+                      const followPrj = edited.projectId !== record.projectId && (single || item.projectId === record.projectId);
+                      if (!followCat && !followPrj) return item;
+                      return {
+                        ...item,
+                        ...(followCat ? { category: edited.category } : {}),
+                        ...(followPrj ? { projectId: edited.projectId, projectName: (Array.isArray(projects) ? projects : []).find(p => p.id === edited.projectId)?.name || '預設專案' } : {}),
+                      };
+                    })
+                  : edited.subItems;
                 onSave({
                   ...edited,
+                  subItems: syncedSubItems,
                   note: finalNote,
                   remark: finalRemark,
                   type: resolvedType,
