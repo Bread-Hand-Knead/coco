@@ -25,6 +25,15 @@ import { YearMonthPickerModal } from '../components/Common';
 import { AccountIcon, renderAccountMemoAndInterest } from '../components/AccountWidgets';
 import { EditRecordModal } from './EditRecordModal';
 
+/** 算帳戶餘額時的先後順序：日期 → 時間（沒填當 00:00）→ 編號。餘額和診斷工具共用，兩邊才會對得上 */
+const compareByBalanceOrder = (a: Transaction, b: Transaction) => {
+  const dateDiff = a.date.localeCompare(b.date);
+  if (dateDiff !== 0) return dateDiff;
+  const timeDiff = (a.time || '00:00').localeCompare(b.time || '00:00');
+  if (timeDiff !== 0) return timeDiff;
+  return a.id.localeCompare(b.id);
+};
+
 export function AccountDetailView({ account, records, selectedDate, onBack, onEdit, onUpdateRecord, onDeleteRecord, accounts, projects, balance, categories, onUpdateAccountsList, onDuplicateRecord, onOpenRateModal }: { 
   account: Account, 
   records: Transaction[],
@@ -204,15 +213,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
     const mergedHistory = getMergedRecords(records, accounts);
     const relevant = mergedHistory
       .filter(r => (targetIds.includes(r.accountId) || isTransferInForAccount(r, targetIds)) && r.category !== '初始資金')
-      .sort((a, b) => {
-        const dateDiff = a.date.localeCompare(b.date);
-        if (dateDiff !== 0) return dateDiff;
-        const timeA = a.time || '00:00';
-        const timeB = b.time || '00:00';
-        const timeDiff = timeA.localeCompare(timeB);
-        if (timeDiff !== 0) return timeDiff;
-        return a.id.localeCompare(b.id);
-      });
+      .sort(compareByBalanceOrder);
       
     const map: Record<string, number> = {};
     const initialBal = selectedCardFilterId
@@ -252,7 +253,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
     
     log.push({ date: '初始設定', desc: '初始金額', amount: account.type === 'credit' ? 0 : (account.initialBalance || 0), running: bal, type: 'init' });
     
-    merged.forEach(r => {
+    [...merged].sort(compareByBalanceOrder).forEach(r => {
       if (r.category === '初始資金') return;
       
       let matched = false;
@@ -264,7 +265,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
         change += changeAmt;
         if (r.fee) change -= r.fee;
         matched = true;
-        desc = `支出/轉出 (${getTransactionTitle(r)})`;
+        desc = `${changeAmt >= 0 ? '收入' : '支出/轉出'} (${getTransactionTitle(r)})`;
       }
       if (r.type === 'transfer') {
         const inAmt = targetIds.reduce((sum, tid) => sum + getTransferInAmountForAccount(r, tid), 0);
