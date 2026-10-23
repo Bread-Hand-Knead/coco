@@ -44,6 +44,9 @@ import { EditRecordModal } from './EditRecordModal';
 const normalizeCategoryName = (cat: string) =>
   cat.replace(/＞/g, '>').split('>').map(t => t.trim()).filter(Boolean).join(' > ') || cat;
 
+/** 專案頁顯示用的紀錄：拆分明細只留屬於這個專案的品項時，帶著原本共有幾項 */
+type ProjectViewRecord = Transaction & { _projectPartial?: { total: number }; _projectTitle?: string };
+
 export function ProjectDetailView({ project, records, accounts, categories, projects, onBack, onUpdateRecord, onDeleteRecord, onAddRecord, onDuplicateRecord }: { 
   project: Project, 
   records: Transaction[], 
@@ -103,6 +106,32 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
     const rPid = r.projectId || 'p1';
     return project.id === 'p1' ? (!r.projectId || targetProjectIds.includes(r.projectId)) : targetProjectIds.includes(rPid);
   };
+  /**
+   * 拆分明細只有部分品項屬於這個專案時，做一份「只留這個專案品項」的顯示用副本：
+   * 標題、金額、圖表都只算這幾項。編輯、刪除、快速修改時要用 originalOf 換回原本整筆。
+   */
+  const toProjectView = (r: Transaction): Transaction => {
+    if (!r.subItems || r.subItems.length === 0) return r;
+    const mine = r.subItems.filter(s => matchesProjectId(s.projectId, r.projectId));
+    if (mine.length === r.subItems.length || mine.length === 0) return r;
+    const sum = mine.reduce((acc, s) => acc + Math.abs(s.amount || 0), 0);
+    const view: ProjectViewRecord = {
+      ...r,
+      subItems: mine,
+      amount: r.amount < 0 ? -sum : sum,
+      fee: matchesProjectId(undefined, r.projectId) ? r.fee : undefined,
+      _projectPartial: { total: r.subItems.length },
+    };
+    if (mine.length === 1) {
+      view.category = mine[0].category || r.category;
+      view._projectTitle = (mine[0].name || '').trim() || undefined;
+    }
+    return view;
+  };
+  const originalOf = (r: Transaction): Transaction =>
+    (r as ProjectViewRecord)._projectPartial ? ((Array.isArray(records) ? records : []).find(x => x.id === r.id) || r) : r;
+  const titleOf = (r: Transaction) => (r as ProjectViewRecord)._projectTitle || getTransactionTitle(r);
+
   const sortByTime = (list: Transaction[]) => list.sort((a, b) => {
     const tsA = getTimestamp(a.date, a.time);
     const tsB = getTimestamp(b.date, b.time);
@@ -112,7 +141,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
 
   // 這個專案所有期間的明細（匯出「整個專案」用）
   const allProjectRecords = useMemo(() => {
-    return sortByTime(getMergedRecords(records.filter(recordInProject), accounts));
+    return sortByTime(getMergedRecords(records.filter(recordInProject), accounts).map(toProjectView));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [records, project, accounts, targetProjectIds]);
 
@@ -124,7 +153,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
       const [ry, rm] = (r.date || '').split('-').map(Number);
       return ry === y && rm === m;
     });
-    return sortByTime(getMergedRecords(raw, accounts));
+    return sortByTime(getMergedRecords(raw, accounts).map(toProjectView));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [records, project, currentMonth, accounts, targetProjectIds]);
 
@@ -517,7 +546,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
   const handleRecordItemClick = (record: Transaction) => {
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       // 手機版：直接彈出既有編輯視窗
-      setEditingRecord(record);
+      setEditingRecord(originalOf(record));
     } else {
       // 電腦版：在右側面板切換高亮展示
       setSelectedRecordId(prev => (prev === record.id ? null : record.id));
@@ -639,7 +668,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <div className="text-[16px] font-bold text-[#5D4037] truncate" style={getFontFamily()}>
-                              {getTransactionTitle(record)}
+                              {titleOf(record)}
                             </div>
                             {recSubProject && (
                               <span className="text-[10px] px-1.5 py-0.5 bg-[#FFF4C7] text-[#8D6E63] border border-[#FFE082]/70 rounded-md font-black">
@@ -654,7 +683,9 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                             )}
                             {record.subItems && record.subItems.length > 0 && (
                               <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded font-bold">
-                                {record.subItems.length} 項拆分
+                                {(record as ProjectViewRecord)._projectPartial
+                                  ? `拆分 ${(record as ProjectViewRecord)._projectPartial!.total} 項中的 ${record.subItems.length} 項`
+                                  : `${record.subItems.length} 項拆分`}
                               </span>
                             )}
                           </div>
@@ -914,7 +945,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                     className={`flex items-center gap-3 px-2 py-2 rounded-xl text-left transition-colors ${selectedRecordId === record.id ? 'bg-[#FFF4D3]' : 'hover:bg-white'}`}
                   >
                     <span className="text-xs font-bold text-stone-500 shrink-0 w-12">{record.date.slice(5).replace('-', '/')}</span>
-                    <span className="flex-1 min-w-0 text-sm font-bold text-[#5D4037] truncate">{getTransactionTitle(record)}</span>
+                    <span className="flex-1 min-w-0 text-sm font-bold text-[#5D4037] truncate">{titleOf(record)}</span>
                     <span className="shrink-0 text-sm font-black text-[#E91E63]">-${amount.toLocaleString()}</span>
                   </button>
                 ))}
@@ -1022,7 +1053,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <h4 className="text-xl font-black text-[#5D4037] leading-snug">
-                  {getTransactionTitle(selectedRecord)}
+                  {titleOf(selectedRecord)}
                 </h4>
                 <div className="flex items-center gap-2 text-xs font-bold text-stone-400 mt-1">
                   <span>{selectedRecord.date}</span>
@@ -1055,7 +1086,11 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black text-stone-500 flex items-center gap-1.5">
                     <Layers size={14} className="text-stone-400" />
-                    <span>商品拆分明細 (共 {selectedRecord.subItems.length} 項)</span>
+                    <span>
+                      {(selectedRecord as ProjectViewRecord)._projectPartial
+                        ? `屬於這個專案的品項 (${selectedRecord.subItems.length} 項，整筆共 ${(selectedRecord as ProjectViewRecord)._projectPartial!.total} 項，按「編輯」看全部)`
+                        : `商品拆分明細 (共 ${selectedRecord.subItems.length} 項)`}
+                    </span>
                   </span>
                   <span className="text-xs font-bold text-stone-400">
                     拆分合計: ${selectedRecord.subItems.reduce((acc, curr) => acc + Math.abs(curr.amount), 0).toLocaleString()}
@@ -1142,7 +1177,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                         onClick={() => {
                           const isFixed = selectedRecord.note?.includes('[固定收支]');
                           const updatedNote = isFixed ? `[固定收支] ${inlineNote.trim()}`.trim() : inlineNote.trim();
-                          onUpdateRecord(selectedRecord, { ...selectedRecord, note: updatedNote });
+                          onUpdateRecord(originalOf(selectedRecord), { ...originalOf(selectedRecord), note: updatedNote });
                           setIsEditingInlineNote(false);
                         }}
                         className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[10px] font-bold flex items-center gap-1 hover:bg-emerald-700"
@@ -1175,7 +1210,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                       if (e.key === 'Enter') {
                         const isFixed = selectedRecord.note?.includes('[固定收支]');
                         const updatedNote = isFixed ? `[固定收支] ${inlineNote.trim()}`.trim() : inlineNote.trim();
-                        onUpdateRecord(selectedRecord, { ...selectedRecord, note: updatedNote });
+                        onUpdateRecord(originalOf(selectedRecord), { ...originalOf(selectedRecord), note: updatedNote });
                         setIsEditingInlineNote(false);
                       } else if (e.key === 'Escape') {
                         setIsEditingInlineNote(false);
@@ -1198,7 +1233,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
             {/* 快捷操作按鈕組 */}
             <div className="flex items-center gap-2.5 pt-3 border-t border-stone-100">
               <button
-                onClick={() => setEditingRecord(selectedRecord)}
+                onClick={() => setEditingRecord(originalOf(selectedRecord))}
                 className="flex-1 py-2.5 px-4 bg-[#5D4037] hover:bg-[#4E342E] text-white rounded-2xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5"
               >
                 <Edit3 size={15} />
@@ -1207,7 +1242,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
 
               {onDuplicateRecord && (
                 <button
-                  onClick={() => onDuplicateRecord(selectedRecord)}
+                  onClick={() => onDuplicateRecord(originalOf(selectedRecord))}
                   className="py-2.5 px-4 bg-stone-100 hover:bg-stone-200 text-[#5D4037] rounded-2xl text-xs font-black active:scale-95 transition-all flex items-center justify-center gap-1.5"
                   title="複製此筆明細"
                 >
@@ -1219,7 +1254,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
               <button
                 onClick={() => {
                   if (confirm('確定要刪除這筆專案明細紀錄嗎？')) {
-                    onDeleteRecord(selectedRecord);
+                    onDeleteRecord(originalOf(selectedRecord));
                     setSelectedRecordId(null);
                   }
                 }}
@@ -1264,7 +1299,7 @@ export function ProjectDetailView({ project, records, accounts, categories, proj
                 <span className="text-xs font-bold text-stone-400">單筆最高支出</span>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-sm font-black text-[#5D4037] truncate pr-2">
-                    {overallSummary.maxExpenseRecord ? getTransactionTitle(overallSummary.maxExpenseRecord) : '暫無紀錄'}
+                    {overallSummary.maxExpenseRecord ? titleOf(overallSummary.maxExpenseRecord) : '暫無紀錄'}
                   </span>
                   <span className="text-base font-black text-[#E91E63] flex-shrink-0">
                     {overallSummary.maxExpenseRecord ? `$${Math.abs(overallSummary.maxExpenseRecord.amount).toLocaleString()}` : '$0'}
