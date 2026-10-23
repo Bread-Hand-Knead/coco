@@ -193,6 +193,18 @@ export function PrepaymentsView({
               const totalAmt = Math.abs(r.amount);
               const personalAmt = getRecordPersonalAmount(r);
               const displayAmt = r.type === 'expense' ? (prepayAmt > 0 ? prepayAmt : totalAmt) : totalAmt;
+              // 拆分明細：只挑出標成「家裡代墊」的品項來顯示
+              const prepayItems: { name: string; amount: number; category?: string }[] = r.type === 'expense'
+                ? (((r.subItems && r.subItems.length > 0) ? r.subItems : (r.subTransactions || [])) as any[])
+                    .filter((i: any) => !!i.isPrepay || (typeof i.tag === 'string' && i.tag.includes('家裡代墊')) || i.reimbursementTag === 'family')
+                    .map((i: any) => ({ name: (i.name || i.note || '').trim(), amount: i.amount || 0, category: i.category }))
+                : [];
+              const title = prepayItems.length === 0
+                ? (r.note || '未命名明細')
+                : prepayItems.filter(i => i.amount > 0 && i.name).map(i => i.name)[0] || prepayItems[0].name || r.note || '未命名明細';
+              const otherPositive = prepayItems.filter(i => i.amount > 0).length - 1;
+              const displayTitle = prepayItems.length > 0 && otherPositive > 0 ? `${title} 等 ${otherPositive + 1} 項` : title;
+              const displayCategory = prepayItems.find(i => i.amount > 0 && i.category)?.category || r.category;
               const hasMixedSubItems = ((r.subItems && r.subItems.length > 0) || (r.subTransactions && r.subTransactions.length > 0)) && prepayAmt > 0 && personalAmt > 0;
 
               return (
@@ -202,11 +214,21 @@ export function PrepaymentsView({
                   className={`flex items-center gap-4 py-3 border-b border-stone-50 last:border-0 cursor-pointer hover:bg-stone-50/50 rounded-xl px-2 -mx-2 transition-all duration-300 ${isSettled ? 'opacity-50 bg-stone-100/40' : ''}`}
                 >
                   <div className={`w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center text-xl shadow-sm border border-white ${isSettled ? 'bg-stone-100 opacity-60' : 'bg-sky-50'}`}>
-                    {getCategoryIcon(r.category, r.type, categories)}
+                    {getCategoryIcon(displayCategory, r.type, categories)}
                   </div>
                   
                   <div className="flex-1 min-w-0 flex flex-col gap-1">
-                    <span className={`font-black text-[#5D4037] truncate ${isSettled ? 'line-through text-stone-400' : ''}`}>{r.note || '未命名明細'}</span>
+                    <span className={`font-black text-[#5D4037] truncate ${isSettled ? 'line-through text-stone-400' : ''}`}>{displayTitle}</span>
+                    {prepayItems.length > 0 && (prepayItems.length > 1 || hasMixedSubItems) && (
+                      <div className={`flex flex-col gap-0.5 text-[11px] font-bold ${isSettled ? 'text-stone-400' : 'text-stone-500'}`}>
+                        {prepayItems.map((i, idx) => (
+                          <div key={idx} className="flex justify-between gap-2">
+                            <span className="truncate">・{i.name || '未命名品項'}</span>
+                            <span className={`shrink-0 ${i.amount < 0 ? 'text-emerald-600' : ''}`}>{i.amount < 0 ? '-' : ''}${Math.abs(i.amount).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {hasMixedSubItems && (
                       <div className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-100 px-2 py-0.5 rounded-md w-fit">
                         整筆 ${totalAmt.toLocaleString()} / 含個人 ${personalAmt.toLocaleString()}
@@ -217,7 +239,7 @@ export function PrepaymentsView({
                       <span>•</span>
                       <span>{accName}</span>
                       <span>•</span>
-                      <span>{r.category}</span>
+                      <span>{displayCategory}</span>
                     </div>
                   </div>
 
