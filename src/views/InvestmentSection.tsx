@@ -1212,13 +1212,12 @@ export function InvestmentSection({
                 .filter(r => {
                   if (r.isDeleted || !r.note) return false;
 
-                  const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
-                  const isInvestmentAcc = acc ? acc.type === 'investment' : false;
                   const isBuyTag = Boolean(r.note && (r.note.includes('[買入]') || r.note.includes('[加購]')));
                   const hasStockId = Boolean((r as any).stockId);
 
-                  // 必須為投資戶或具備 [買入]/[加購]/stockId 標記，排除一般銀行隨手筆記（如「要投資006208的」）
-                  if (!isInvestmentAcc && !isBuyTag && !hasStockId) return false;
+                  // 只認 app 記的買入：有 [買入]/[加購] 標記或選了股票（stockId）。
+                  // 備註剛好提到代號的（如「要投資006208的」「買00878剩的錢」）不算，就算記在證券帳戶也一樣。
+                  if (!isBuyTag && !hasStockId) return false;
 
                   // 1. 標的比對 (比對純數字代碼 006208、中文名稱與原字串)
                   const matchesStock = 
@@ -2425,14 +2424,13 @@ export function InvestmentSection({
                         const allSymbolMatches = records.filter(r => {
                           if (r.isDeleted) return false;
 
-                          const acc = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId);
-                          const isInvestmentAccount = acc ? acc.type === 'investment' : false;
                           const isBuyTag = Boolean(r.note && (r.note.includes('[買入]') || r.note.includes('[加購]')));
                           const isDividendTag = Boolean(r.type === 'income' && r.note && (r.note.includes('[股利]') || r.note.includes('股利') || r.note.includes('配息')));
                           const hasStockId = Boolean((r as any).stockId);
 
-                          // 若非投資戶且無買入/股利/stockId標記，屬於一般銀行隨手筆記（如「要投資006208的」），必須排除！
-                          if (!isInvestmentAccount && !isBuyTag && !isDividendTag && !hasStockId) {
+                          // 只認 app 記的交易：有 [買入]/[加購]/股利 標記或選了股票（stockId）。
+                          // 備註剛好提到代號的（如「要投資006208的」「買00878剩的錢」）不算，就算記在證券帳戶也一樣。
+                          if (!isBuyTag && !isDividendTag && !hasStockId) {
                             return false;
                           }
 
