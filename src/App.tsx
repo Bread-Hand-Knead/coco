@@ -195,53 +195,60 @@ export default function App() {
 
   const [selectedCategoryForSub, setSelectedCategoryForSub] = useState<string | null>(null);
 
+  // --- 手機返回鍵 ---
+  // 記住走過的頁面（viewStackRef），返回鍵回到「上一個來的頁面」，從首頁選單點進去的就回首頁。
+  // 瀏覽器歷史只保留一格「攔截用」的紀錄，按返回鍵時由這裡決定要去哪一頁，不會跳回很久以前看過的頁面。
+  type ViewName = typeof currentView;
+  const viewStackRef = useRef<ViewName[]>(['home']);
   useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      // 1. Close open modal or drawer if active
-      if (isRecordModalOpen) {
-        setIsRecordModalOpen(false);
-        return;
-      }
-      if (isDrawerOpen) {
-        setIsDrawerOpen(false);
-        return;
-      }
-      if (selectedCategoryForSub) {
-        setSelectedCategoryForSub(null);
-        return;
-      }
+    const st = viewStackRef.current;
+    const i = st.lastIndexOf(currentView);
+    if (i >= 0) st.length = i + 1;
+    else st.push(currentView);
+  }, [currentView]);
+  const previousView = (): ViewName => {
+    const st = viewStackRef.current;
+    return st.length >= 2 ? st[st.length - 2] : 'home';
+  };
+  const goBack = () => setCurrentView(previousView());
 
-      // 2. Otherwise pop back to home view or state view
-      if (event.state && event.state.view) {
-        setCurrentView(event.state.view);
-        setSelectedProjectId(event.state.projectId || null);
-        setSelectedCategoryForSub(event.state.selectedCategoryId || null);
-      } else if (currentView !== 'home') {
-        setCurrentView('home');
-        setSelectedProjectId(null);
-        setSelectedCategoryForSub(null);
-      }
+  const pushBackTrap = () => {
+    if (!(window.history.state && window.history.state.cocoTrap)) {
+      window.history.pushState({ cocoTrap: true }, '');
+    }
+  };
+
+  useEffect(() => {
+    if (currentView !== 'home' || isRecordModalOpen) {
+      pushBackTrap();
+    } else if (window.history.state && window.history.state.cocoTrap) {
+      // 用畫面上的按鈕回到首頁時，把攔截紀錄收掉，首頁再按返回才會照手機原本的方式離開
+      window.history.back();
+    }
+  }, [currentView, isRecordModalOpen]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const keepTrap = () => { if (currentView !== 'home') pushBackTrap(); };
+      // 1. 先關掉開著的視窗、側邊選單、子分類、專案明細
+      if (isRecordModalOpen) { setIsRecordModalOpen(false); keepTrap(); return; }
+      if (isDrawerOpen) { setIsDrawerOpen(false); keepTrap(); return; }
+      if (selectedCategoryForSub) { setSelectedCategoryForSub(null); keepTrap(); return; }
+      if (currentView === 'projects' && selectedProjectId) { setSelectedProjectId(null); keepTrap(); return; }
+      if (currentView === 'home') return;
+
+      // 2. 回到上一個來的頁面
+      const target = previousView();
+      setCurrentView(target);
+      if (target !== 'home') pushBackTrap();
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [currentView, isRecordModalOpen, isDrawerOpen, selectedCategoryForSub]);
-
-  useEffect(() => {
-    if (currentView !== 'home') {
-      const currentState = window.history.state;
-      if (!currentState || currentState.view !== currentView || currentState.selectedCategoryId !== selectedCategoryForSub) {
-        window.history.pushState({ 
-          view: currentView, 
-          projectId: selectedProjectId, 
-          selectedCategoryId: selectedCategoryForSub,
-          isRecordModalOpen: isRecordModalOpen
-        }, '');
-      }
-    }
-  }, [currentView, selectedProjectId, selectedCategoryForSub, isRecordModalOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, isRecordModalOpen, isDrawerOpen, selectedCategoryForSub, selectedProjectId]);
 
   // --- PWA Installation Logic ---
   const deferredPromptRef = useRef<any>(null);
@@ -2583,7 +2590,7 @@ export default function App() {
                 accounts={accounts}
                 projects={projects}
                 categories={categories}
-                onBack={() => setCurrentView('more')}
+                onBack={goBack}
                 onUpdateRecord={handleUpdateRecord}
                 onDeleteRecord={handleDeleteRecord}
                 onDuplicateRecord={handleDuplicateTransaction}
