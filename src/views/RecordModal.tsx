@@ -30,6 +30,40 @@ import { HorizontalScrollArea } from '../components/Common';
 import { AccountIcon, AccountSelector } from '../components/AccountWidgets';
 import { TemplateSortModal } from './SortModals';
 
+/** 把照片縮到長邊 1600px 內、轉成 JPEG（品質 0.85），回傳 base64；失敗就用原圖 */
+const compressImageForAi = (file: File): Promise<{ base64Data: string; mimeType: string }> =>
+  new Promise((resolve) => {
+    const readOriginal = () => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const res = String(ev.target?.result || '');
+        resolve({ base64Data: res.split(',')[1] || res, mimeType: file.type || 'image/jpeg' });
+      };
+      reader.onerror = () => resolve({ base64Data: '', mimeType: file.type || 'image/jpeg' });
+      reader.readAsDataURL(file);
+    };
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const MAX = 1600;
+        const ratio = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.naturalWidth * ratio);
+        canvas.height = Math.round(img.naturalHeight * ratio);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        resolve({ base64Data: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+      } catch {
+        URL.revokeObjectURL(url);
+        readOriginal();
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); readOriginal(); };
+    img.src = url;
+  });
+
 export function RecordModal({ accounts, categories, templates, projects, initialProjectId, initialRecord, onUpdateTemplates, onUpdateCategories, onClose, onSave, selectedDate, records, onOpenAiSplit, stocks = [] }: { 
   accounts: Account[], 
   stocks?: Stock[],
@@ -206,6 +240,7 @@ export function RecordModal({ accounts, categories, templates, projects, initial
 
   // For Receipt Image Scanning (OCR)
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
+  const [scanStatus, setScanStatus] = useState('辨識中...');
 
   // For Header Collapsible Bar (Narrow / Split-screen mode)
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
@@ -465,6 +500,7 @@ export function RecordModal({ accounts, categories, templates, projects, initial
     if (!file) return;
 
     setIsScanningReceipt(true);
+    setScanStatus('讀取發票 QR Code...');
 
     try {
       // ── 第一步：優先嘗試台灣電子發票 QR Code 解碼 ──────────────────────────
@@ -532,17 +568,9 @@ export function RecordModal({ accounts, categories, templates, projects, initial
         return;
       }
 
-      // Convert File to Base64
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const res = ev.target?.result as string;
-          const b64 = res.split(',')[1] || res;
-          resolve(b64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // 照片先縮小、壓成 JPEG 再送出（手機原圖常常好幾 MB，上傳很久）
+      setScanStatus('準備照片...');
+      const { base64Data, mimeType } = await compressImageForAi(file);
 
       const typeText = tab === 'income' ? '收入' : '支出';
       const categoriesString = catList.length > 0 ? catList.join('\n') : '其他';
@@ -587,7 +615,7 @@ ${categoriesString}
             { text: prompt },
             {
               inlineData: {
-                mimeType: file.type || "image/jpeg",
+                mimeType,
                 data: base64Data
               }
             }
@@ -599,7 +627,7 @@ ${categoriesString}
       };
 
       try {
-        const resJson = await callGeminiApiWithFallback(key, requestBody);
+        const resJson = await callGeminiApiWithFallback(key, requestBody, setScanStatus);
         const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
         if (responseText) {
           const cleanText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
@@ -641,8 +669,9 @@ ${categoriesString}
             return;
           }
         }
-      } catch (geminiErr) {
+      } catch (geminiErr: any) {
         console.warn("Gemini API call failed during receipt scan:", geminiErr);
+        if (!invoiceData) throw geminiErr; // 沒有 QR Code 保底時，直接告訴使用者失敗原因
       }
 
       // ── 第三步：若 Gemini 辨識無品項且有 QR Code 總額 metadata，保底帶入發票號碼與總金額 ──
@@ -671,6 +700,8 @@ ${categoriesString}
       let displayMsg = rawMsg;
       if (rawMsg.includes('503') || rawMsg.includes('429') || rawMsg.toLowerCase().includes('high demand') || rawMsg.toLowerCase().includes('unavailable') || rawMsg.includes('伺服器忙碌')) {
         displayMsg = '目前伺服器忙碌中，請稍候片刻再試';
+      } else if (rawMsg.includes('逾時') || rawMsg.includes('等太久')) {
+        displayMsg = '等太久了，可能是網路比較慢或 AI 服務忙碌，請稍後再試，或換一張比較清楚的照片';
       } else if (rawMsg.includes('API 請求失敗') || rawMsg.includes('{') || rawMsg.includes('}')) {
         displayMsg = '請求服務失敗，請稍後再試。';
       }
@@ -1450,7 +1481,7 @@ ${categoriesString}
                 {isScanningReceipt ? (
                   <>
                     <Loader2 className="w-4 h-4 text-[#0369A1] animate-spin" />
-                    <span className="text-xs font-black" style={getFontFamily()}>辨識中...</span>
+                    <span className="text-xs font-black truncate" style={getFontFamily()}>{scanStatus}</span>
                   </>
                 ) : (
                   <>
