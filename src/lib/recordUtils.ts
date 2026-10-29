@@ -397,3 +397,42 @@ export const getTransactionTitle = (record: Transaction): string => {
   }
   return smartTitle;
 };
+
+/**
+ * 從備註文字拆出品項（按「開始拆分」時用）。支援這些寫法，一行一項，或同一行用逗號、頓號隔開：
+ *   *AB無加糖優酪乳PE206ml $28x1   → 28 × 1
+ *   折扣(15%) -$4x1                 → -4
+ *   熱熔咖哩 迷*1.0=$129            → 129
+ *   在18A買的鹽水意麵 $60           → 60
+ * 每一段都要認得出金額才算數，有一段看不懂就回傳 null（照舊整筆當一項）。
+ */
+export const parseItemsFromNote = (note?: string): { name: string; amount: number }[] | null => {
+  if (!note || !note.includes('$')) return null;
+  const num = (s: string) => parseFloat(s.replace(/,/g, ''));
+  const pieces: string[] = [];
+  note.split(/\r?\n/).forEach(line => {
+    const t = line.trim();
+    if (!t) return;
+    // 同一行有好幾個 $ 金額時，用逗號／頓號分開
+    if ((t.match(/\$/g) || []).length > 1) pieces.push(...t.split(/\s*[,，、]\s*/).filter(Boolean));
+    else pieces.push(t);
+  });
+  const items: { name: string; amount: number }[] = [];
+  for (const raw of pieces) {
+    const p = raw.replace(/^[*＊]\s*/, '').trim();
+    let m: RegExpMatchArray | null;
+    let name = '';
+    let amount = NaN;
+    if ((m = p.match(/^(.+?)\s*(-)?\s*\$\s*(-?[\d,]+(?:\.\d+)?)\s*[x×X＊*]\s*(\d+(?:\.\d+)?)$/))) {
+      name = m[1]; amount = (m[2] ? -1 : 1) * num(m[3]) * num(m[4]);
+    } else if ((m = p.match(/^(.+?)\s*[*x×＊]\s*(\d+(?:\.\d+)?)\s*=\s*(-)?\s*\$?\s*(-?[\d,]+(?:\.\d+)?)$/))) {
+      name = m[1]; amount = (m[3] ? -1 : 1) * num(m[4]);
+    } else if ((m = p.match(/^(.+?)\s*(-)?\s*\$\s*(-?[\d,]+(?:\.\d+)?)$/))) {
+      name = m[1]; amount = (m[2] ? -1 : 1) * num(m[3]);
+    }
+    name = name.trim();
+    if (!name || !isFinite(amount)) return null;
+    items.push({ name, amount: Math.round(amount) });
+  }
+  return items.length > 0 ? items : null;
+};
