@@ -9,21 +9,33 @@ export interface GeminiRequestPayload {
   generationConfig?: any;
 }
 
+/** 單次請求最久等多久；整個流程（換模型、重試）最久等多久。超過就停，不會一直轉圈 */
+const REQUEST_TIMEOUT_MS = 30000;
+const TOTAL_TIMEOUT_MS = 75000;
+
 export const callGeminiApiWithFallback = async (
   key: string,
-  requestBody: GeminiRequestPayload
+  requestBody: GeminiRequestPayload,
+  onProgress?: (msg: string) => void
 ): Promise<any> => {
   let lastErrorMsg = '';
+  const startedAt = Date.now();
 
   for (let mIdx = 0; mIdx < MODEL_CASCADE.length; mIdx++) {
     const model = MODEL_CASCADE[mIdx];
     // 每個模型最多重試 2 次（應對暫時塞車）
     for (let attempt = 0; attempt < 2; attempt++) {
+      const remaining = TOTAL_TIMEOUT_MS - (Date.now() - startedAt);
+      if (remaining <= 0) throw new Error('等太久了（超過 75 秒），請稍後再試，或換一張比較清楚的照片');
+      onProgress?.(mIdx === 0 && attempt === 0 ? 'AI 辨識中...' : `AI 辨識中（換方式再試 ${mIdx * 2 + attempt}）...`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), Math.min(REQUEST_TIMEOUT_MS, remaining));
       try {
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody)
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
         });
 
         if (res.ok) {
@@ -54,10 +66,12 @@ export const callGeminiApiWithFallback = async (
         break; // 跳出 attempt 迴圈，進入下一個模型
 
       } catch (err: any) {
-        lastErrorMsg = err?.message || '';
+        lastErrorMsg = err?.name === 'AbortError' ? '連線逾時' : (err?.message || '');
         console.warn(`[Gemini] 模型 ${model} 例外：${lastErrorMsg}`);
         await new Promise(r => setTimeout(r, 800));
         // 例外也繼續嘗試下一個模型
+      } finally {
+        clearTimeout(timer);
       }
     }
   }
