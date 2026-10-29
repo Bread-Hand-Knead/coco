@@ -21,6 +21,7 @@ import type { Account, Category, Project, SubItem, Transaction } from '../types'
 import { INITIAL_CATEGORIES, ensureTransferCategories, findMatchingProjectId } from '../lib/defaults';
 import { formatLocalDate, formatTime24 } from '../lib/dateUtils';
 import { AccountIcon, renderAccountOptionsByType } from '../components/AccountWidgets';
+import { parseItemsFromNote } from '../lib/recordUtils';
 
 export function EditRecordModal({ record, records = [], accounts, projects, categories = [], onClose, onSave, onDelete, onDuplicate }: {
   record: Transaction,
@@ -879,6 +880,22 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                         onClick={() => {
                           const isTransfer = edited.type === 'transfer';
                           const mainCardName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === edited.toAccountId)?.name || '信用卡';
+                          // 備註裡有「品名 $28x1」「折扣 -$4x1」這種寫法，就照每一行自動拆好
+                          const parsed = isTransfer ? null : parseItemsFromNote(edited.note);
+                          if (parsed) {
+                            const now = Date.now();
+                            const subs: SubItem[] = parsed.map((it, idx) => ({
+                              id: `sub_${now}_${idx + 1}`,
+                              ...(idx === 0 ? { originalRecordId: edited.id } : {}),
+                              name: it.name,
+                              amount: it.amount,
+                              category: edited.category,
+                              ...(edited.projectId ? { projectId: edited.projectId } : {}),
+                              isPrepay: false,
+                            }));
+                            setEdited({ ...edited, subItems: subs, isParent: subs.length > 1 });
+                            return;
+                          }
                           const initSub: SubItem[] = [
                             { 
                               id: `sub_${Date.now()}_1`, 
