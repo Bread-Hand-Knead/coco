@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { Account, Category, Project, Stock, StockBuyInfo, Template, Transaction } from '../types';
+import type { Account, Category, Project, Stock, StockBuyInfo, SubItem, Template, Transaction } from '../types';
 import { findMatchingProjectId } from '../lib/defaults';
 import { callGeminiApiWithFallback, filterTaiwanTerms } from '../lib/gemini';
 import { HorizontalScrollArea } from '../components/Common';
@@ -205,6 +205,7 @@ export function RecordModal({ accounts, categories, templates, projects, initial
       setExchangeRate(initialRecord.exchangeRate ? initialRecord.exchangeRate.toString() : '1');
       setToAmount(initialRecord.toAmount ? initialRecord.toAmount.toString() : '0');
       setIsPrepay(!!initialRecord.isPrepay);
+      setCopiedSubItems(initialRecord.subItems || []);
 
       const now = new Date();
       const yyyy = now.getFullYear();
@@ -241,6 +242,8 @@ export function RecordModal({ accounts, categories, templates, projects, initial
   // For Receipt Image Scanning (OCR)
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
   const [scanStatus, setScanStatus] = useState('辨識中...');
+  // 「再記一筆」時，原本那筆的拆分品項一起帶過來（可以按「不要複製」拿掉）
+  const [copiedSubItems, setCopiedSubItems] = useState<SubItem[]>(() => initialRecord?.subItems || []);
 
   // For Header Collapsible Bar (Narrow / Split-screen mode)
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
@@ -1036,8 +1039,18 @@ ${categoriesString}
         }
       }
 
+      // 複製過來的拆分品項：換新的編號，拿掉「從哪一筆合併來的」連結
+      const now = Date.now();
+      const subItemsCopy = copiedSubItems.length > 0
+        ? copiedSubItems.map((it, idx) => {
+            const { originalRecordId: _o, ...rest } = it;
+            return { ...rest, id: `sub_${now}_${idx + 1}` };
+          })
+        : undefined;
+
       onSave({ 
         stockBuy,
+        ...(subItemsCopy ? { subItems: subItemsCopy, isParent: subItemsCopy.length > 1 } : {}),
         amount: finalAmount, 
         fee: finalFee,
         category: subCategory ? (mainCategory ? `${mainCategory} ＞ ${subCategory}` : subCategory) : (mainCategory || (resolvedType === 'transfer' ? '轉帳' : '其他')), 
@@ -1914,6 +1927,32 @@ ${categoriesString}
                     placeholder="例如：開源社雞排、演唱會周邊"
                     style={getFontFamily()}
                   />
+                  {copiedSubItems.length > 0 && (() => {
+                    const subTotal = copiedSubItems.reduce((acc, it) => acc + (it.amount || 0), 0);
+                    const entered = Math.abs(parseFloat(evaluateExpression(amount)) || 0);
+                    return (
+                      <div className="bg-[#FFF8E1] border-2 border-[#FFE082] rounded-2xl p-3 space-y-1.5" style={getFontFamily()}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-black text-[#5D4037]">🛍️ 一起複製 {copiedSubItems.length} 個拆分品項</span>
+                          <button type="button" onClick={() => setCopiedSubItems([])} className="text-xs font-bold text-rose-500 px-2 py-1">
+                            不要複製
+                          </button>
+                        </div>
+                        {copiedSubItems.map((it, idx) => (
+                          <div key={idx} className="flex justify-between gap-2 text-xs font-bold text-[#5D4037]">
+                            <span className="truncate">・{it.name || '未命名品項'}{it.isPrepay ? '（家裡代墊）' : ''}</span>
+                            <span className={`shrink-0 ${(it.amount || 0) < 0 ? 'text-emerald-600' : ''}`}>{(it.amount || 0) < 0 ? '-' : ''}${Math.abs(it.amount || 0).toLocaleString()}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-xs font-black text-amber-900 border-t border-[#FFE082] pt-1">
+                          <span>品項小計</span><span>${subTotal.toLocaleString()}</span>
+                        </div>
+                        {entered !== Math.abs(subTotal) && (
+                          <p className="text-[11px] font-bold text-rose-600">金額 ${entered.toLocaleString()} 和品項小計不一樣，存好後可以按「編輯」調整品項。</p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Prepayment / Receivable (代墊 / 代收款) Section */}
