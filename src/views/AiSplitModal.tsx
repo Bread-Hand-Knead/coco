@@ -780,6 +780,7 @@ ${categoriesString}
                         <label className="text-[11px] font-bold text-stone-500">金額</label>
                         <NumberInput
                           integer
+                          allowNegative
                           value={item.amount}
                           onValueChange={v => handleUpdateItem(index, 'amount', v)}
                           className="w-full px-2 py-1.5 border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] outline-none"

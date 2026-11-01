@@ -242,6 +242,14 @@ export function RecordModal({ accounts, categories, templates, projects, initial
   // For Receipt Image Scanning (OCR)
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
   const [scanStatus, setScanStatus] = useState('辨識中...');
+  // 掃描時在畫面上方跳出通知，顯示目前在做什麼、已經等了幾秒（按鈕太窄，字會被截掉）
+  const [scanSeconds, setScanSeconds] = useState(0);
+  useEffect(() => {
+    if (!isScanningReceipt) { setScanSeconds(0); return; }
+    const started = Date.now();
+    const t = setInterval(() => setScanSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [isScanningReceipt]);
   // 「再記一筆」時，原本那筆的拆分品項一起帶過來（可以按「不要複製」拿掉）
   const [copiedSubItems, setCopiedSubItems] = useState<SubItem[]>(() => initialRecord?.subItems || []);
 
@@ -1618,6 +1626,21 @@ ${categoriesString}
       className="fixed inset-0 bg-black/30 backdrop-blur-md z-50 flex items-end justify-center md:items-center md:p-6"
       onClick={onClose}
     >
+      {isScanningReceipt && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[400] w-[calc(100%-32px)] max-w-sm bg-[#0369A1] text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3"
+          style={getFontFamily()}
+          onClick={e => e.stopPropagation()}
+        >
+          <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+          <div className="min-w-0">
+            <div className="text-sm font-black">📷 發票掃描：{scanStatus}</div>
+            <div className="text-xs font-bold opacity-80">已經等了 {scanSeconds} 秒（最多約 75 秒，超過會自動停止）</div>
+          </div>
+        </div>
+      )}
       <motion.div 
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         className="bg-[#FFFDF5] w-full max-w-md md:max-w-4xl lg:max-w-5xl rounded-t-[40px] md:rounded-[40px] p-6 flex flex-col gap-4 h-[95vh] md:h-auto max-h-[95vh] md:max-h-[92vh] overflow-hidden shadow-2xl"
