@@ -969,7 +969,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 </div>
                                 <div className="col-span-2 flex flex-col gap-1">
                                   <label className="text-[11px] font-bold text-stone-500">金額 ($)</label>
-                                  <NumberInput value={subItem.amount}
+                                  <NumberInput value={subItem.amount} allowNegative
                                     onValueChange={amtVal => {
                                       handleUpdateSubItemAmount(idx, amtVal);
                                     }}
@@ -1010,7 +1010,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 </div>
                                 <div className="col-span-2 flex flex-col gap-1">
                                   <label className="text-[11px] font-bold text-stone-500">金額 ($)</label>
-                                  <NumberInput value={subItem.amount}
+                                  <NumberInput value={subItem.amount} allowNegative
                                     onValueChange={amtVal => {
                                       handleUpdateSubItemAmount(idx, amtVal);
                                     }}
