@@ -2809,6 +2809,7 @@ export default function App() {
               user={user}
               onSaveBatch={handleSaveBatchRecords}
               onIncrementAiCount={incrementAiParseCount}
+              onAddProject={handleAddProject}
             />
           )}
         </AnimatePresence>
