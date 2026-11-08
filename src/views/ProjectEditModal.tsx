@@ -60,7 +60,7 @@ export function ProjectEditModal({ project, projects, onClose, onSave, onDelete 
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-[#5D4037]/60 backdrop-blur-md z-[80] flex items-center justify-center p-6"
+      className="fixed inset-0 bg-[#5D4037]/60 backdrop-blur-md z-[130] flex items-center justify-center p-6"
       onClick={onClose}
     >
       <motion.div 

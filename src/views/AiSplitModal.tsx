@@ -29,6 +29,8 @@ export interface AiSplitModalProps {
   user: User | null;
   onSaveBatch: (records: any[]) => Promise<void>;
   onIncrementAiCount?: () => void;
+  /** 打開「新增專案」視窗（建立好之後會自動選到那個品項上） */
+  onAddProject?: () => void;
 }
 
 export function AiAccountDropdown({
@@ -150,7 +152,7 @@ export function AiAccountDropdown({
   );
 }
 
-export function AiSplitModal({ isOpen, initialTab = 'expense', presetData, onClose, accounts, categories, projects, user, onSaveBatch, onIncrementAiCount }: AiSplitModalProps) {
+export function AiSplitModal({ isOpen, initialTab = 'expense', presetData, onClose, accounts, categories, projects, user, onSaveBatch, onIncrementAiCount, onAddProject }: AiSplitModalProps) {
   const [step, setStep] = useState<1 | 2>(() => (presetData?.items && presetData.items.length > 0) ? 2 : 1);
   const [rawText, setRawText] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
@@ -415,6 +417,29 @@ ${categoriesString}
       setIsParsing(false);
     }
   };
+
+  // 專案選單：照排序，有子專案的主專案把子專案收在同一組
+  const projectGroups = useMemo(() => {
+    const list = (Array.isArray(projects) ? projects : []).slice().sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+    const parentOf = (p: Project) => p.parentProjectId || p.parentId || null;
+    const ids = new Set(list.map(p => p.id));
+    const tops = list.filter(p => !parentOf(p) || !ids.has(parentOf(p)!));
+    return tops.map(top => ({ top, children: list.filter(c => parentOf(c) === top.id) }));
+  }, [projects]);
+
+  // 選「＋ 新增專案」時記住是哪一個品項；新專案出現後自動選上
+  const NEW_PROJECT = '__new_project__';
+  const pendingProjectRef = useRef<{ index: number; knownIds: Set<string> } | null>(null);
+  useEffect(() => {
+    const pending = pendingProjectRef.current;
+    if (!pending) return;
+    const created = (Array.isArray(projects) ? projects : []).find(p => !pending.knownIds.has(p.id));
+    if (created) {
+      pendingProjectRef.current = null;
+      handleUpdateItem(pending.index, 'projectId', created.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
 
   const handleUpdateItem = (index: number, key: string, value: any) => {
     setParsedItems(prev => prev.map((item, i) => {
@@ -811,15 +836,28 @@ ${categoriesString}
                           value={item.projectId || 'p1'}
                           onChange={e => {
                             e.stopPropagation();
+                            if (e.target.value === NEW_PROJECT) {
+                              pendingProjectRef.current = { index, knownIds: new Set((Array.isArray(projects) ? projects : []).map(p => p.id)) };
+                              onAddProject?.();
+                              return;
+                            }
                             handleUpdateItem(index, 'projectId', e.target.value);
                           }}
                           onClick={e => e.stopPropagation()}
                           className="bg-white border border-stone-200 rounded-xl px-2 py-1 text-xs font-bold text-[#5D4037] outline-none cursor-pointer pointer-events-auto max-w-[110px] truncate shadow-sm hover:border-[#FFD54F] transition-all"
                           style={{ ...getFontFamily(), pointerEvents: 'auto' }}
                         >
-                          {projects.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
+                          {projectGroups.map(({ top, children }) => children.length === 0 ? (
+                            <option key={top.id} value={top.id}>{top.name}</option>
+                          ) : (
+                            <optgroup key={top.id} label={`📁 ${top.name}`}>
+                              <option value={top.id}>{top.name}（整個）</option>
+                              {children.map(c => (
+                                <option key={c.id} value={c.id}>　└ {c.name}</option>
+                              ))}
+                            </optgroup>
                           ))}
+                          {onAddProject && <option value={NEW_PROJECT}>＋ 新增專案…</option>}
                         </select>
                       </div>
 
