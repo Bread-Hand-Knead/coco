@@ -2599,6 +2599,7 @@ export default function App() {
             {currentView === 'installments' && (
               <InstallmentManagementPage 
                 records={records} 
+                accounts={accounts}
                 onDeleteGroup={(groupId) => setRecords(prev => prev.filter(r => r.installmentGroupId !== groupId))}
                 onEarlySettlement={(groupId, remainingAmount, firstRecord) => {
                   setRecords(prev => {

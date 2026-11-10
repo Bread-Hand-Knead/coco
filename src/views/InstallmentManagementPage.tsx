@@ -1,13 +1,14 @@
 import { CustomInstallmentItem, generateDefaultCustomSchedule, getCorrectInstallmentDate, getFontFamily } from '../lib/financeUtils';
 import { useEffect, useMemo, useState } from 'react';
 import { NumberInput } from '../components/NumberInput';
-import { CreditCard, Pencil, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CreditCard, Pencil, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { Transaction } from '../types';
+import type { Account, Transaction } from '../types';
 import { formatLocalDate } from '../lib/dateUtils';
 
-export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettlement, onUpdateGroup }: { 
+export function InstallmentManagementPage({ records, accounts = [], onDeleteGroup, onEarlySettlement, onUpdateGroup }: { 
   records: Transaction[], 
+  accounts?: Account[],
   onDeleteGroup: (groupId: string) => void,
   onEarlySettlement: (groupId: string, remainingAmount: number, firstRecord: Transaction) => void,
   onUpdateGroup: (groupId: string, newNote: string, newTotalAmount: number, newTotalInstallments: number, customSchedule?: CustomInstallmentItem[]) => void
@@ -111,6 +112,22 @@ export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettl
     return Object.values(groups).sort((a, b) => b[0].date.localeCompare(a[0].date));
   }, [records]);
 
+  // 這個月要繳的分期：看每一期的入帳日（沒有就看消費日）落在哪個月
+  const [monthKey, setMonthKey] = useState(() => formatLocalDate(new Date()).slice(0, 7));
+  const shiftMonth = (delta: number) => {
+    const [y, m] = monthKey.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setMonthKey(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+  const monthItems = useMemo(() => {
+    return records
+      .filter(r => r.isInstallment && r.installmentGroupId && !r.isDeleted && (r.postingDate || r.date || '').slice(0, 7) === monthKey)
+      .sort((a, b) => (a.postingDate || a.date).localeCompare(b.postingDate || b.date));
+  }, [records, monthKey]);
+  const monthTotal = monthItems.reduce((sum, r) => sum + Math.abs(r.amount || 0), 0);
+  const monthPaid = monthItems.filter(r => r.transferredDate).reduce((sum, r) => sum + Math.abs(r.amount || 0), 0);
+  const accName = (id?: string) => (Array.isArray(accounts) ? accounts : []).find(a => a.id === id)?.name || '';
+
   const handleDelete = () => {
     if (selectedGroupId) {
       onDeleteGroup(selectedGroupId);
@@ -134,6 +151,39 @@ export function InstallmentManagementPage({ records, onDeleteGroup, onEarlySettl
       className="flex flex-col h-full bg-[#FFF9E3]"
     >
       <div className="flex-1 overflow-y-auto px-6 space-y-4 pb-24 pt-4">
+        {/* 這個月分期總共多少 */}
+        <div className="bg-[#5D4037] text-white p-5 rounded-[30px] shadow-sm space-y-3" style={getFontFamily()}>
+          <div className="flex items-center justify-between">
+            <button type="button" onClick={() => shiftMonth(-1)} aria-label="上個月" className="p-1.5 rounded-full bg-white/10 active:scale-90 transition-transform">
+              <ChevronLeft size={18} />
+            </button>
+            <span className="font-black">{monthKey.replace('-', ' 年 ')} 月的分期</span>
+            <button type="button" onClick={() => shiftMonth(1)} aria-label="下個月" className="p-1.5 rounded-full bg-white/10 active:scale-90 transition-transform">
+              <ChevronRight size={18} />
+            </button>
+          </div>
+          <div className="flex items-end justify-between">
+            <span className="text-3xl font-black">${monthTotal.toLocaleString()}</span>
+            <span className="text-xs font-bold opacity-80">共 {monthItems.length} 期{monthPaid > 0 ? `・已轉帳 $${monthPaid.toLocaleString()}` : ''}</span>
+          </div>
+          {monthItems.length > 0 ? (
+            <div className="bg-white/10 rounded-2xl p-3 space-y-1.5">
+              {monthItems.map(r => (
+                <div key={r.id} className="flex items-center justify-between gap-2 text-sm font-bold">
+                  <span className="min-w-0 truncate">
+                    {(r.note || '').split(' (分期')[0] || '分期'}
+                    <span className="opacity-70 text-xs">（{r.currentInstallment || '?'}/{r.totalInstallments || '?'}{accName(r.accountId) ? `・${accName(r.accountId)}` : ''}）</span>
+                  </span>
+                  <span className={`shrink-0 ${r.transferredDate ? 'opacity-60 line-through' : ''}`}>${Math.abs(r.amount || 0).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs font-bold opacity-80">這個月沒有要繳的分期 🎉</p>
+          )}
+          <p className="text-[11px] font-bold opacity-70">依每一期的入帳日算月份；已標記轉帳的會畫線。</p>
+        </div>
+
         {installmentGroups.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
             <div className="w-20 h-20 bg-white rounded-[30px] flex items-center justify-center text-stone-200 shadow-sm">
