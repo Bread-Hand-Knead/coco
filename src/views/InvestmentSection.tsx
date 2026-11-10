@@ -17,7 +17,6 @@ import { getStockMatchKeywords, resolveBrokerAccount } from '../lib/accountUtils
 import { GroupedAccountDropdown } from '../components/AccountWidgets';
 import { EditRecordModal } from './EditRecordModal';
 import { PriceHistoryChart } from '../components/PriceHistoryChart';
-import { PendingStockBuys, StockBuyFillModal } from '../components/StockBuyFill';
 
 export function InvestmentSection({
   records,
@@ -98,7 +97,6 @@ export function InvestmentSection({
   const [stockPriceHistory, setStockPriceHistory] = useState<PriceHistoryItem[]>([]);
   const [isPriceHistoryOpen, setIsPriceHistoryOpen] = useState(false);
   // 帳戶記的買股票扣款，照對帳單補股數
-  const [fillingRecord, setFillingRecord] = useState<Transaction | null>(null);
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('all');
   const [expandedStockCodes, setExpandedStockCodes] = useState<Record<string, boolean>>({});
   const [isOverviewCollapsed, setIsOverviewCollapsed] = useState(false);
@@ -125,20 +123,6 @@ export function InvestmentSection({
 
   // Helper to parse buy transaction details from record note
   const parseBuyRecordDetails = (r: Transaction, stock: Stock) => {
-    if (r.stockBuy) {
-      // 從帳戶記的買股票扣款：資料存在 stockBuy，不用從備註解析
-      const sb = r.stockBuy;
-      return {
-        shares: sb.shares ? String(sb.shares) : '',
-        price: sb.price ? String(sb.price) : '',
-        fee: String(sb.fee || 0),
-        totalCost: String(sb.netCost || Math.abs(r.amount)),
-        tradeDate: sb.tradeDate || r.date,
-        settlementDate: r.postingDate || r.date,
-        extraNotes: '',
-        accountId: r.accountId || stock.linkedAccount
-      };
-    }
     const note = r.note || '';
     
     // Parse shares
@@ -791,7 +775,6 @@ export function InvestmentSection({
   };
 
   const handleOpenEditBuyRecord = (r: Transaction, stock: Stock) => {
-    if (r.stockBuy) { setFillingRecord(r); return; } // 帳戶記的扣款：用補股數視窗修改
     const details = parseBuyRecordDetails(r, stock);
     setEditingBuyRecord(r);
     setBuyingStock(stock);
@@ -1115,15 +1098,6 @@ export function InvestmentSection({
         )}
       </AnimatePresence>
 
-      {/* 待補股數：帳戶記了買股票扣款、還沒照對帳單補股數 */}
-      <PendingStockBuys records={records} accounts={accounts} onFill={setFillingRecord} />
-      <StockBuyFillModal
-        record={fillingRecord}
-        records={records}
-        onClose={() => setFillingRecord(null)}
-        onSave={(oldRec, newRec) => onUpdateRecord(oldRec, newRec)}
-      />
-
       {/* Holdings Section Header */}
       <div className="flex flex-col gap-3 border-b border-[#5D4037]/10 pb-3">
         <div className="flex items-center justify-between">
@@ -1213,7 +1187,7 @@ export function InvestmentSection({
                   if (r.isDeleted || !r.note) return false;
 
                   const isBuyTag = Boolean(r.note && (r.note.includes('[買入]') || r.note.includes('[加購]')));
-                  const hasStockId = Boolean((r as any).stockId);
+                  const hasStockId = Boolean((r as any).stockId) && !r.stockBuy; // 帳戶記的買股票扣款不算（股票和帳戶分開記）
 
                   // 只認 app 記的買入：有 [買入]/[加購] 標記或選了股票（stockId）。
                   // 備註剛好提到代號的（如「要投資006208的」「買00878剩的錢」）不算，就算記在證券帳戶也一樣。
@@ -2426,7 +2400,7 @@ export function InvestmentSection({
 
                           const isBuyTag = Boolean(r.note && (r.note.includes('[買入]') || r.note.includes('[加購]')));
                           const isDividendTag = Boolean(r.type === 'income' && r.note && (r.note.includes('[股利]') || r.note.includes('股利') || r.note.includes('配息')));
-                          const hasStockId = Boolean((r as any).stockId);
+                          const hasStockId = Boolean((r as any).stockId) && !r.stockBuy; // 帳戶記的買股票扣款不算（股票和帳戶分開記）
 
                           // 只認 app 記的交易：有 [買入]/[加購]/股利 標記或選了股票（stockId）。
                           // 備註剛好提到代號的（如「要投資006208的」「買00878剩的錢」）不算，就算記在證券帳戶也一樣。
