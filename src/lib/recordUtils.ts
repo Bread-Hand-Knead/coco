@@ -155,11 +155,38 @@ export const getTwdEquivalentText = (records: Transaction[], accounts: Account[]
   return `(約 NT$ ${Math.round(twdAmt).toLocaleString()})`;
 };
 
+// 同一份 records / accounts 算過就記起來：一個畫面裡常常要算好幾次（餘額、清單、統計），不用每次重算。
+// records 每次修改都會是新的陣列，所以資料一變就會重算。回傳複本，呼叫的地方排序也不會互相影響。
+const mergedCache = new WeakMap<Transaction[], WeakMap<Account[], Transaction[]>>();
+
 export const getMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
+  if (!Array.isArray(txs)) return [];
+  const accKey = (Array.isArray(accounts) ? accounts : EMPTY_ACCOUNTS);
+  const byAcc = mergedCache.get(txs);
+  const hit = byAcc?.get(accKey);
+  if (hit) return hit.slice();
+  const result = computeMergedRecords(txs, accKey);
+  if (byAcc) byAcc.set(accKey, result);
+  else mergedCache.set(txs, new WeakMap([[accKey, result]]));
+  return result.slice();
+};
+const EMPTY_ACCOUNTS: Account[] = [];
+
+const computeMergedRecords = (txs: Transaction[], accounts: Account[]): Transaction[] => {
   const cleanedTxs = txs.filter(t => !t.isDeleted && !t.isMergedChild && !t.parentId && !t.parentTransactionId && !t.isChildTransaction);
 
   const result: Transaction[] = [];
   const matchedIds = new Set<string>();
+
+  // 先把轉帳依「日期 + 金額」分組，配對時只看同一組，不用每筆都掃過全部紀錄
+  const transferIndex = new Map<string, number[]>();
+  txs.forEach((B, j) => {
+    if (B.type !== 'transfer') return;
+    const key = `${B.date}|${Math.abs(B.amount)}`;
+    const list = transferIndex.get(key);
+    if (list) list.push(j); else transferIndex.set(key, [j]);
+  });
+  const accName = new Map((Array.isArray(accounts) ? accounts : []).map(a => [a.id, a.name]));
 
   for (let i = 0; i < cleanedTxs.length; i++) {
     const A = cleanedTxs[i];
@@ -173,18 +200,15 @@ export const getMergedRecords = (txs: Transaction[], accounts: Account[]): Trans
       const A_dst = A.toAccountId || '';
 
       let foundMatch = false;
-      for (let j = i + 1; j < txs.length; j++) {
+      const candidates = transferIndex.get(`${A.date}|${Math.abs(A.amount)}`) || [];
+      for (const j of candidates) {
+        if (j < i + 1) continue; // 和原本一樣，只往後找
         const B = txs[j];
         if (matchedIds.has(B.id)) {
           continue;
         }
 
-        if (
-          B.type === 'transfer' &&
-          B.date === A.date &&
-          Math.abs(B.amount) === Math.abs(A.amount) &&
-          B.amount * A.amount < 0
-        ) {
+        if (B.amount * A.amount < 0) {
           const B_src = B.accountId;
           const B_dst = B.toAccountId || '';
 
@@ -200,9 +224,9 @@ export const getMergedRecords = (txs: Transaction[], accounts: Account[]): Trans
             // primary uses the negative amount/transfer out
             const primary = A.amount < 0 ? A : B;
             const secondary = A.amount < 0 ? B : A;
-            
-            const srcName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === resolvedSender)?.name || '未知帳戶';
-            const dstName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === resolvedDest)?.name || '未知帳戶';
+
+            const srcName = accName.get(resolvedSender) || '未知帳戶';
+            const dstName = accName.get(resolvedDest) || '未知帳戶';
 
             const mergedTx: Transaction = {
               ...primary,
@@ -228,37 +252,28 @@ export const getMergedRecords = (txs: Transaction[], accounts: Account[]): Trans
   }
 
   // Deduplicate transfer records that represent the same physical transfer
+  // 依「日期 + 金額」分組記住已經收進來的轉帳，只和同一組比對
   const finalResult: Transaction[] = [];
-  const processedKeys = new Set<string>(); // key format: date_amount_src_dst
+  const processed = new Map<string, { src: string; dst: string }[]>();
 
   result.forEach(tx => {
     if (tx.type === 'transfer' || tx._isMergedTransfer) {
       const { src, dst } = getTransferSourceAndDest(tx);
-      const absAmt = Math.abs(tx.amount);
-      const date = tx.date;
-      
-      let isDuplicate = false;
-      for (const processedKey of processedKeys) {
-        const [pDate, pAmtStr, pSrc, pDst] = processedKey.split('|');
-        const pAmt = parseFloat(pAmtStr);
-        if (pDate === date && pAmt === absAmt) {
-          // Check for matches or overlaps
-          if (
-            (src && dst && pSrc === src && pDst === dst) ||
-            (!src && dst && pDst === dst) ||
-            (src && !dst && pSrc === src)
-          ) {
-            isDuplicate = true;
-            break;
-          }
-        }
-      }
-      
+      const key = `${tx.date}|${Math.abs(tx.amount)}`;
+      const seen = processed.get(key) || [];
+
+      const isDuplicate = seen.some(p =>
+        (src && dst && p.src === src && p.dst === dst) ||
+        (!src && dst && p.dst === dst) ||
+        (src && !dst && p.src === src)
+      );
+
       if (isDuplicate) {
         return; // Skip adding duplicate transfers to the active collection
       }
-      
-      processedKeys.add(`${date}|${absAmt}|${src}|${dst}`);
+
+      seen.push({ src: String(src || ''), dst: String(dst || '') });
+      processed.set(key, seen);
     }
     finalResult.push(tx);
   });
