@@ -255,6 +255,8 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
   }, [records, account, targetIds, accounts, selectedCardFilterId]);
 
   const diagnosticInfo = useMemo(() => {
+    // 診斷工具沒打開就不用算（省時間）
+    if (!showDiagnostic) return { log: [], childrenBals: [], initial: account.type === 'credit' ? 0 : (account.initialBalance || 0) };
     const merged = getMergedRecords(records, accounts);
     
     let bal = account.type === 'credit' ? 0 : (account.initialBalance || 0);
@@ -306,7 +308,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
     });
     
     return { log, childrenBals, initial: account.type === 'credit' ? 0 : (account.initialBalance || 0) };
-  }, [records, account, targetIds, accounts]);
+  }, [records, account, targetIds, accounts, showDiagnostic]);
 
   const dateRangeStrings = useMemo(() => {
     const firstDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);

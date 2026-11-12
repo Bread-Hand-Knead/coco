@@ -240,13 +240,11 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
     children.forEach(child => {
       const childBal = getRecursiveBalance(child.id);
       total += childBal;
-      console.log(`  + Adding child account ${child.name} (${child.id}) balance: ${childBal} | new total: ${total}`);
     });
     return total;
   };
 
   const result = getRecursiveBalance(account.id);
-  console.log(`[DEBUG] Final recursive balance for ${account.name}: ${result}`);
   return result;
 }
 
