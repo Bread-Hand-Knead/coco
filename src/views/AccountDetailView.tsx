@@ -972,7 +972,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                   </div>
 
                   {/* 第三層與第四層（狀態標籤與卡別/帳戶膠囊：桌面版 md:flex md:flex-row md:items-center md:gap-2 md:flex-wrap 橫向整齊並排） */}
-                  {((account.type === 'credit' && (!record.postingDate || record.isPending)) || record.transferredDate || (record.isPrepay || (record.subItems && record.subItems.some(i => i.isPrepay))) || ((account.parentId === undefined || account.isBrandGroup) && record.accountId !== account.id)) && (
+                  {((account.type === 'credit' && (!record.postingDate || record.isPending)) || record.transferredDate || (record.isPrepay || (record.subItems && record.subItems.some(i => i.isPrepay))) || (record.accountId !== account.id)) && (
                     <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2 md:flex-wrap mt-0.5">
                       {account.type === 'credit' && (!record.postingDate || record.isPending) && (
                         <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-[#FFF4D3] text-[#B87A14] rounded-full font-bold leading-none">
@@ -989,7 +989,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                           🏠 代墊 {record.subItems && record.subItems.some(i => i.isPrepay) ? `$ ${record.subItems.filter(i => i.isPrepay).reduce((s, i) => s + (i.amount || 0), 0).toLocaleString()}` : ''}
                         </span>
                       )}
-                      {(account.parentId === undefined || account.isBrandGroup) && record.accountId !== account.id && (
+                      {record.accountId !== account.id && (
                         <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-[#F3F4F6] text-[#4B5563] rounded-full font-bold leading-none">
                           {(Array.isArray(accounts) ? accounts : []).find(a => a.id === record.accountId)?.name}
                         </span>
