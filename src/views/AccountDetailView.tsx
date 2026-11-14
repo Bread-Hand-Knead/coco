@@ -114,6 +114,8 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
   const [showDiagnostic, setShowDiagnostic] = useState(false);
 
   const [selectedCardFilterId, setSelectedCardFilterId] = useState<string | null>(null);
+  // 有子帳戶的帳戶：可以切換「含子帳戶」或「只看自己」的明細
+  const [ownOnly, setOwnOnly] = useState(false);
 
   // 依卡片分組顯示（卡片分區依序排列）：開關與卡片順序皆以 account.id 為鍵持久化於 LocalStorage
   const cardGroupEnabledKey = `coco_card_group_enabled_${account.id}`;
@@ -203,8 +205,10 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
     if (account.isBrandGroup && (account as any).childAccounts) {
       return (Array.isArray((account as any)?.childAccounts) ? (account as any).childAccounts : []).map((c: any) => c.id);
     }
+    if (ownOnly) return [account.id];
     return [account.id, ...childrenIds];
-  }, [account, childrenIds, selectedCardFilterId]);
+  }, [account, childrenIds, selectedCardFilterId, ownOnly]);
+  const canToggleOwnOnly = !account.isBrandGroup && childrenIds.length > 0;
 
   const effectiveClosingDay = useMemo(() => {
     if (selectedCardFilterId) {
@@ -446,8 +450,13 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
         return calculateAccountBalance(childAcc, accounts, records);
       }
     }
+    if (ownOnly && !account.isBrandGroup) {
+      // 只看自己：把子帳戶從這個帳戶底下拿開再算，就只剩自己的餘額
+      const detached = (Array.isArray(accounts) ? accounts : []).map(a => (a.parentId === account.id ? { ...a, parentId: undefined } : a));
+      return calculateAccountBalance(account, detached, records);
+    }
     return calculateAccountBalance(account, accounts, records); 
-  }, [account, accounts, records, selectedCardFilterId]);
+  }, [account, accounts, records, selectedCardFilterId, ownOnly]);
 
   const { paymentRecords, normalRecords } = useMemo(() => {
     if (account.type !== 'credit') {
@@ -1611,6 +1620,24 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                       {sortMode === 'billing-cycle' && '💳 本期帳單明細 (依結帳日)'}
                     </span>
                   </button>
+                  {canToggleOwnOnly && !selectedCardFilterId && (
+                    <div className="flex bg-stone-100 rounded-2xl p-0.5 text-[11px] font-black shrink-0" style={getFontFamily()}>
+                      <button
+                        type="button"
+                        onClick={() => setOwnOnly(false)}
+                        className={`px-2.5 py-1 rounded-xl transition-all ${!ownOnly ? 'bg-white text-[#5D4037] shadow-sm' : 'text-stone-500'}`}
+                      >
+                        含子帳戶
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOwnOnly(true)}
+                        className={`px-2.5 py-1 rounded-xl transition-all ${ownOnly ? 'bg-white text-[#5D4037] shadow-sm' : 'text-stone-500'}`}
+                      >
+                        只看自己
+                      </button>
+                    </div>
+                  )}
                   {account.type === 'credit' && selectedCardFilterId && (
                     <span 
                       className="px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full font-black text-[10px] flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer transition-all"
