@@ -481,7 +481,8 @@ export function AccountsView({
                                       ) : (
                                         l2acc.type !== 'e-ticket' && (
                                           <span className="text-[10px] sm:text-[11px] font-bold text-stone-500 uppercase tracking-widest leading-none truncate">
-                                            主帳號
+                                            {/* 同一家銀行自動歸在一起的是各自獨立的主帳號；掛在某個帳戶底下的才是子帳戶 */}
+                                            {isBrandGroup ? '主帳號' : `${acc.name} 的子帳戶`}
                                           </span>
                                         )
                                       )}
