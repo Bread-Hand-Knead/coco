@@ -4,6 +4,7 @@ import { NumberInput } from '../components/NumberInput';
 import { ChevronLeft, ChevronRight, CreditCard, Pencil, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Account, Transaction } from '../types';
+import { getTransferredAmount } from '../lib/recordUtils';
 import { formatLocalDate } from '../lib/dateUtils';
 
 export function InstallmentManagementPage({ records, accounts = [], onDeleteGroup, onEarlySettlement, onUpdateGroup }: { 
@@ -125,7 +126,7 @@ export function InstallmentManagementPage({ records, accounts = [], onDeleteGrou
       .sort((a, b) => (a.postingDate || a.date).localeCompare(b.postingDate || b.date));
   }, [records, monthKey]);
   const monthTotal = monthItems.reduce((sum, r) => sum + Math.abs(r.amount || 0), 0);
-  const monthPaid = monthItems.filter(r => r.transferredDate).reduce((sum, r) => sum + Math.abs(r.amount || 0), 0);
+  const monthPaid = monthItems.reduce((sum, r) => sum + getTransferredAmount(r), 0);
   const accName = (id?: string) => (Array.isArray(accounts) ? accounts : []).find(a => a.id === id)?.name || '';
 
   const handleDelete = () => {

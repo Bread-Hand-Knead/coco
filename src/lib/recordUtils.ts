@@ -451,3 +451,11 @@ export const parseItemsFromNote = (note?: string): { name: string; amount: numbe
   }
   return items.length > 0 ? items : null;
 };
+
+/** 這筆已經轉過去多少錢：標記已轉帳＝整筆；分次轉帳＝各次加總（最多到整筆金額） */
+export const getTransferredAmount = (r: Transaction): number => {
+  const total = Math.abs(r.amount || 0);
+  if (r.transferredDate) return total;
+  const paid = (r.transferPayments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  return Math.min(total, Math.max(0, paid));
+};

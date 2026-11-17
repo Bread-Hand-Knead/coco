@@ -73,6 +73,8 @@ export interface Transaction {
   projectName?: string;
   fee?: number;
   transferredDate?: string;
+  /** 分次轉帳：先轉一部分、之後再轉剩下的。加起來付清時會自動填 transferredDate */
+  transferPayments?: { date: string; amount: number }[];
   isPrepay?: boolean;
   isCompleted?: boolean;
   isSettled?: boolean;

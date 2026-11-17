@@ -70,7 +70,7 @@ import { PrepaymentsView } from './views/PrepaymentsView';
 import { AiSplitModal } from './views/AiSplitModal';
 
 // 分期付款中，每一期各自獨立的欄位：重建整組分期時不可以互相覆蓋
-const PER_INSTALLMENT_FIELDS = ['transferredDate', 'isPending', 'postingOrder', 'isSettled', 'isCompleted', 'isDeleted', 'deletedAt'] as const;
+const PER_INSTALLMENT_FIELDS = ['transferredDate', 'transferPayments', 'isPending', 'postingOrder', 'isSettled', 'isCompleted', 'isDeleted', 'deletedAt'] as const;
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
