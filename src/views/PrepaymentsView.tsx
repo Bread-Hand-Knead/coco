@@ -96,6 +96,23 @@ export function PrepaymentsView({
     return prepayRecords.filter(r => (r.accountId || 'unknown') === selectedAccountId);
   }, [prepayRecords, selectedAccountId]);
 
+  // 已經拿到錢（已結清／已沖銷）的移到最下面，縮小收起來
+  const isDone = (r: Transaction) => r.isSettled === true || r.type === 'income';
+  const pendingList = displayedPrepayRecords.filter(r => !isDone(r));
+  const doneList = displayedPrepayRecords.filter(isDone);
+  const [showDone, setShowDone] = useState(false);
+  const shortTitle = (r: Transaction) => {
+    const items = (((r.subItems && r.subItems.length > 0) ? r.subItems : (r.subTransactions || [])) as any[])
+      .filter((i: any) => !!i.isPrepay || (typeof i.tag === 'string' && i.tag.includes('家裡代墊')) || i.reimbursementTag === 'family');
+    const first = items.find((i: any) => (i.amount || 0) > 0 && (i.name || i.note));
+    return ((first?.name || first?.note || r.note || '未命名明細') as string).trim();
+  };
+  const amountOf = (r: Transaction) => {
+    const prepayAmt = getRecordPrepayAmount(r);
+    return r.type === 'expense' ? (prepayAmt > 0 ? prepayAmt : Math.abs(r.amount)) : Math.abs(r.amount);
+  };
+  const doneTotal = doneList.reduce((sum, r) => sum + amountOf(r), 0);
+
   return (
     <div className="flex flex-col gap-4 px-4 py-6 min-h-full pb-24 overflow-y-auto w-full max-w-md mx-auto" style={getFontFamily()}>
       {/* Header */}
@@ -184,9 +201,9 @@ export function PrepaymentsView({
             </span>
           )}
         </div>
-        {displayedPrepayRecords.length > 0 ? (
+        {pendingList.length > 0 ? (
           <div className="space-y-4">
-            {displayedPrepayRecords.map(r => {
+            {pendingList.map(r => {
               const accName = (Array.isArray(accounts) ? accounts : []).find(a => a.id === r.accountId)?.name || '未知帳戶';
               const isSettled = r.isSettled === true || r.type === 'income';
               const prepayAmt = getRecordPrepayAmount(r);
@@ -274,6 +291,45 @@ export function PrepaymentsView({
           </div>
         )}
       </div>
+
+      {/* 已經拿到錢的：縮小、收在最下面，點開才看 */}
+      {doneList.length > 0 && (
+        <div className="bg-white/70 rounded-[30px] p-4 shadow-sm border-2 border-white flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setShowDone(v => !v)}
+            className="flex items-center justify-between w-full px-2 py-1"
+          >
+            <span className="font-black text-sm text-stone-500">✅ 已結清（{doneList.length} 筆・${doneTotal.toLocaleString()}）</span>
+            <span className="text-xs font-bold text-stone-400">{showDone ? '收起 ▲' : '展開 ▼'}</span>
+          </button>
+          {showDone && (
+            <div className="divide-y divide-stone-100">
+              {doneList.map(r => (
+                <div key={r.id} className="flex items-center gap-2 py-2 px-2">
+                  <button type="button" onClick={() => setEditingRecord(r)} className="flex-1 min-w-0 flex items-center gap-2 text-left">
+                    <span className="text-[11px] font-bold text-stone-400 shrink-0 w-11">{r.date.slice(5).replace('-', '/')}</span>
+                    <span className="text-xs font-bold text-stone-500 truncate">{shortTitle(r)}</span>
+                  </button>
+                  <span className="text-xs font-black text-stone-400 shrink-0">{r.type === 'income' ? '+' : ''}${amountOf(r).toLocaleString()}</span>
+                  {r.type === 'expense' ? (
+                    <button
+                      type="button"
+                      onClick={() => onUpdateRecord(r, { ...r, isSettled: false })}
+                      className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-stone-100 text-stone-400 border-stone-200 active:scale-95 shrink-0"
+                      title="按一下改回待收"
+                    >
+                      已結清
+                    </button>
+                  ) : (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-stone-100 text-stone-400 border-stone-200 shrink-0">已沖銷</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <AnimatePresence>
         {editingRecord && (
