@@ -19,10 +19,11 @@ import { doc, setDoc } from 'firebase/firestore';
 import type { Account, Category, Project, Transaction } from '../types';
 import { cleanData } from '../lib/firestoreSync';
 import { formatLocalDate, formatTime24 } from '../lib/dateUtils';
-import { getLatestExchangeRate, getMergedRecords, getTransactionTitle, getTransferCounterpartName, getTransferInAmountForAccount, getTransferSourceAndDest, getTwdEquivalentText, isTransferInForAccount } from '../lib/recordUtils';
+import { getLatestExchangeRate, getMergedRecords, getTransferredAmount, getTransactionTitle, getTransferCounterpartName, getTransferInAmountForAccount, getTransferSourceAndDest, getTwdEquivalentText, isTransferInForAccount } from '../lib/recordUtils';
 import { calculateAccountBalance, calculateCreditCardMonthlySpending, calculateCreditCardPreviousMonthSpending, checkAreAccountsSameBank, hasCreditCardClosingDay } from '../lib/accountUtils';
 import { YearMonthPickerModal } from '../components/Common';
 import { AccountIcon, renderAccountMemoAndInterest } from '../components/AccountWidgets';
+import { TransferStatus } from '../components/TransferStatus';
 import { EditRecordModal } from './EditRecordModal';
 
 /**
@@ -558,8 +559,12 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
         tCount++;
         tSum += Math.abs(r.amount);
       } else {
+        // 分次轉帳：已轉的部分算已轉帳，剩下的算未轉帳
+        const partPaid = getTransferredAmount(r);
+        if (partPaid > 0) tSum += partPaid;
         ntCount++;
-        ntSum += r.amount;
+        const remaining = Math.abs(r.amount) - partPaid;
+        ntSum += r.amount < 0 ? -remaining : remaining;
       }
     });
     
@@ -981,7 +986,7 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                   </div>
 
                   {/* 第三層與第四層（狀態標籤與卡別/帳戶膠囊：桌面版 md:flex md:flex-row md:items-center md:gap-2 md:flex-wrap 橫向整齊並排） */}
-                  {((account.type === 'credit' && (!record.postingDate || record.isPending)) || record.transferredDate || (record.isPrepay || (record.subItems && record.subItems.some(i => i.isPrepay))) || (record.accountId !== account.id)) && (
+                  {((account.type === 'credit' && (!record.postingDate || record.isPending)) || record.transferredDate || getTransferredAmount(record) > 0 || (record.isPrepay || (record.subItems && record.subItems.some(i => i.isPrepay))) || (record.accountId !== account.id)) && (
                     <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2 md:flex-wrap mt-0.5">
                       {account.type === 'credit' && (!record.postingDate || record.isPending) && (
                         <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-[#FFF4D3] text-[#B87A14] rounded-full font-bold leading-none">
@@ -991,6 +996,11 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                       {record.transferredDate && (
                         <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold leading-none">
                           已轉帳
+                        </span>
+                      )}
+                      {!record.transferredDate && getTransferredAmount(record) > 0 && (
+                        <span className="inline-block whitespace-nowrap w-fit text-[11px] px-2.5 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold leading-none">
+                          已轉 ${getTransferredAmount(record).toLocaleString()}／還差 ${(Math.abs(record.amount) - getTransferredAmount(record)).toLocaleString()}
                         </span>
                       )}
                       {(record.isPrepay || (record.subItems && record.subItems.some(i => i.isPrepay))) && (
@@ -1346,60 +1356,9 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                   );
                 })()}
 
-                {/* 項目 3.5：已轉帳狀態與日期 (消費與轉帳皆適用) */}
+                {/* 項目 3.5：已轉帳狀態與日期 (消費與轉帳皆適用)，可以分次轉 */}
                 {(record.type === 'expense' || record.type === 'transfer') && (
-                  <div className="flex items-center gap-2.5 w-full flex-wrap">
-                    <span className="text-stone-400 font-bold min-w-[65px] flex-shrink-0 text-xs sm:text-[13px]">轉帳狀態:</span>
-                    {record.transferredDate ? (
-                      <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-                        <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg text-xs font-black border border-emerald-200 whitespace-nowrap">
-                          ✓ 已轉帳 ({record.transferredDate})
-                        </span>
-                        <input 
-                          type="date"
-                          value={record.transferredDate}
-                          onClick={e => e.stopPropagation()}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            onUpdateRecord(record, { ...record, transferredDate: e.target.value || undefined });
-                          }}
-                          className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                        />
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onUpdateRecord(record, { ...record, transferredDate: undefined });
-                          }}
-                          className="text-stone-400 hover:text-rose-500 text-xs font-bold px-1.5 py-0.5 rounded hover:bg-stone-100"
-                          title="清除轉帳日期"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onUpdateRecord(record, { ...record, transferredDate: formatLocalDate(new Date()) });
-                          }}
-                          className="bg-stone-50 hover:bg-stone-100 text-stone-600 px-2.5 py-1 rounded-lg text-xs font-bold border border-stone-200 active:scale-95 transition-all whitespace-nowrap"
-                        >
-                          標記為已轉帳
-                        </button>
-                        <span className="text-[#8C7B72]/70 text-xs whitespace-nowrap">或選擇日期:</span>
-                        <input 
-                          type="date"
-                          onClick={e => e.stopPropagation()}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            onUpdateRecord(record, { ...record, transferredDate: e.target.value || undefined });
-                          }}
-                          className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none shadow-sm focus:border-[#FFD54F]"
-                        />
-                      </div>
-                    )}
-                  </div>
+                  <TransferStatus record={record} onUpdate={(o, n) => onUpdateRecord(o, n)} />
                 )}
                 
                 {/* 項目 4：當下餘額或刷卡累積 */}

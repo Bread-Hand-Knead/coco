@@ -1,6 +1,6 @@
 import type { Account, AccountGroup, Transaction } from '../types';
 import { formatLocalDate } from './dateUtils';
-import { getMergedRecords, getTransferInAmountForAccount, isTransferInForAccount } from './recordUtils';
+import { getTransferredAmount, getMergedRecords, getTransferInAmountForAccount, isTransferInForAccount } from './recordUtils';
 
 export const getBankKeyword = (name: string, parentName?: string): string | null => {
   // [比對用關鍵字, 分組名稱]。英文名稱不分大小寫、忽略空格（LINE BANK、Line Bank、LINEBANK 都算）
@@ -311,7 +311,9 @@ export function calculateCreditCardUntransferred(
     const isTransferred = r.transferredDate || (isTransferPayment && isTransferIn);
 
     if (!isTransferred) {
-      ntSum += r.amount;
+      // 分次轉帳：只算還沒轉的部分
+      const remaining = Math.abs(r.amount) - getTransferredAmount(r);
+      ntSum += r.amount < 0 ? -remaining : remaining;
     }
   });
 
