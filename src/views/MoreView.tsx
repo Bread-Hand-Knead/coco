@@ -189,6 +189,14 @@ export function MoreView({
   const [deleteAccountMode, setDeleteAccountMode] = useState<'clearOnly' | 'deleteFull'>('clearOnly');
 
   const [activeImportTab, setActiveImportTab] = useState<'unique' | 'duplicates'>('unique');
+  // 被判定成重複、但使用者勾選「還是要匯入」的那幾筆（記檔案裡第幾筆）
+  const [forceImportIdx, setForceImportIdx] = useState<Set<number>>(new Set());
+  useEffect(() => { setForceImportIdx(new Set()); }, [importPreview]);
+  const toggleForceImport = (idx: number) => setForceImportIdx(prev => {
+    const next = new Set(prev);
+    if (next.has(idx)) next.delete(idx); else next.add(idx);
+    return next;
+  });
 
   const importClassification = useMemo(() => {
     if (!importPreview) return { unique: [], duplicates: [] };
@@ -239,7 +247,7 @@ export function MoreView({
     const duplicates: Transaction[] = [];
     const currentRecords = [...records];
 
-    importPreview.transactions.forEach(imported => {
+    importPreview.transactions.forEach((imported, importIdx) => {
       const mainRawName = imported._importMainAccountName?.trim();
       const sourceName = imported._importSourceAccountName?.trim();
       const destName = imported._importDestAccountName?.trim();
@@ -296,8 +304,9 @@ export function MoreView({
         ...imported,
         accountId: resolvedAccountId || accounts[0]?.id || 'cash',
         toAccountId: resolvedToAccountId,
-        projectId: resolvedProjectId
-      };
+        projectId: resolvedProjectId,
+        _importIdx: importIdx,
+      } as Transaction & { _importIdx: number };
 
       const duplicateIndex = currentRecords.findIndex(existing => 
         existing.date === recordToProcess.date &&
@@ -830,7 +839,7 @@ export function MoreView({
       let skippedCount = 0;
       const recordsToSync: Transaction[] = [];
       
-      importPreview.transactions.forEach(imported => {
+      importPreview.transactions.forEach((imported, importIdx) => {
         const mainRawName = (imported as any)._importMainAccountName?.trim();
         const sourceName = imported._importSourceAccountName?.trim();
         const destName = imported._importDestAccountName?.trim();
@@ -901,7 +910,7 @@ export function MoreView({
           (existing.note || '') === (recordToProcess.note || '')
         );
 
-        if (duplicateIndex !== -1) {
+        if (duplicateIndex !== -1 && !forceImportIdx.has(importIdx)) {
           skippedCount++;
         } else {
           const newRecord = { ...recordToProcess };
@@ -2530,9 +2539,23 @@ export function MoreView({
                 <span>
                   {activeImportTab === 'unique' 
                     ? `欲匯入項目 (${importClassification.unique.length} 筆)` 
-                    : `已篩選重複項目 (${importClassification.duplicates.length} 筆)`}
+                    : `已篩選重複項目 (${importClassification.duplicates.length} 筆${forceImportIdx.size ? `，勾選 ${forceImportIdx.size} 筆要匯入` : ''})`}
                 </span>
-                <span>金額</span>
+                {activeImportTab === 'duplicates' && importClassification.duplicates.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const all = importClassification.duplicates.map(d => (d as any)._importIdx as number);
+                      const allPicked = all.every(i => forceImportIdx.has(i));
+                      setForceImportIdx(allPicked ? new Set() : new Set(all));
+                    }}
+                    className="normal-case tracking-normal text-[12px] font-black text-orange-600 bg-white/70 px-2 py-1 rounded-lg"
+                  >
+                    {importClassification.duplicates.every(d => forceImportIdx.has((d as any)._importIdx)) ? '全部取消' : '全部勾選'}
+                  </button>
+                ) : (
+                  <span>金額</span>
+                )}
               </div>
               
               <div className="space-y-2">
@@ -2541,11 +2564,20 @@ export function MoreView({
                   : importClassification.duplicates
                 ).map((r, idx) => (
                   <div key={idx} className="bg-white/60 rounded-2xl p-4 flex items-center gap-3 border border-white shadow-sm relative overflow-hidden">
-                    {activeImportTab === 'duplicates' && (
-                      <div className="absolute right-0 top-0 bg-orange-100 text-orange-600 font-black text-[9px] px-2.5 py-0.5 rounded-bl-xl border-l border-b border-orange-200">
-                        重複已跳過
-                      </div>
-                    )}
+                    {activeImportTab === 'duplicates' && (() => {
+                      const idx = (r as any)._importIdx as number;
+                      const picked = forceImportIdx.has(idx);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => toggleForceImport(idx)}
+                          className={`absolute right-0 top-0 font-black text-[11px] px-3 py-1 rounded-bl-xl border-l border-b flex items-center gap-1 ${picked ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-orange-100 text-orange-600 border-orange-200'}`}
+                        >
+                          <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[10px] ${picked ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-orange-300'}`}>{picked ? '✓' : ''}</span>
+                          {picked ? '還是要匯入' : '重複已跳過（勾選匯入）'}
+                        </button>
+                      );
+                    })()}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[10px] font-black text-[#FBC02D] bg-[#FBC02D]/10 px-2 py-0.5 rounded-full" style={getFontFamily()}>
@@ -2645,7 +2677,7 @@ export function MoreView({
 
               <button 
                 onClick={handleConfirmImport}
-                disabled={isSyncing || importClassification.unique.length === 0}
+                disabled={isSyncing || importClassification.unique.length + forceImportIdx.size === 0}
                 className="w-full bg-[#5D4037] text-white py-5 rounded-[25px] font-black text-[18px] active:scale-95 transition-all shadow-xl hover:bg-[#3E2723] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isSyncing ? (
@@ -2654,7 +2686,9 @@ export function MoreView({
                     <span>正努力同步明細中...</span>
                   </>
                 ) : (
-                  importClassification.unique.length === 0 ? '無新明細可匯入' : '確認匯入'
+                  importClassification.unique.length + forceImportIdx.size === 0
+                    ? '無新明細可匯入'
+                    : `確認匯入（${importClassification.unique.length + forceImportIdx.size} 筆）`
                 )}
               </button>
               <button 
