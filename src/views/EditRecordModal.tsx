@@ -1019,6 +1019,43 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 </div>
                               </div>
 
+                              {/* 子項目分類：每一項可以有自己的分類（例如滷蛋是零食、優酪乳是奶類） */}
+                              {(() => {
+                                const norm = (c?: string) => (c || '').replace(/＞/g, '>').split('>').map(t => t.trim()).filter(Boolean).join(' > ');
+                                const current = subItem.category || edited.category || '';
+                                const options: { value: string; label: string; group: string }[] = [];
+                                availableCategories.forEach(cat => {
+                                  options.push({ value: cat.name, label: cat.name, group: cat.name });
+                                  (cat.sub || []).forEach(sub => options.push({ value: `${cat.name} ＞ ${sub}`, label: sub, group: cat.name }));
+                                });
+                                const matched = options.find(o => norm(o.value) === norm(current));
+                                return (
+                                  <div className="flex items-center gap-1.5 pt-1 border-t border-stone-100">
+                                    <span className="text-[10px] font-bold text-stone-400 shrink-0">分類：</span>
+                                    <select
+                                      value={matched ? matched.value : current}
+                                      onChange={e => {
+                                        const catVal = e.target.value;
+                                        const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, category: catVal } : s);
+                                        setEdited({ ...edited, subItems: updatedSubs });
+                                      }}
+                                      className="flex-1 min-w-0 px-2 py-1 bg-stone-50 border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none focus:bg-white"
+                                      style={getFontFamily()}
+                                    >
+                                      {!matched && current && <option value={current}>{current}</option>}
+                                      {availableCategories.map(cat => (
+                                        <optgroup key={cat.id} label={cat.name}>
+                                          <option value={cat.name}>{cat.name}（主分類）</option>
+                                          {(cat.sub || []).map(sub => (
+                                            <option key={sub} value={`${cat.name} ＞ ${sub}`}>{cat.name} ＞ {sub}</option>
+                                          ))}
+                                        </optgroup>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              })()}
+
                               <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100 flex-wrap">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="text-[10px] font-bold text-stone-400">歸屬標籤：</span>
