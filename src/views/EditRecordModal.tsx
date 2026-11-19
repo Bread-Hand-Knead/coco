@@ -945,7 +945,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                             <div className="space-y-2 pr-5">
                               <div className="grid grid-cols-5 gap-2">
                                 <div className="col-span-3 flex flex-col gap-1">
-                                  <label className="text-[11px] font-bold text-stone-500">轉入卡別 / 帳戶</label>
+                                  <label className="text-sm font-bold text-stone-500">轉入卡別 / 帳戶</label>
                                   <select
                                     value={subItem.toAccountId || edited.toAccountId || ''}
                                     onChange={e => {
@@ -958,7 +958,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                       } : s);
                                       setEdited({ ...edited, subItems: updatedSubs });
                                     }}
-                                    className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                                    className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm font-bold text-[#5D4037] outline-none focus:bg-white"
                                   >
                                     {accounts.filter(a => a.id !== edited.accountId).map(a => (
                                       <option key={a.id} value={a.id}>
@@ -968,17 +968,17 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                   </select>
                                 </div>
                                 <div className="col-span-2 flex flex-col gap-1">
-                                  <label className="text-[11px] font-bold text-stone-500">金額 ($)</label>
+                                  <label className="text-sm font-bold text-stone-500">金額 ($)</label>
                                   <NumberInput value={subItem.amount} allowNegative
                                     onValueChange={amtVal => {
                                       handleUpdateSubItemAmount(idx, amtVal);
                                     }}
-                                    className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
+                                    className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm font-black text-[#5D4037] outline-none focus:bg-white"
                                   />
                                 </div>
                               </div>
                               <div className="flex flex-col gap-1">
-                                <label className="text-[11px] font-bold text-stone-500">備註說明</label>
+                                <label className="text-sm font-bold text-stone-500">備註說明</label>
                                 <input
                                   type="text"
                                   value={subItem.name}
@@ -988,7 +988,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                     setEdited({ ...edited, subItems: updatedSubs });
                                   }}
                                   placeholder="如：中信uniopen聯名卡"
-                                  className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm font-bold text-[#5D4037] outline-none focus:bg-white"
                                 />
                               </div>
                             </div>
@@ -996,7 +996,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                             <>
                               <div className="grid grid-cols-5 gap-2 pr-5">
                                 <div className="col-span-3 flex flex-col gap-1">
-                                  <label className="text-[11px] font-bold text-stone-500">品項名稱</label>
+                                  <label className="text-sm font-bold text-stone-500">品項名稱</label>
                                   <input
                                     type="text"
                                     value={subItem.name}
@@ -1005,16 +1005,16 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                       const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, name: nameVal } : s);
                                       setEdited({ ...edited, subItems: updatedSubs });
                                     }}
-                                    className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold text-[#5D4037] outline-none focus:bg-white"
+                                    className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm font-bold text-[#5D4037] outline-none focus:bg-white"
                                   />
                                 </div>
                                 <div className="col-span-2 flex flex-col gap-1">
-                                  <label className="text-[11px] font-bold text-stone-500">金額 ($)</label>
+                                  <label className="text-sm font-bold text-stone-500">金額 ($)</label>
                                   <NumberInput value={subItem.amount} allowNegative
                                     onValueChange={amtVal => {
                                       handleUpdateSubItemAmount(idx, amtVal);
                                     }}
-                                    className="w-full px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs font-black text-[#5D4037] outline-none focus:bg-white"
+                                    className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm font-black text-[#5D4037] outline-none focus:bg-white"
                                   />
                                 </div>
                               </div>
@@ -1031,7 +1031,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 const matched = options.find(o => norm(o.value) === norm(current));
                                 return (
                                   <div className="flex items-center gap-1.5 pt-1 border-t border-stone-100">
-                                    <span className="text-[10px] font-bold text-stone-400 shrink-0">分類：</span>
+                                    <span className="text-sm font-bold text-stone-400 shrink-0">分類：</span>
                                     <select
                                       value={matched ? matched.value : current}
                                       onChange={e => {
@@ -1039,7 +1039,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                         const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, category: catVal } : s);
                                         setEdited({ ...edited, subItems: updatedSubs });
                                       }}
-                                      className="flex-1 min-w-0 px-2 py-1 bg-stone-50 border border-stone-200 rounded-lg text-[11px] font-bold text-[#5D4037] outline-none focus:bg-white"
+                                      className="flex-1 min-w-0 px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm font-bold text-[#5D4037] outline-none focus:bg-white"
                                       style={getFontFamily()}
                                     >
                                       {!matched && current && <option value={current}>{current}</option>}
@@ -1058,14 +1058,14 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
 
                               <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100 flex-wrap">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-[10px] font-bold text-stone-400">歸屬標籤：</span>
+                                  <span className="text-sm font-bold text-stone-400">歸屬標籤：</span>
                                   <button
                                     type="button"
                                     onClick={() => {
                                       const updatedSubs = edited.subItems?.map((s, i) => i === idx ? { ...s, isPrepay: !s.isPrepay } : s);
                                       setEdited({ ...edited, subItems: updatedSubs });
                                     }}
-                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border flex items-center gap-1 active:scale-95 ${
+                                    className={`px-3 py-1.5 rounded-lg text-sm font-black transition-all border flex items-center gap-1 active:scale-95 ${
                                       subItem.isPrepay
                                         ? 'bg-amber-100/90 border-amber-300 text-amber-900 shadow-xs'
                                         : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
@@ -1076,7 +1076,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                 </div>
 
                                 <div className="flex items-center gap-1">
-                                  <span className="text-[10px] font-bold text-stone-400">專案：</span>
+                                  <span className="text-sm font-bold text-stone-400">專案：</span>
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -1084,7 +1084,7 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                                       e.preventDefault();
                                       setSubItemProjectPickerIdx(idx);
                                     }}
-                                    className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 rounded-lg text-[10px] font-black flex items-center gap-1 active:scale-95 transition-all shadow-2xs"
+                                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 rounded-lg text-sm font-black flex items-center gap-1 active:scale-95 transition-all shadow-2xs"
                                     title="變更子項目所屬專案"
                                   >
                                     <span>📁</span>
@@ -1123,11 +1123,11 @@ export function EditRecordModal({ record, records = [], accounts, projects, cate
                           };
                           setEdited({ ...edited, subItems: [...(edited.subItems || []), newSub] });
                         }}
-                        className="px-3 py-1.5 bg-white border border-stone-200 rounded-xl text-xs font-bold text-[#5D4037] hover:bg-stone-50 active:scale-95 transition-all shadow-xs"
+                        className="px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm font-bold text-[#5D4037] hover:bg-stone-50 active:scale-95 transition-all shadow-xs"
                       >
                         ＋ {edited.type === 'transfer' ? '新增繳款卡別項目' : '新增子項目'}
                       </button>
-                      <div className="text-right text-[11px] font-bold text-[#5D4037]">
+                      <div className="text-right text-sm font-bold text-[#5D4037]">
                         <span>{edited.type === 'transfer' ? '繳款小計: ' : '子項目小計: '}</span>
                         <span className="font-black text-amber-900">$ {edited.subItems.reduce((s, i) => s + (i.amount || 0), 0).toLocaleString()}</span>
                       </div>
