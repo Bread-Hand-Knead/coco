@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { doc, setDoc } from 'firebase/firestore';
-import type { Account, Category, Project, Transaction } from '../types';
+import type { Account, Category, Project, SubItem, Transaction } from '../types';
 import { cleanData } from '../lib/firestoreSync';
 import { formatLocalDate, formatTime24 } from '../lib/dateUtils';
 import { getLatestExchangeRate, getMergedRecords, getTransferredAmount, getTransactionTitle, getTransferCounterpartName, getTransferInAmountForAccount, getTransferSourceAndDest, getTwdEquivalentText, isTransferInForAccount } from '../lib/recordUtils';
@@ -115,6 +115,22 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
   const [showDiagnostic, setShowDiagnostic] = useState(false);
 
   const [selectedCardFilterId, setSelectedCardFilterId] = useState<string | null>(null);
+  // 從拆分明細挑一項「再記一筆」：只帶這一項的名稱、金額、分類、專案、代墊
+  const duplicateOneItem = (record: Transaction, item: SubItem) => {
+    if (typeof onDuplicateRecord !== 'function') return;
+    const amt = Math.abs(item.amount || 0);
+    onDuplicateRecord({
+      ...record,
+      amount: record.amount < 0 ? -amt : amt,
+      note: item.name || record.note,
+      category: item.category || record.category,
+      projectId: item.projectId || record.projectId,
+      isPrepay: !!item.isPrepay,
+      subItems: undefined,
+      isParent: false,
+      fee: undefined,
+    });
+  };
   // 有子帳戶的帳戶：可以切換「含子帳戶」或「只看自己」的明細
   const [ownOnly, setOwnOnly] = useState(false);
 
@@ -1229,6 +1245,16 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                                       <span className={`shrink-0 font-black ${item.amount < 0 ? 'text-emerald-600' : 'text-[#5D4037]'}`}>
                                         {item.amount < 0 ? '-' : ''}${Math.abs(item.amount).toLocaleString()}
                                       </span>
+                                      {typeof onDuplicateRecord === 'function' && (item.amount || 0) > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={e => { e.stopPropagation(); duplicateOneItem(record, item); }}
+                                          className="shrink-0 text-[11px] px-2 py-0.5 rounded-lg font-black border active:scale-95 transition-all bg-[#FFD54F]/30 border-[#FFD54F] text-[#5D4037]"
+                                          title="用這一項再記一筆"
+                                        >
+                                          再記
+                                        </button>
+                                      )}
                                     </div>
                                   );
                                 })}
@@ -1268,6 +1294,16 @@ export function AccountDetailView({ account, records, selectedDate, onBack, onEd
                                       <span className={`shrink-0 font-black ${item.amount < 0 ? 'text-emerald-700' : 'text-amber-950'}`}>
                                         {item.amount < 0 ? '-' : ''}${Math.abs(item.amount).toLocaleString()}
                                       </span>
+                                      {typeof onDuplicateRecord === 'function' && (item.amount || 0) > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={e => { e.stopPropagation(); duplicateOneItem(record, item); }}
+                                          className="shrink-0 text-[11px] px-2 py-0.5 rounded-lg font-black border active:scale-95 transition-all bg-white border-amber-300 text-amber-900"
+                                          title="用這一項再記一筆"
+                                        >
+                                          再記
+                                        </button>
+                                      )}
                                     </div>
                                   );
                                 })}
