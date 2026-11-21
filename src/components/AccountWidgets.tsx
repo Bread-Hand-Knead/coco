@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Account, Transaction } from '../types';
 import { convertCurrency, getLatestExchangeRate } from '../lib/recordUtils';
-import { calculateAccountBalance, checkAreAccountsSameBank, getGroupedAndUngrouped, groupAccountsByInstitution, isImageIconString } from '../lib/accountUtils';
+import { calculateAccountBalance, calculateOwnAccountBalance, checkAreAccountsSameBank, getGroupedAndUngrouped, groupAccountsByInstitution, isImageIconString } from '../lib/accountUtils';
 import { HorizontalScrollArea } from './Common';
 import { ACCOUNT_TYPE_LABELS, defaultTypeOrder } from '../lib/defaults';
 
@@ -225,7 +225,7 @@ export function AccountSelector({
   });
 
   const selectedAcc = currentSelectedId ? (Array.isArray(accounts) ? accounts : []).find(a => a.id === currentSelectedId) : null;
-  const selectedAccBalance = selectedAcc ? calculateAccountBalance(selectedAcc, accounts, records) : 0;
+  const selectedAccBalance = selectedAcc ? calculateOwnAccountBalance(selectedAcc, accounts, records) : 0; // 只算自己，不含子帳戶
 
   // 合併列表進行渲染：單一帳戶在前，群組帳戶在後
   const items: (
@@ -389,7 +389,7 @@ export function AccountSelector({
                 {displayedAccounts.map(subAcc => {
                   const isSubSelected = currentSelectedId === subAcc.id;
                   const isSubDisabled = disabledAccountIds.includes(subAcc.id);
-                  const subBal = calculateAccountBalance(subAcc, accounts, records);
+                  const subBal = calculateOwnAccountBalance(subAcc, accounts, records); // 只算自己，不含子帳戶
                   return (
                     <button
                       key={`${keyPrefix}-sub-${subAcc.id}`}
@@ -616,7 +616,7 @@ export function AccountCardMeta({ acc, accounts, records }: { acc: Account; acco
             <span className="bg-stone-100 text-stone-400 px-1 rounded">額度上限 ${acc.interestLimit.toLocaleString()}</span>
           )}
           {(() => {
-            const bal = calculateAccountBalance(acc, accounts, records);
+            const bal = calculateOwnAccountBalance(acc, accounts, records); // 利息只算自己的錢
             if (bal <= 0) return null;
             const effectiveBal = acc.interestLimit ? Math.min(bal, acc.interestLimit) : bal;
             const rate = acc.interestRate || 0;

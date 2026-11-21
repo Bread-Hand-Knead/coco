@@ -248,6 +248,15 @@ export function calculateAccountBalance(account: Account, accounts: Account[], r
   return result;
 }
 
+/** 帳戶「自己」的餘額，不含底下子帳戶（記帳選帳戶、算利息時用） */
+export function calculateOwnAccountBalance(account: Account, accounts: Account[], records: Transaction[]): number {
+  if (account.isBrandGroup) return calculateAccountBalance(account, accounts, records);
+  const list = Array.isArray(accounts) ? accounts : [];
+  if (!list.some(a => a.parentId === account.id)) return calculateAccountBalance(account, list, records);
+  const detached = list.map(a => (a.parentId === account.id ? { ...a, parentId: undefined } : a));
+  return calculateAccountBalance(account, detached, records);
+}
+
 export function calculateCreditCardUntransferred(
   account: Account,
   accounts: Account[],
