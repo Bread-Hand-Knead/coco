@@ -425,12 +425,16 @@ export const parseItemsFromNote = (note?: string): { name: string; amount: numbe
   if (!note || !note.includes('$')) return null;
   const num = (s: string) => parseFloat(s.replace(/,/g, ''));
   const pieces: string[] = [];
+  // 每個金額（$28、$28x1、=$178）後面就是一項的結尾：在那裡切開，
+  // 這樣「…=$200, 下一項…」「…=$178 下一項…」（沒有逗號、只有空白）都切得開
+  const AMOUNT_END = /(\$\s*-?\d[\d,]*(?:\.\d+)?(?:\s*[x×X＊*]\s*\d+(?:\.\d+)?)?)/g;
   note.split(/\r?\n/).forEach(line => {
-    const t = line.trim();
-    if (!t) return;
-    // 同一行有好幾個 $ 金額時，用逗號／頓號分開
-    if ((t.match(/\$/g) || []).length > 1) pieces.push(...t.split(/\s*[,，、]\s*/).filter(Boolean));
-    else pieces.push(t);
+    line.replace(AMOUNT_END, '$1\n').split('\n').forEach(part => {
+      const t = part.replace(/^[\s,，、;；]+/, '').replace(/[\s,，、;；]+$/, '').trim();
+      if (!t) return;
+      if (/^等\s*\d+\s*(項|件|類|筆)/.test(t)) return; // 「等 3 項明細」這種結尾不算一項
+      pieces.push(t);
+    });
   });
   const items: { name: string; amount: number }[] = [];
   for (const raw of pieces) {
