@@ -427,7 +427,8 @@ export const parseItemsFromNote = (note?: string): { name: string; amount: numbe
   const pieces: string[] = [];
   // 每個金額（$28、$28x1、=$178）後面就是一項的結尾：在那裡切開，
   // 這樣「…=$200, 下一項…」「…=$178 下一項…」（沒有逗號、只有空白）都切得開
-  const AMOUNT_END = /(\$\s*-?\d[\d,]*(?:\.\d+)?(?:\s*[x×X＊*]\s*\d+(?:\.\d+)?)?)/g;
+  // 千分位逗號只認「逗號後面剛好 3 位數字」：$1,200 是一千二；$198,2件5折 的逗號是分隔，金額是 198
+  const AMOUNT_END = /(\$\s*-?\d+(?:,\d{3}(?!\d))*(?:\.\d+)?(?:\s*[x×X＊*]\s*\d+(?:\.\d+)?)?)/g;
   note.split(/\r?\n/).forEach(line => {
     line.replace(AMOUNT_END, '$1\n').split('\n').forEach(part => {
       const t = part.replace(/^[\s,，、;；]+/, '').replace(/[\s,，、;；]+$/, '').trim();
