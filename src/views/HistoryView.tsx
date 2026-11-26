@@ -21,7 +21,7 @@ export function HistoryView({ records, accounts, categories, projects, filter, c
   onDuplicateRecord?: (record: Transaction) => void
 }) {
   const [editingRecord, setEditingRecord] = useState<Transaction | null>(null);
-  const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'income' | 'transfer'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'income' | 'transfer' | 'topup'>('all');
 
   const filteredRecords = useMemo(() => {
     const base = parseLocalDate(filter.date);
@@ -70,12 +70,26 @@ export function HistoryView({ records, accounts, categories, projects, filter, c
     });
   }, [records, filter, currencyMode, accounts]);
 
+  // 儲值／加值：轉進悠遊卡、一卡通、icash、電子支付這類帳戶，或分類、備註寫了加值／儲值
+  const isTopUp = (r: Transaction) => {
+    const text = `${r.category || ''} ${r.note || ''}`;
+    if (/加值|儲值/.test(text)) return true;
+    if (r.type !== 'transfer') return false;
+    const destIds = [r.toAccountId, r.amount > 0 ? r.accountId : undefined, ...(r.subItems || []).map(s => s.toAccountId)].filter(Boolean);
+    return destIds.some(id => {
+      const t = (Array.isArray(accounts) ? accounts : []).find(a => a.id === id)?.type;
+      return t === 'e-ticket' || t === 'e-payment';
+    });
+  };
+
   const displayedRecords = useMemo(() => {
     if (typeFilter === 'expense') return filteredRecords.filter(r => r.type === 'expense');
     if (typeFilter === 'income') return filteredRecords.filter(r => r.type === 'income');
     if (typeFilter === 'transfer') return filteredRecords.filter(r => r.type === 'transfer');
+    if (typeFilter === 'topup') return filteredRecords.filter(isTopUp);
     return filteredRecords;
-  }, [filteredRecords, typeFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredRecords, typeFilter, accounts]);
 
   const filterLabel = useMemo(() => {
     if (filter.type === 'day') return filter.date.replace(/-/g, '/');
@@ -111,7 +125,7 @@ export function HistoryView({ records, accounts, categories, projects, filter, c
     >
       <div className="flex-1 px-4 overflow-y-auto pb-10 pt-4">
         {/* Type Filter Segment Tabs (All / Expense / Income / Transfer) */}
-        <div className="mx-2 mb-3 flex items-center justify-center gap-1.5 sm:gap-2" style={getFontFamily()}>
+        <div className="mx-2 mb-3 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2" style={getFontFamily()}>
           <button
             type="button"
             onClick={() => setTypeFilter('all')}
@@ -156,6 +170,17 @@ export function HistoryView({ records, accounts, categories, projects, filter, c
           >
             轉帳
           </button>
+          <button
+            type="button"
+            onClick={() => setTypeFilter('topup')}
+            className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-black transition-all border ${
+              typeFilter === 'topup'
+                ? 'bg-teal-600 border-teal-600 text-white shadow-sm'
+                : 'bg-white/80 border-stone-200 text-stone-500 hover:bg-white'
+            }`}
+          >
+            儲值/加值
+          </button>
         </div>
 
         {/* Period Summary Header */}
@@ -166,7 +191,7 @@ export function HistoryView({ records, accounts, categories, projects, filter, c
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             <span className="bg-white/50 px-2 py-0.5 rounded-lg border border-[#FFD54F]/10">
-              {displayedRecords.length} {typeFilter === 'transfer' ? '筆轉帳' : '筆紀錄'}
+              {displayedRecords.length} {typeFilter === 'transfer' ? '筆轉帳' : typeFilter === 'topup' ? '次加值' : '筆紀錄'}
             </span>
             {typeFilter === 'all' && (
               <span>
@@ -186,6 +211,13 @@ export function HistoryView({ records, accounts, categories, projects, filter, c
               <span>
                 實質總收入：<span className="text-blue-600 font-black">
                   ${summaryStats.totalIncome.toLocaleString()}
+                </span>
+              </span>
+            )}
+            {typeFilter === 'topup' && (
+              <span>
+                加值總額：<span className="text-teal-700 font-black">
+                  ${displayedRecords.reduce((sum, r) => sum + Math.abs(r.amount), 0).toLocaleString()}
                 </span>
               </span>
             )}
@@ -294,7 +326,8 @@ export function HistoryView({ records, accounts, categories, projects, filter, c
               <span className="font-bold">
                 {typeFilter === 'expense' ? '此期間無支出紀錄' :
                  typeFilter === 'income' ? '此期間無收入紀錄' :
-                 typeFilter === 'transfer' ? '此期間無轉帳紀錄' : '此期間無紀錄'}
+                 typeFilter === 'transfer' ? '此期間無轉帳紀錄' :
+                 typeFilter === 'topup' ? '此期間沒有加值紀錄' : '此期間無紀錄'}
               </span>
             </div>
           )}
